@@ -1,0 +1,7 @@
+import IO from "grapheme/io"
+
+query ListWorkspace {
+  IO.list_dir(path: ".") {
+    state { current }
+  }
+}

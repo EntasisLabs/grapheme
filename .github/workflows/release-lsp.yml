@@ -1,0 +1,127 @@
+name: Release Grapheme LSP
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (for example v0.1.0). Leave empty to use latest tag ref when triggered from tag push."
+        required: false
+        default: ""
+      repo:
+        description: "GitHub owner/repo for release upload"
+        required: false
+        default: "entasislabs/grapheme"
+      publish:
+        description: "Publish artifacts to a GitHub release"
+        required: false
+        default: true
+        type: boolean
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: grapheme-lsp-linux-x64
+            exe: ""
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            asset: grapheme-lsp-linux-arm64
+            exe: ""
+          - runner: macos-13
+            target: x86_64-apple-darwin
+            asset: grapheme-lsp-macos-x64
+            exe: ""
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            asset: grapheme-lsp-macos-arm64
+            exe: ""
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: grapheme-lsp-windows-x64.exe
+            exe: ".exe"
+          - runner: windows-latest
+            target: aarch64-pc-windows-msvc
+            asset: grapheme-lsp-windows-arm64.exe
+            exe: ".exe"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build LSP
+        run: cargo build -p grapheme-lsp --release --target ${{ matrix.target }}
+
+      - name: Package asset
+        shell: bash
+        run: |
+          cp "target/${{ matrix.target }}/release/grapheme-lsp${{ matrix.exe }}" "${{ matrix.asset }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  publish:
+    if: |
+      startsWith(github.ref, 'refs/tags/') ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish)
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          elif [[ -n "${{ inputs.tag }}" ]]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=v0.0.0-dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          REPO: ${{ inputs.repo || github.repository }}
+        shell: bash
+        run: |
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Release $TAG already exists"
+          else
+            gh release create "$TAG" --repo "$REPO" --title "$TAG" --notes "Automated grapheme-lsp binary release"
+          fi
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          REPO: ${{ inputs.repo || github.repository }}
+        shell: bash
+        run: gh release upload "$TAG" release-assets/* --repo "$REPO" --clobber

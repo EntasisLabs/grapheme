@@ -1,0 +1,24 @@
+sequenceDiagram
+  autonumber
+  participant Client as Enterprise API Client
+  participant Compiler as Grapheme Compiler
+  participant Store as Artifact Registry
+  participant Stasis as Stasis Command Layer
+  participant Queue as Stasis Job Queue
+  participant Worker as Grapheme Worker Adapter
+  participant Runtime as Grapheme Runtime
+  participant Locus as STTP Store
+
+  Client->>Compiler: Submit .aql source and target entrypoint
+  Compiler->>Compiler: Parse, lower, verify, capability checks
+  Compiler->>Store: Publish artifact envelope and MIR payload
+  Client->>Stasis: Enqueue execution job with artifact ref and input STTP id
+  Stasis->>Queue: Persist enqueued job
+  Queue->>Worker: Lease due job attempt
+  Worker->>Store: Resolve artifact envelope
+  Worker->>Locus: Resolve input STTP context
+  Worker->>Runtime: Execute artifact under capability scope
+  Runtime-->>Worker: Execution result and trace summary
+  Worker->>Locus: Persist output STTP node
+  Worker->>Queue: Mark succeeded or retryable failure
+  Worker->>Stasis: Emit outbox event for downstream orchestration

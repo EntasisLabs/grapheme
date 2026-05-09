@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────
-//  AgentQL Grammar  (pest.rs PEG)
+//  Grapheme Grammar  (pest.rs PEG)
 //  A GraphQL-style DSL for AI agents, compiled to WASM via Wasmer
 // ─────────────────────────────────────────────────────────────
 
@@ -52,6 +52,10 @@ named_arg  = { ident ~ ":" ~ value }
 
 arg_list   = { "(" ~ (named_arg ~ ("," ~ named_arg)*)? ~ ")" }
 
+type_named_arg = { ident ~ ":" ~ type_ref }
+
+type_arg_list = { "(" ~ (type_named_arg ~ ("," ~ type_named_arg)*)? ~ ")" }
+
 // ── Directives  (@ annotations on any node) ──────────────────
 
 directive = { "@" ~ ident ~ arg_list? }
@@ -83,7 +87,7 @@ schema_def = {
 op_kind = { "query" | "mutation" }
 
 op_def = {
-    op_kind ~ ident ~ arg_list? ~ ":" ~ type_ref
+    op_kind ~ ident ~ type_arg_list? ~ ":" ~ type_ref
 }
 
 // AI-proposed module: submitted to runtime for approval / registration

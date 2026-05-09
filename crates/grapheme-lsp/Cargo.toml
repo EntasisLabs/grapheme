@@ -1,0 +1,13 @@
+[package]
+name = "grapheme-lsp"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "grapheme-lsp"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std"] }
+tower-lsp = "0.20"
+grapheme-compiler = { path = "../grapheme-compiler" }

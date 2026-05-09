@@ -1,0 +1,16 @@
+stateDiagram-v2
+  [*] --> source_submitted
+  source_submitted --> parsed : grapheme parse
+  parsed --> lowered : hir/mir passes
+  lowered --> verified : policy and invariant checks
+  verified --> artifact_published : artifact emit
+
+  artifact_published --> enqueued : stasis enqueue
+  enqueued --> leased : worker lease
+  leased --> running : runtime start
+  running --> succeeded : execution success
+  running --> failed : execution error
+  failed --> enqueued : retry with backoff
+  failed --> dead_letter : max attempts exceeded
+  dead_letter --> enqueued : operator replay
+  succeeded --> [*]

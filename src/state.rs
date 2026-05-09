@@ -1,5 +1,5 @@
 /// ─────────────────────────────────────────────────────────────
-///  AgentQL  —  AgentState
+///  Grapheme  —  AgentState
 ///  The universal state object that threads through every pipeline step.
 ///  Every |> step receives the previous AgentState and returns a new one.
 ///  Immutable by convention — each step produces a fresh snapshot.

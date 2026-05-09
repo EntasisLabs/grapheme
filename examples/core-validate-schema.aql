@@ -1,0 +1,10 @@
+import Core from "grapheme/core"
+
+query CoreValidateSchemaDemo {
+  Core.validate_schema(
+    required: ["name", "role", "team"],
+    data: { name: "Ada", role: "Engineer" }
+  ) {
+    state { current }
+  }
+}

@@ -1,19 +1,11 @@
-[package]
-name = "agentql"
-version = "0.1.0"
-edition = "2021"
-
-[[bin]]
-name = "agentql"
-path = "src/main.rs"
-
-[lib]
-name = "agentql"
-path = "src/lib.rs"
-
-[dependencies]
-pest = "=2.7.15"
-pest_derive = "=2.7.15"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-thiserror = "1.0"
+[workspace]
+members = [
+	"crates/grapheme-artifact",
+	"crates/grapheme-compiler",
+	"crates/grapheme-runtime",
+	"crates/grapheme-cli",
+	"crates/grapheme-lsp",
+]
+exclude = ["plugins/core-echo-rs", "plugins/io-rs", "plugins/http-rs", "plugins/memory-rs", "plugins/tcp-rs", "plugins/smtp-rs", "plugins/secrets-rs"]
+default-members = ["crates/grapheme-cli"]
+resolver = "2"

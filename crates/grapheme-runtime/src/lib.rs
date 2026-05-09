@@ -1,0 +1,19 @@
+pub mod error;
+pub mod host;
+pub mod module_manifest;
+pub mod module_registry;
+pub mod policy;
+pub mod runtime;
+pub mod state;
+#[cfg(feature = "wasix-runtime")]
+pub mod wasix_backend;
+
+pub use error::RuntimeError;
+pub use host::{CapabilityCall, CapabilityHost, HostCallError};
+pub use module_manifest::{core_v1_manifests, EffectKind, ExportedOp, ModuleAbi, ModuleManifest, ResourceLimits};
+pub use module_registry::{ModuleBinding, ModuleRegistry, ResolvedModuleCall};
+pub use policy::PolicyGuard;
+pub use runtime::{RuntimeEngine, RuntimeOptions};
+pub use state::AgentState;
+#[cfg(feature = "wasix-runtime")]
+pub use wasix_backend::WasixBackend;

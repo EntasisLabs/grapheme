@@ -1,0 +1,65 @@
+{
+  "scopeName": "source.aql",
+  "name": "Grapheme AQL",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#keywords" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.aql",
+          "begin": "//",
+          "end": "$"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.aql",
+          "match": "\\b(import|from|query|mutation|subscription|fragment|on|schema|type|propose|module)\\b"
+        },
+        {
+          "name": "constant.language.aql",
+          "match": "\\b(true|false|null)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.aql",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.aql",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.aql",
+          "match": "\\b-?\\d+(?:\\.\\d+)?\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.pipeline.aql",
+          "match": "\\|>"
+        }
+      ]
+    }
+  }
+}

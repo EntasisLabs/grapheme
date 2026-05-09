@@ -1,8 +1,8 @@
-// Example AgentQL program
+// Example Grapheme program
 // An AI agent fetching users and streaming results over a websocket
 
-import Database from "agentql/db"
-import WebSocket from "agentql/ws"
+import Database from "grapheme/db"
+import WebSocket from "grapheme/ws"
 
 schema {
   type User {
@@ -15,7 +15,7 @@ schema {
 
 query FetchActiveUsers($minAge: Int = 18) {
   Database.query(
-    sql: "SELECT * FROM users WHERE active = true AND age >= $minAge"
+    sql: "SELECT * FROM users WHERE active = true AND age >= $minAge",
     params: { minAge: $minAge }
   ) {
     rows {

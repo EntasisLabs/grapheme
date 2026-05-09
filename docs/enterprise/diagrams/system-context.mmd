@@ -1,0 +1,44 @@
+flowchart LR
+  subgraph Authoring[Developer and AI Authoring]
+    DEV[Developer]
+    LLM[Planner LLM]
+    SRC[Grapheme Source]
+  end
+
+  subgraph GraphemePlane[Grapheme Compile and Execute Plane]
+    PARSE[Parser and AST]
+    MID[HIR/MIR Pass Pipeline]
+    VER[Capability and Invariant Verifier]
+    ART[Artifact Emitter]
+    STANDALONE[Standalone Runtime]
+  end
+
+  subgraph OrchestrationPlane[Stasis Orchestration Plane]
+    CMD[Command Layer]
+    QUEUE[Durable Job Queue]
+    WORKER[Grapheme Worker Adapter]
+    OUTBOX[Outbox Publisher]
+    SCHED[Recurring Scheduler]
+  end
+
+  subgraph DataPlane[Trust and Data Plane]
+    LOCUS[STTP and Locus]
+    SDB[(SurrealDB)]
+    OBS[Telemetry and Audit]
+  end
+
+  DEV --> SRC
+  LLM --> SRC
+  SRC --> PARSE --> MID --> VER --> ART
+  ART --> STANDALONE
+  ART --> WORKER
+
+  CMD --> QUEUE
+  SCHED --> QUEUE
+  QUEUE --> WORKER
+  WORKER --> OUTBOX
+  WORKER --> LOCUS
+  OUTBOX --> OBS
+  QUEUE --> SDB
+  LOCUS --> SDB
+  SDB --> OBS

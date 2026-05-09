@@ -1,0 +1,11 @@
+import Memory from "grapheme/memory"
+
+query MemoryRoundtrip {
+  Memory.store_context(
+    key: "greeting",
+    value: { message: "Hello From Memory Module" }
+  )
+  |> Memory.load_context(key: "greeting") {
+    state { current }
+  }
+}

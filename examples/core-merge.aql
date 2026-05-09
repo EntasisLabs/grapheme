@@ -1,0 +1,10 @@
+import Core from "grapheme/core"
+
+query CoreMergeDemo {
+  Core.merge(
+    left: { language: "grapheme", version: "0.1", mode: "dev" },
+    right: { mode: "runtime-native", wasm: true }
+  ) {
+    state { current }
+  }
+}

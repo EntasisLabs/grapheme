@@ -1,0 +1,10 @@
+import SMTP from "grapheme/smtp"
+
+query SmtpSendDemo {
+  SMTP.send_mail(
+    to: "team@example.com",
+    subject: "Grapheme Module Test"
+  ) {
+    state { current }
+  }
+}

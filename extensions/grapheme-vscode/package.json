@@ -1,0 +1,92 @@
+{
+  "name": "grapheme-vscode",
+  "displayName": "Grapheme",
+  "description": "Grapheme .aql language support powered by a prebuilt LSP binary",
+  "version": "0.1.0",
+  "publisher": "grapheme-dev",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/entasislabs/grapheme.git"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "files": [
+    "out/**",
+    "syntaxes/**",
+    "language-configuration.json",
+    "README.md",
+    "LICENSE",
+    "package.json",
+    "node_modules/**"
+  ],
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Formatters"
+  ],
+  "activationEvents": [
+    "onLanguage:aql"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "aql",
+        "aliases": [
+          "Grapheme AQL",
+          "aql"
+        ],
+        "extensions": [
+          ".aql"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "aql",
+        "scopeName": "source.aql",
+        "path": "./syntaxes/aql.tmGrammar.json"
+      }
+    ],
+    "configuration": {
+      "title": "Grapheme",
+      "properties": {
+        "grapheme.lsp.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to a prebuilt grapheme-lsp binary. If set, download is skipped."
+        },
+        "grapheme.lsp.releaseRepo": {
+          "type": "string",
+          "default": "entasislabs/grapheme",
+          "description": "GitHub owner/repo hosting grapheme-lsp release assets."
+        },
+        "grapheme.lsp.releaseTag": {
+          "type": "string",
+          "default": "latest",
+          "description": "Release tag to fetch. Use latest or a concrete tag like v0.1.0."
+        },
+        "grapheme.lsp.autoDownload": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically download grapheme-lsp binary when missing."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "watch": "tsc -w -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.10",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}
