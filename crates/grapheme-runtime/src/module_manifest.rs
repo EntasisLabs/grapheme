@@ -127,7 +127,7 @@ fn module_http() -> ModuleManifest {
     ModuleManifest {
         module_id: "http".to_string(),
         version: "1.0.0".to_string(),
-        abi: ModuleAbi::WasixV1,
+        abi: ModuleAbi::MirV1,
         entrypoint: "http.main".to_string(),
         exported_ops: vec![op("get", EffectKind::Network), op("post", EffectKind::Network)],
         required_capabilities: vec![
@@ -142,7 +142,7 @@ fn module_tcp() -> ModuleManifest {
     ModuleManifest {
         module_id: "tcp".to_string(),
         version: "1.0.0".to_string(),
-        abi: ModuleAbi::WasixV1,
+        abi: ModuleAbi::MirV1,
         entrypoint: "tcp.main".to_string(),
         exported_ops: vec![
             op("connect", EffectKind::Network),
@@ -158,7 +158,7 @@ fn module_smtp() -> ModuleManifest {
     ModuleManifest {
         module_id: "smtp".to_string(),
         version: "1.0.0".to_string(),
-        abi: ModuleAbi::WasixV1,
+        abi: ModuleAbi::MirV1,
         entrypoint: "smtp.main".to_string(),
         exported_ops: vec![op("send_mail", EffectKind::Network)],
         required_capabilities: vec!["smtp.send.notifications".to_string()],

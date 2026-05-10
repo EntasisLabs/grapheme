@@ -13,12 +13,15 @@ use grapheme_artifact::{ExecutionResult, MirInst};
 use grapheme_compiler::{Compiler, CompilerError, CompilerOptions};
 use grapheme_runtime::{CapabilityCall, CapabilityHost, HostCallError, PolicyGuard, RuntimeEngine};
 use serde::Serialize;
-use serde_json::json;
+use serde_json::{json, Value as JsonValue};
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::env;
 use std::fs;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpStream;
 use std::process::{self, Command};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RunOutputMode {
@@ -89,6 +92,8 @@ const PLUGIN_BUILD_SPECS: &[PluginBuildSpec] = &[
         output_rel: "plugins/docs-rs.wasm",
     },
 ];
+
+const HOST_PREFERRED_MODULES: &[&str] = &["http", "tcp", "smtp"];
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -201,12 +206,11 @@ fn build_plugins(targets: &[String]) -> Result<(), CompilerError> {
         run_cmd(
             "cargo",
             &[
+                "wasix",
                 "build",
                 "--manifest-path",
                 &manifest.to_string_lossy(),
-                "--release",
-                "--target",
-                "wasm32-wasip1",
+                "--release"
             ],
         )?;
 
@@ -348,27 +352,305 @@ struct CliHost;
 
 impl CapabilityHost for CliHost {
     fn call(&mut self, call: &CapabilityCall) -> Result<serde_json::Value, HostCallError> {
-        if call.op == "echo" {
-            let message = call
-                .args
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+        let module = call
+            .module
+            .as_deref()
+            .map(|m| m.to_lowercase())
+            .or_else(|| call.capability.split('.').next().map(|m| m.to_lowercase()))
+            .unwrap_or_default();
 
-            return Ok(json!({ "message": message }));
+        match (module.as_str(), call.op.as_str()) {
+            ("core", "echo") => {
+                let message = call
+                    .args
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                Ok(json!({ "message": message }))
+            }
+            ("http", "get") => {
+                let url = call
+                    .args
+                    .get("url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                Ok(host_http_request("GET", url, None))
+            }
+            ("http", "post") => {
+                let url = call
+                    .args
+                    .get("url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                Ok(host_http_request("POST", url, call.args.get("body")))
+            }
+            ("tcp", "connect") => {
+                let target = call
+                    .args
+                    .get("target")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                Ok(host_tcp_connect(target))
+            }
+            ("tcp", "send") => {
+                let target = call
+                    .args
+                    .get("target")
+                    .or_else(|| call.args.get("session"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let data = call
+                    .args
+                    .get("data")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                Ok(host_tcp_send(target, data))
+            }
+            ("tcp", "receive") => {
+                let target = call
+                    .args
+                    .get("target")
+                    .or_else(|| call.args.get("session"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let max_bytes = call
+                    .args
+                    .get("max_bytes")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as usize)
+                    .unwrap_or(1024);
+                Ok(host_tcp_receive(target, max_bytes))
+            }
+            ("smtp", "send_mail") => Ok(host_smtp_send_mail(&call.args)),
+            _ => Ok(json!({
+                "module": call.module,
+                "op": call.op,
+                "capability": call.capability,
+                "arg_count": call.arg_count,
+                "args": call.args,
+                "step_index": call.step_index,
+                "status": "ok"
+            })),
+        }
+    }
+}
+
+fn host_http_request(method: &str, url: &str, body: Option<&JsonValue>) -> JsonValue {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return json!({
+            "error": "host http adapter supports only http:// and https:// URLs",
+            "method": method,
+            "url": url,
+        });
+    }
+
+    let payload = body
+        .map(|b| serde_json::to_vec(b).unwrap_or_else(|_| b"null".to_vec()))
+        .unwrap_or_default();
+
+    let mut request = if method == "POST" {
+        let mut req = ehttp::Request::post(url, payload);
+        req.headers.insert("Content-Type", "application/json");
+        req
+    } else {
+        ehttp::Request::get(url)
+    };
+    request.timeout = Some(Duration::from_secs(15));
+
+    let response = match ehttp::fetch_blocking(&request) {
+        Ok(resp) => resp,
+        Err(err) => {
+            return json!({ "error": format!("request failed: {err}"), "method": method, "url": url });
+        }
+    };
+
+    let response_body = String::from_utf8_lossy(&response.bytes).to_string();
+    let status_line = format!("HTTP {} {}", response.status, response.status_text);
+
+    json!({
+        "method": method,
+        "url": url,
+        "status": response.status,
+        "status_line": status_line,
+        "body": response_body,
+    })
+}
+
+fn host_tcp_connect(target: &str) -> JsonValue {
+    if target.is_empty() {
+        return json!({ "connected": false, "error": "missing target" });
+    }
+
+    match TcpStream::connect(target) {
+        Ok(_) => json!({ "connected": true, "target": target, "session": target }),
+        Err(err) => json!({ "connected": false, "target": target, "error": err.to_string() }),
+    }
+}
+
+fn host_tcp_send(target: &str, data: &str) -> JsonValue {
+    if target.is_empty() {
+        return json!({ "sent": false, "error": "missing target/session" });
+    }
+
+    match TcpStream::connect(target) {
+        Ok(mut stream) => {
+            let _ = stream.set_write_timeout(Some(Duration::from_secs(8)));
+            match stream.write_all(data.as_bytes()) {
+                Ok(_) => json!({ "sent": true, "target": target, "bytes": data.len() }),
+                Err(err) => json!({ "sent": false, "target": target, "error": err.to_string() }),
+            }
+        }
+        Err(err) => json!({ "sent": false, "target": target, "error": err.to_string() }),
+    }
+}
+
+fn host_tcp_receive(target: &str, max_bytes: usize) -> JsonValue {
+    if target.is_empty() {
+        return json!({ "error": "missing target/session" });
+    }
+
+    match TcpStream::connect(target) {
+        Ok(mut stream) => {
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(8)));
+            let mut buf = vec![0u8; max_bytes];
+            match stream.read(&mut buf) {
+                Ok(n) => json!({
+                    "target": target,
+                    "bytes": n,
+                    "data": String::from_utf8_lossy(&buf[..n]).to_string(),
+                }),
+                Err(err) => json!({ "target": target, "error": err.to_string() }),
+            }
+        }
+        Err(err) => json!({ "target": target, "error": err.to_string() }),
+    }
+}
+
+fn host_smtp_send_mail(args: &JsonValue) -> JsonValue {
+    let server = args
+        .get("server")
+        .and_then(|v| v.as_str())
+        .unwrap_or("127.0.0.1:25");
+    let from = args
+        .get("from")
+        .and_then(|v| v.as_str())
+        .unwrap_or("grapheme@localhost");
+    let to = args.get("to").and_then(|v| v.as_str()).unwrap_or("");
+    let subject = args
+        .get("subject")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(no subject)");
+    let body = args
+        .get("body")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(empty body)");
+
+    if to.is_empty() {
+        return json!({ "accepted": false, "error": "missing smtp recipient: to" });
+    }
+
+    let mut stream = match TcpStream::connect(server) {
+        Ok(s) => s,
+        Err(err) => return json!({ "accepted": false, "server": server, "error": err.to_string() }),
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(8)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(8)));
+
+    let mut reader = match stream.try_clone() {
+        Ok(s) => BufReader::new(s),
+        Err(err) => return json!({ "accepted": false, "server": server, "error": err.to_string() }),
+    };
+
+    let mut run = || -> Result<(), String> {
+        let (code, msg) = read_smtp_response(&mut reader)?;
+        if code != 220 {
+            return Err(format!("expected 220 banner, got {code}: {msg}"));
         }
 
-        // Runtime demo host: production adapters can map capabilities to tool/plugin invocations.
-        Ok(json!({
-            "module": call.module,
-            "op": call.op,
-            "capability": call.capability,
-            "arg_count": call.arg_count,
-            "args": call.args,
-            "step_index": call.step_index,
-            "status": "ok"
-        }))
+        send_smtp_line(&mut stream, "HELO grapheme.local")?;
+        let (code, msg) = read_smtp_response(&mut reader)?;
+        if code != 250 {
+            return Err(format!("HELO rejected: {code}: {msg}"));
+        }
+
+        send_smtp_line(&mut stream, &format!("MAIL FROM:<{from}>") )?;
+        let (code, msg) = read_smtp_response(&mut reader)?;
+        if code != 250 {
+            return Err(format!("MAIL FROM rejected: {code}: {msg}"));
+        }
+
+        send_smtp_line(&mut stream, &format!("RCPT TO:<{to}>") )?;
+        let (code, msg) = read_smtp_response(&mut reader)?;
+        if code != 250 && code != 251 {
+            return Err(format!("RCPT TO rejected: {code}: {msg}"));
+        }
+
+        send_smtp_line(&mut stream, "DATA")?;
+        let (code, msg) = read_smtp_response(&mut reader)?;
+        if code != 354 {
+            return Err(format!("DATA rejected: {code}: {msg}"));
+        }
+
+        send_smtp_line(&mut stream, &format!("Subject: {subject}"))?;
+        send_smtp_line(&mut stream, "")?;
+        send_smtp_line(&mut stream, body)?;
+        send_smtp_line(&mut stream, ".")?;
+
+        let (code, msg) = read_smtp_response(&mut reader)?;
+        if code != 250 {
+            return Err(format!("message rejected: {code}: {msg}"));
+        }
+
+        let _ = send_smtp_line(&mut stream, "QUIT");
+        Ok(())
+    };
+
+    match run() {
+        Ok(()) => json!({
+            "accepted": true,
+            "server": server,
+            "from": from,
+            "to": to,
+            "subject": subject,
+        }),
+        Err(err) => json!({ "accepted": false, "server": server, "error": err }),
+    }
+}
+
+fn send_smtp_line(stream: &mut TcpStream, line: &str) -> Result<(), String> {
+    stream
+        .write_all(line.as_bytes())
+        .map_err(|err| format!("smtp write failed: {err}"))?;
+    stream
+        .write_all(b"\r\n")
+        .map_err(|err| format!("smtp write failed: {err}"))
+}
+
+fn read_smtp_response(reader: &mut BufReader<TcpStream>) -> Result<(u16, String), String> {
+    let mut lines = Vec::new();
+
+    loop {
+        let mut line = String::new();
+        let read = reader
+            .read_line(&mut line)
+            .map_err(|err| format!("read smtp response failed: {err}"))?;
+        if read == 0 {
+            return Err("smtp server closed connection".to_string());
+        }
+
+        let trimmed = line.trim_end().to_string();
+        let code = trimmed
+            .get(0..3)
+            .and_then(|s| s.parse::<u16>().ok())
+            .ok_or_else(|| format!("invalid smtp response line: {trimmed}"))?;
+        let continuation = trimmed.as_bytes().get(3).copied() == Some(b'-');
+
+        lines.push(trimmed);
+
+        if !continuation {
+            return Ok((code, lines.join("\n")));
+        }
     }
 }
 
@@ -391,6 +673,7 @@ fn run_program(
         let required_modules = collect_called_modules(&compiled.artifact);
         let plugin_targets = required_modules
             .into_iter()
+            .filter(|module| !HOST_PREFERRED_MODULES.contains(&module.as_str()))
             .filter(|module| plugin_spec_by_name(module).is_some())
             .collect::<Vec<_>>();
 

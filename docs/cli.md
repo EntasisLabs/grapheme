@@ -62,6 +62,8 @@ Auto-build and auto-bind known modules:
 cargo run -- run examples/core-merge.aql --native-modules
 ```
 
+`--native-modules` auto-builds/auto-binds known Wasm plugins except `http`, `tcp`, and `smtp`, which are host-backed by default for real socket access in the current runtime.
+
 ### `plugins build`
 
 Builds plugin crates for `wasm32-wasip1` and copies canonical outputs to `plugins/*.wasm`.

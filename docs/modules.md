@@ -30,6 +30,8 @@ Resolution rule:
 - if a wasm path is bound for a module, runtime dispatches that module via Wasix (`WasixV1`)
 - otherwise runtime dispatches to the module's declared manifest ABI
 
+Current defaults set `http`, `tcp`, and `smtp` to `mir_v1` so they use host-backed real network adapters unless explicitly bound to Wasm.
+
 ## Plugin Source Crates
 
 Plugin implementations are under `plugins/*-rs` and intentionally excluded from workspace members to keep top-level workspace operations focused.
@@ -57,6 +59,8 @@ Known plugin crates:
 - `plugins/secrets-rs.wasm`
 
 These outputs are what `--bind` and `--native-modules` use.
+
+`--native-modules` currently auto-builds and auto-binds known Wasm plugins except host-preferred network modules (`http`, `tcp`, `smtp`).
 
 ## Capability and Policy Layers
 

@@ -2,7 +2,7 @@ import HTTP from "grapheme/http"
 import Core from "grapheme/core"
 
 query RequestTransformOutputDemo {
-  HTTP.get(url: "https://httpbin.org/get") {
+  HTTP.get(url: "https://google.m") {
     state { current }
   }
   |> Core.pick(

@@ -67,13 +67,21 @@ const HTTP_POST_ARGS: &[ArgSpec] = &[
 const TCP_CONNECT_ARGS: &[ArgSpec] = &[ArgSpec { name: "target", ty: ArgType::String, required: true }];
 const TCP_SEND_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "session", ty: ArgType::String, required: false },
+    ArgSpec { name: "target", ty: ArgType::String, required: false },
     ArgSpec { name: "data", ty: ArgType::String, required: false },
 ];
-const TCP_RECEIVE_ARGS: &[ArgSpec] = &[ArgSpec { name: "session", ty: ArgType::String, required: false }];
+const TCP_RECEIVE_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "session", ty: ArgType::String, required: false },
+    ArgSpec { name: "target", ty: ArgType::String, required: false },
+    ArgSpec { name: "max_bytes", ty: ArgType::Any, required: false },
+];
 
 const SMTP_SEND_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "to", ty: ArgType::String, required: true },
+    ArgSpec { name: "from", ty: ArgType::String, required: false },
+    ArgSpec { name: "server", ty: ArgType::String, required: false },
     ArgSpec { name: "subject", ty: ArgType::String, required: false },
+    ArgSpec { name: "body", ty: ArgType::String, required: false },
 ];
 
 const SECRETS_GET_ARGS: &[ArgSpec] = &[ArgSpec { name: "name", ty: ArgType::String, required: true }];

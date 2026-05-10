@@ -93,7 +93,7 @@ Start here for full docs:
 
 - Core end-to-end flow is operational: parse -> compile -> artifact -> runtime -> output.
 - Wasix plugin execution works through stdin/stdout JSON bridging.
-- Some modules are mock/demo semantics today and will be hardened over time.
+- Network modules (`http`, `tcp`, `smtp`) are currently host-backed by default in CLI runtime for real service access.
 - Memory module persistence semantics are not finalized for long-lived cross-run storage.
 
 ## License

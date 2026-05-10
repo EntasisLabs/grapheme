@@ -4,14 +4,17 @@ This guide covers how Grapheme native modules work and how to author new ones.
 
 ## What Is A Native Module
 
-A native module is a Wasm binary executed through Grapheme's Wasix runtime path.
+A native module is a module implementation attached to the runtime. Modules can execute through:
+
+- Wasix-backed Wasm binaries (stdin/stdout JSON contract)
+- Host-backed adapters (MirV1 path in the CLI/runtime host)
 
 At runtime, module operations are resolved by `module/op` and invoked with a JSON request envelope:
 
 - stdin request: `{ "op": "<operation>", "args": { ... } }`
 - stdout response: any JSON value
 
-## Current Native Module Catalog
+## Current Module Catalog
 
 - `core`
 - `docs`
@@ -21,6 +24,12 @@ At runtime, module operations are resolved by `module/op` and invoked with a JSO
 - `smtp`
 - `memory`
 - `secrets`
+
+Current execution defaults:
+
+- Wasix-backed by default: `core`, `docs`, `io`, `secrets`
+- Host-backed by default: `http`, `tcp`, `smtp`
+- Host-backed built-ins: `memory`
 
 Inspect live manifests:
 
@@ -50,6 +59,8 @@ Or wire it in CLI plugin specs and use:
 ```bash
 cargo run -- run examples/<some>.aql --native-modules
 ```
+
+Note: `--native-modules` currently auto-builds/auto-binds known Wasm plugins except host-preferred network modules (`http`, `tcp`, `smtp`) so those calls route through real host network adapters.
 
 ## Operation Type Support
 

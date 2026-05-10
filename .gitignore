@@ -7,3 +7,4 @@ extensions/grapheme-vscode/node_modules/
 extensions/grapheme-vscode/out/
 extensions/grapheme-vscode/*.vsix
 extensions/grapheme-vscode/.vscode-test/
+data/
