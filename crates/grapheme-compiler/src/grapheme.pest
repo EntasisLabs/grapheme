@@ -148,12 +148,21 @@ field_call = {
     ~ selection_set?
 }
 
+// A fragment/call-target invocation step: call StepName(args) { selection }
+call_step = {
+    "call"
+    ~ ident
+    ~ arg_list?
+    ~ directive*
+    ~ selection_set?
+}
+
 // The pipe operator |> chains steps left to right
 // Each step receives the AgentState from the previous
-pipe_step = { "|>" ~ field_call }
+pipe_step = { "|>" ~ (call_step | field_call) }
 
 pipeline = {
-    field_call ~ pipe_step*
+    (call_step | field_call) ~ pipe_step*
 }
 
 // ── Top-Level Definitions ─────────────────────────────────────
@@ -175,9 +184,9 @@ mutation_def = {
     ~ "}"
 }
 
-// Fragments: reusable named pipelines (like functions)
+// Iterators/fragments: reusable named pipelines (like functions)
 fragment_def = {
-    "fragment" ~ ident ~ "on" ~ type_name ~ directive* ~ "{"
+    ("iterator" | "fragment") ~ ident ~ "on" ~ type_name ~ directive* ~ "{"
     ~ pipeline+
     ~ "}"
 }

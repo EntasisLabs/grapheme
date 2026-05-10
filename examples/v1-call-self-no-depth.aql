@@ -1,0 +1,7 @@
+iterator LoopNoDepth on Any {
+  call LoopNoDepth
+}
+
+query CallSelfNoDepth {
+  call LoopNoDepth(max_depth: 3)
+}

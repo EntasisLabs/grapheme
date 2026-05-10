@@ -1,0 +1,7 @@
+query CallDepthError {
+  call Loop(max_depth: 2)
+}
+
+iterator Loop on Any {
+  call Loop(max_depth: 2)
+}

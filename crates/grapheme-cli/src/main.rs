@@ -11,7 +11,7 @@
 
 use grapheme_artifact::{ExecutionResult, MirInst};
 use grapheme_compiler::{Compiler, CompilerError, CompilerOptions};
-use grapheme_runtime::{CapabilityCall, CapabilityHost, HostCallError, PolicyGuard, RuntimeEngine};
+use grapheme_runtime::{AgentState, CapabilityCall, CapabilityHost, HostCallError, PolicyGuard, RuntimeEngine};
 use serde::Serialize;
 use serde_json::{json, Value as JsonValue};
 use std::collections::{BTreeSet, HashMap};
@@ -713,6 +713,14 @@ fn run_program(
             print_json(&out)
         }
         RunOutputMode::Plain => {
+            let lines = collect_plain_output_lines(&state);
+            if !lines.is_empty() {
+                for line in lines {
+                    println!("{line}");
+                }
+                return Ok(());
+            }
+
             let current = &state.current;
             if let Some(message) = current.get("message").and_then(|v| v.as_str()) {
                 println!("{message}");
@@ -736,6 +744,30 @@ fn run_program(
             }
         }
     }
+}
+
+fn collect_plain_output_lines(state: &AgentState) -> Vec<String> {
+    state
+        .pipeline
+        .iter()
+        .filter(|step| step.ok)
+        // call.* entries are wrapper bookkeeping around called executable output.
+        .filter(|step| !step.op.starts_with("call."))
+        .filter_map(|step| printable_line_from_json(&step.output))
+        .collect()
+}
+
+fn printable_line_from_json(value: &JsonValue) -> Option<String> {
+    if let Some(message) = value.get("message").and_then(|v| v.as_str()) {
+        return Some(message.to_string());
+    }
+    if let Some(text) = value.get("text").and_then(|v| v.as_str()) {
+        return Some(text.to_string());
+    }
+    if let Some(stdout) = value.get("stdout").and_then(|v| v.as_str()) {
+        return Some(stdout.to_string());
+    }
+    value.as_str().map(|s| s.to_string())
 }
 
 fn policy_guard_from_env() -> PolicyGuard {

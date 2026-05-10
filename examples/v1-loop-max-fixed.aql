@@ -1,0 +1,7 @@
+query LoopMaxFixed {
+  call Ticker
+}
+
+iterator Ticker on Any @loop(max: 100) {
+  core.echo(message: "tick")
+}

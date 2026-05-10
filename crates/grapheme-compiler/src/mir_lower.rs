@@ -1,4 +1,5 @@
-use grapheme_artifact::{MirBlock, MirFunction, MirFunctionKind, MirInst, MirProgram, MirTerminator};
+use grapheme_artifact::{MirBlock, MirFunction, MirFunctionKind, MirInst, MirLoopConfig, MirLoopUntil, MirProgram, MirTerminator};
+use serde_json::Value as JsonValue;
 
 use crate::hir::{HirExecutableKind, HirProgram};
 
@@ -31,6 +32,7 @@ pub fn lower_from_hir(hir: &HirProgram) -> MirProgram {
             MirFunction {
                 name: def.name.clone(),
                 kind: lower_kind(&def.kind),
+                loop_config: lower_loop_config(def.loop_args.as_ref()),
                 blocks: vec![block],
             }
         })
@@ -40,6 +42,21 @@ pub fn lower_from_hir(hir: &HirProgram) -> MirProgram {
         functions,
         capabilities: hir.capabilities.clone(),
     }
+}
+
+fn lower_loop_config(loop_args: Option<&JsonValue>) -> Option<MirLoopConfig> {
+    let args = loop_args?.as_object()?;
+    let max = args.get("max")?.as_u64()? as u32;
+
+    let until = args.get("until").and_then(|value| {
+        let object = value.as_object()?;
+        let field = object.get("field")?.as_str()?.to_string();
+        let eq = object.get("eq")?.clone();
+
+        Some(MirLoopUntil { field, eq })
+    });
+
+    Some(MirLoopConfig { max, until })
 }
 
 fn lower_kind(kind: &HirExecutableKind) -> MirFunctionKind {

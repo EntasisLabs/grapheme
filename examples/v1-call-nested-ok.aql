@@ -1,0 +1,13 @@
+query CallNestedOk {
+  call Parent(max_depth: 4)
+  |> core.echo(message: "done")
+}
+
+iterator Child on Any {
+  core.echo(message: "child")
+}
+
+iterator Parent on Any {
+  call Child(max_depth: 4)
+  |> core.echo(message: "parent")
+}

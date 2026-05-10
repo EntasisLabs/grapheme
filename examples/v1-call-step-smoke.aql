@@ -1,0 +1,8 @@
+iterator PollJob on Any {
+  core.echo(message: "tick")
+}
+
+query CallStepSmoke {
+  call PollJob
+  |> core.echo(message: "done")
+}

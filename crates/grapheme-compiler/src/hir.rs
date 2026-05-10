@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as JsonValue};
 use grapheme_artifact::Capability;
 
-use crate::ast::{Definition, FieldCall, OpKind, Pipeline, Program, Value};
+use crate::ast::{Definition, Directive, OpKind, Pipeline, PipelineStep, Program, Value};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HirProgram {
@@ -21,6 +21,8 @@ pub struct HirImport {
 pub struct HirExecutable {
     pub kind: HirExecutableKind,
     pub name: String,
+    pub loop_directive_count: usize,
+    pub loop_args: Option<JsonValue>,
     pub pipelines: Vec<HirPipeline>,
 }
 
@@ -64,21 +66,29 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
             Definition::Query(q) => executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Query,
                 name: q.name.clone(),
+                loop_directive_count: loop_directive_count(&q.directives),
+                loop_args: first_loop_args(&q.directives),
                 pipelines: lower_pipelines(&q.pipelines),
             }),
             Definition::Mutation(m) => executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Mutation,
                 name: m.name.clone(),
+                loop_directive_count: loop_directive_count(&m.directives),
+                loop_args: first_loop_args(&m.directives),
                 pipelines: lower_pipelines(&m.pipelines),
             }),
             Definition::Subscription(s) => executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Subscription,
                 name: s.name.clone(),
+                loop_directive_count: loop_directive_count(&s.directives),
+                loop_args: first_loop_args(&s.directives),
                 pipelines: lower_pipelines(&s.pipelines),
             }),
             Definition::Fragment(f) => executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Fragment,
                 name: f.name.clone(),
+                loop_directive_count: loop_directive_count(&f.directives),
+                loop_args: first_loop_args(&f.directives),
                 pipelines: lower_pipelines(&f.pipelines),
             }),
             Definition::Schema(_) | Definition::ModuleProposal(_) => {}
@@ -111,19 +121,31 @@ fn lower_pipelines(pipelines: &[Pipeline]) -> Vec<HirPipeline> {
         .collect()
 }
 
-fn lower_step(step: &FieldCall) -> HirStep {
-    let capability = match &step.module {
-        Some(module) => Capability::from_module_op(module, &step.name),
-        None => Capability::from_bare_op(&step.name),
-    };
+fn lower_step(step: &PipelineStep) -> HirStep {
+    match step {
+        PipelineStep::Field(field) => {
+            let capability = match &field.module {
+                Some(module) => Capability::from_module_op(module, &field.name),
+                None => Capability::from_bare_op(&field.name),
+            };
 
-    HirStep {
-        op: step.name.clone(),
-        module: step.module.clone(),
-        arg_count: step.args.len(),
-        args: lower_args(&step.args),
-        has_selection: step.selection.is_some(),
-        capability,
+            HirStep {
+                op: field.name.clone(),
+                module: field.module.clone(),
+                arg_count: field.args.len(),
+                args: lower_args(&field.args),
+                has_selection: field.selection.is_some(),
+                capability,
+            }
+        }
+        PipelineStep::Call(call) => HirStep {
+            op: call.target.clone(),
+            module: Some("call".to_string()),
+            arg_count: call.args.len(),
+            args: lower_args(&call.args),
+            has_selection: call.selection.is_some(),
+            capability: Capability::from_module_op("call", &call.target),
+        },
     }
 }
 
@@ -133,6 +155,17 @@ fn lower_args(args: &[(String, Value)]) -> JsonValue {
         object.insert(k.clone(), value_to_json(v));
     }
     JsonValue::Object(object)
+}
+
+fn loop_directive_count(directives: &[Directive]) -> usize {
+    directives.iter().filter(|d| d.name == "loop").count()
+}
+
+fn first_loop_args(directives: &[Directive]) -> Option<JsonValue> {
+    directives
+        .iter()
+        .find(|d| d.name == "loop")
+        .map(|d| lower_args(&d.args))
 }
 
 fn value_to_json(value: &Value) -> JsonValue {

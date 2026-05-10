@@ -135,11 +135,26 @@ pub struct FieldCall {
     pub selection: Option<SelectionSet>,
 }
 
-/// A |>-chained sequence of FieldCalls
-/// AgentState threads through each step automatically
+/// A direct fragment/call-target invocation step.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallStep {
+    pub target: String,
+    pub args: Vec<(String, Value)>,
+    pub directives: Vec<Directive>,
+    pub selection: Option<SelectionSet>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PipelineStep {
+    Field(FieldCall),
+    Call(CallStep),
+}
+
+/// A |>-chained sequence of executable steps.
+/// AgentState threads through each step automatically.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pipeline {
-    pub steps: Vec<FieldCall>,            // steps[0] |> steps[1] |> ...
+    pub steps: Vec<PipelineStep>,
 }
 
 // ── Top-Level Definitions ─────────────────────────────────────

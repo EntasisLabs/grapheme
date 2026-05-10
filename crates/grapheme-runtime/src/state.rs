@@ -87,47 +87,46 @@ impl AgentState {
 
     /// Advance state after a successful step
     pub fn advance(&self, index: usize, op: String, output: JsonValue) -> Self {
-        let diff = compute_diff(&self.current, &output);
+        let mut next = self.clone();
+        next.advance_in_place(index, op, output);
+        next
+    }
 
-        let mut pipeline = self.pipeline.clone();
-        pipeline.push(StepResult {
+    /// Advance state after a failed step (errors accumulate, current unchanged)
+    pub fn fail(&self, index: usize, op: String, code: String, message: String) -> Self {
+        let mut next = self.clone();
+        next.fail_in_place(index, op, code, message);
+        next
+    }
+
+    /// Advance state after a successful step without cloning full history.
+    pub fn advance_in_place(&mut self, index: usize, op: String, output: JsonValue) {
+        self.diff = compute_diff(&self.current, &output);
+        self.pipeline.push(StepResult {
             index,
             op,
             output: output.clone(),
             ok: true,
             error: None,
         });
-
-        AgentState {
-            current: output,
-            diff,
-            errors: self.errors.clone(),
-            pipeline,
-            proposed: self.proposed.clone(),
-        }
+        self.current = output;
     }
 
-    /// Advance state after a failed step (errors accumulate, current unchanged)
-    pub fn fail(&self, index: usize, op: String, code: String, message: String) -> Self {
-        let mut errors = self.errors.clone();
-        errors.push(AgentError { step: index, code, message: message.clone() });
-
-        let mut pipeline = self.pipeline.clone();
-        pipeline.push(StepResult {
+    /// Advance state after a failed step without cloning full history.
+    pub fn fail_in_place(&mut self, index: usize, op: String, code: String, message: String) {
+        self.errors.push(AgentError {
+            step: index,
+            code,
+            message: message.clone(),
+        });
+        self.pipeline.push(StepResult {
             index,
             op,
             output: JsonValue::Null,
             ok: false,
             error: Some(message),
         });
-
-        AgentState {
-            current: self.current.clone(),
-            diff: None,
-            errors,
-            pipeline,
-            proposed: self.proposed.clone(),
-        }
+        self.diff = None;
     }
 
     /// Register a module proposal from the AI

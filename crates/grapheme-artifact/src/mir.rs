@@ -13,7 +13,20 @@ pub struct MirProgram {
 pub struct MirFunction {
     pub name: String,
     pub kind: MirFunctionKind,
+    pub loop_config: Option<MirLoopConfig>,
     pub blocks: Vec<MirBlock>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirLoopConfig {
+    pub max: u32,
+    pub until: Option<MirLoopUntil>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirLoopUntil {
+    pub field: String,
+    pub eq: JsonValue,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

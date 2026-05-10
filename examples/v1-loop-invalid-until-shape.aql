@@ -1,0 +1,7 @@
+query InvalidLoopUntilShape {
+  call Poll
+}
+
+iterator Poll on Any @loop(max: 2, until: "bad") {
+  core.echo(message: "x")
+}

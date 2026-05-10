@@ -6,10 +6,12 @@ This documentation set reflects the current implementation of Grapheme in this r
 
 1. `docs/getting-started.md`
 2. `docs/architecture.md`
-3. `docs/cli.md`
-4. `docs/modules.md`
-5. `docs/runtime-policy.md`
-6. `docs/native-modules.md`
+3. `docs/language-contract.md`
+4. `docs/cli.md`
+5. `docs/modules.md`
+6. `docs/runtime-policy.md`
+7. `docs/native-modules.md`
+8. `docs/runtime/runtime-state-flow.md`
 
 ## Tooling and Distribution
 
@@ -26,3 +28,8 @@ These documents are useful context but were written earlier in the project lifec
 - `docs/grapheme-stasis-integration.md`
 - `docs/runtime/module-capability-v1.md`
 - `docs/runtime/wasix-plugin-contract-v1.md`
+
+## Active Proposals
+
+- `docs/language-control-flow-v1.md`
+- `docs/language-control-flow-v1-implementation.md`

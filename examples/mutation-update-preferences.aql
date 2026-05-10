@@ -1,0 +1,13 @@
+import Core from "grapheme/core"
+
+mutation UpdatePreferences {
+  Core.merge(
+    left: { user: "agent", mode: "draft", notifications: false },
+    right: { mode: "safe", notifications: true }
+  ) {
+    state { current }
+  }
+  |> Core.echo() {
+    state { current pipeline }
+  }
+}

@@ -1,9 +1,10 @@
 use grapheme_artifact::{
-    ArtifactEnvelope, Capability, CapabilityPolicy, ExecutionOutcome, ExecutionResult, MirInst,
-    TraceSummary,
+    ArtifactEnvelope, Capability, CapabilityPolicy, ExecutionOutcome, ExecutionResult, MirFunction,
+    MirInst, TraceSummary,
 };
 use serde_json::{Map, Value as JsonValue};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 
 use crate::error::RuntimeError as GraphemeError;
 use crate::host::{CapabilityCall, CapabilityHost, HostCallError};
@@ -13,6 +14,8 @@ use crate::policy::PolicyGuard;
 use crate::state::AgentState;
 #[cfg(feature = "wasix-runtime")]
 use crate::wasix_backend::WasixBackend;
+
+const DEFAULT_MAX_CALL_DEPTH: usize = 16;
 
 #[derive(Debug, Clone)]
 pub struct RuntimeOptions {
@@ -52,12 +55,11 @@ impl RuntimeEngine {
             verify_artifact_integrity(artifact)?;
         }
 
-        let function = artifact
-            .payload
-            .mir
-            .functions
-            .iter()
-            .find(|f| f.name == artifact.entrypoint)
+        let functions = &artifact.payload.mir.functions;
+        let function_index = build_function_index(functions);
+        let entrypoint_index = function_index
+            .get(artifact.entrypoint.as_str())
+            .copied()
             .ok_or_else(|| {
                 GraphemeError::ArtifactCompatibilityError(format!(
                     "entrypoint '{}' not found in artifact MIR",
@@ -68,9 +70,63 @@ impl RuntimeEngine {
         let mut state = AgentState::new();
         let mut step_index = 0usize;
 
-        for block in &function.blocks {
-            for inst in &block.instructions {
-                match inst {
+        if let Some(result) = self.execute_function(
+            functions,
+            &function_index,
+            entrypoint_index,
+            host,
+            &mut state,
+            &mut step_index,
+            0,
+            DEFAULT_MAX_CALL_DEPTH,
+        )? {
+            return Ok((state, result));
+        }
+
+        Ok((
+            state,
+            ExecutionResult {
+                outcome: ExecutionOutcome::Succeeded,
+                output_sttp_node_id: None,
+                trace_summary: TraceSummary {
+                    steps: step_index,
+                    failed_step: None,
+                },
+                message: None,
+            },
+        ))
+    }
+}
+
+impl Default for RuntimeEngine {
+    fn default() -> Self {
+        Self::new(RuntimeOptions::default())
+    }
+}
+
+impl RuntimeEngine {
+    fn execute_function(
+        &self,
+        functions: &[MirFunction],
+        function_index: &HashMap<String, usize>,
+        function_idx: usize,
+        host: &mut dyn CapabilityHost,
+        state: &mut AgentState,
+        step_index: &mut usize,
+        call_depth: usize,
+        max_call_depth: usize,
+    ) -> Result<Option<ExecutionResult>, GraphemeError> {
+        let function = &functions[function_idx];
+        let iteration_max = function
+            .loop_config
+            .as_ref()
+            .map(|cfg| cfg.max as usize)
+            .unwrap_or(1);
+
+        for _iteration in 0..iteration_max {
+            for block in &function.blocks {
+                for inst in &block.instructions {
+                    match inst {
                     MirInst::Call {
                         module,
                         op,
@@ -82,25 +138,59 @@ impl RuntimeEngine {
                         if !self.options.capability_policy.is_allowed(capability) {
                             let message =
                                 format!("capability '{}' denied by runtime policy", capability.0);
-                            state = state.fail(
-                                step_index,
-                                capability.0.clone(),
-                                "CAPABILITY_DENIED".to_string(),
-                                message.clone(),
-                            );
-
-                            return Ok((
+                            return Ok(Some(fail_execution(
                                 state,
-                                ExecutionResult {
-                                    outcome: ExecutionOutcome::FatalFailure,
-                                    output_sttp_node_id: None,
-                                    trace_summary: TraceSummary {
-                                        steps: step_index + 1,
-                                        failed_step: Some(step_index),
-                                    },
-                                    message: Some(message),
-                                },
-                            ));
+                                *step_index,
+                                capability,
+                                "CAPABILITY_DENIED",
+                                message,
+                                ExecutionOutcome::FatalFailure,
+                            )));
+                        }
+
+                        if is_call_step(module) {
+                            let call_max_depth = resolve_call_max_depth(args, max_call_depth)?;
+                            if call_depth + 1 > call_max_depth {
+                                let message = format!(
+                                    "max call depth exceeded while invoking '{}': depth {} > max_depth {}",
+                                    op,
+                                    call_depth + 1,
+                                    call_max_depth
+                                );
+                                return Ok(Some(fail_execution(
+                                    state,
+                                    *step_index,
+                                    capability,
+                                    "MAX_CALL_DEPTH_EXCEEDED",
+                                    message,
+                                    ExecutionOutcome::FatalFailure,
+                                )));
+                            }
+
+                            let target_index = function_index.get(op.as_str()).copied().ok_or_else(|| {
+                                GraphemeError::RuntimeError(format!(
+                                    "call target '{}' not found in artifact MIR",
+                                    op
+                                ))
+                            })?;
+
+                            if let Some(result) = self.execute_function(
+                                functions,
+                                function_index,
+                                target_index,
+                                host,
+                                state,
+                                step_index,
+                                call_depth + 1,
+                                call_max_depth,
+                            )? {
+                                return Ok(Some(result));
+                            }
+
+                            let output = state.current.clone();
+                            state.advance_in_place(*step_index, capability.0.clone(), output);
+                            *step_index += 1;
+                            continue;
                         }
 
                         let resolved = self
@@ -117,49 +207,26 @@ impl RuntimeEngine {
                         let call_args = args_with_pipeline_input(args, &state.current);
 
                         if let Err(err) = self.options.policy_guard.check(&resolved, &call_args) {
-                            let message = err.to_string();
-                            state = state.fail(
-                                step_index,
-                                capability.0.clone(),
-                                "POLICY_DENIED".to_string(),
-                                message.clone(),
-                            );
-
-                            return Ok((
+                            return Ok(Some(fail_execution(
                                 state,
-                                ExecutionResult {
-                                    outcome: ExecutionOutcome::FatalFailure,
-                                    output_sttp_node_id: None,
-                                    trace_summary: TraceSummary {
-                                        steps: step_index + 1,
-                                        failed_step: Some(step_index),
-                                    },
-                                    message: Some(message),
-                                },
-                            ));
+                                *step_index,
+                                capability,
+                                "POLICY_DENIED",
+                                err.to_string(),
+                                ExecutionOutcome::FatalFailure,
+                            )));
                         }
+
                         if let Some(input) = call_args.get("__input") {
                             if let Some(error) = input.get("error") {
-                                let message = error.to_string();
-                                state = state.fail(
-                                    step_index,
-                                    capability.0.clone(),
-                                    "EXECUTION_ERROR".to_string(),
-                                    message.clone(),
-                                );
-
-                                return Ok((
+                                return Ok(Some(fail_execution(
                                     state,
-                                    ExecutionResult {
-                                        outcome: ExecutionOutcome::FatalFailure,
-                                        output_sttp_node_id: None,
-                                        trace_summary: TraceSummary {
-                                            steps: step_index + 1,
-                                            failed_step: Some(step_index),
-                                        },
-                                        message: Some(message),
-                                    },
-                                ));
+                                    *step_index,
+                                    capability,
+                                    "EXECUTION_ERROR",
+                                    error.to_string(),
+                                    ExecutionOutcome::FatalFailure,
+                                )));
                             }
                         }
 
@@ -171,52 +238,30 @@ impl RuntimeEngine {
                                     capability: capability.0.clone(),
                                     arg_count: *arg_count,
                                     args: call_args.clone(),
-                                    step_index,
+                                    step_index: *step_index,
                                 };
 
                                 match host.call(&call) {
                                     Ok(output) => output,
                                     Err(HostCallError::Retryable(message)) => {
-                                        state = state.fail(
-                                            step_index,
-                                            capability.0.clone(),
-                                            "RETRYABLE".to_string(),
-                                            message.clone(),
-                                        );
-
-                                        return Ok((
+                                        return Ok(Some(fail_execution(
                                             state,
-                                            ExecutionResult {
-                                                outcome: ExecutionOutcome::RetryableFailure,
-                                                output_sttp_node_id: None,
-                                                trace_summary: TraceSummary {
-                                                    steps: step_index + 1,
-                                                    failed_step: Some(step_index),
-                                                },
-                                                message: Some(message),
-                                            },
-                                        ));
+                                            *step_index,
+                                            capability,
+                                            "RETRYABLE",
+                                            message,
+                                            ExecutionOutcome::RetryableFailure,
+                                        )));
                                     }
                                     Err(HostCallError::Fatal(message)) => {
-                                        state = state.fail(
-                                            step_index,
-                                            capability.0.clone(),
-                                            "FATAL".to_string(),
-                                            message.clone(),
-                                        );
-
-                                        return Ok((
+                                        return Ok(Some(fail_execution(
                                             state,
-                                            ExecutionResult {
-                                                outcome: ExecutionOutcome::FatalFailure,
-                                                output_sttp_node_id: None,
-                                                trace_summary: TraceSummary {
-                                                    steps: step_index + 1,
-                                                    failed_step: Some(step_index),
-                                                },
-                                                message: Some(message),
-                                            },
-                                        ));
+                                            *step_index,
+                                            capability,
+                                            "FATAL",
+                                            message,
+                                            ExecutionOutcome::FatalFailure,
+                                        )));
                                     }
                                 }
                             }
@@ -242,33 +287,100 @@ impl RuntimeEngine {
                             }
                         };
 
-                        state = state.advance(step_index, capability.0.clone(), output);
-
-                        step_index += 1;
+                        state.advance_in_place(*step_index, capability.0.clone(), output);
+                        *step_index += 1;
+                        }
                     }
                 }
             }
+
+            if loop_until_satisfied(function, state) {
+                break;
+            }
         }
 
-        Ok((
-            state,
-            ExecutionResult {
-                outcome: ExecutionOutcome::Succeeded,
-                output_sttp_node_id: None,
-                trace_summary: TraceSummary {
-                    steps: step_index,
-                    failed_step: None,
-                },
-                message: None,
-            },
-        ))
+        Ok(None)
     }
 }
 
-impl Default for RuntimeEngine {
-    fn default() -> Self {
-        Self::new(RuntimeOptions::default())
+fn build_function_index(functions: &[MirFunction]) -> HashMap<String, usize> {
+    functions
+        .iter()
+        .enumerate()
+        .map(|(idx, function)| (function.name.clone(), idx))
+        .collect()
+}
+
+fn is_call_step(module: &Option<String>) -> bool {
+    module
+        .as_deref()
+        .map(|m| m.eq_ignore_ascii_case("call"))
+        .unwrap_or(false)
+}
+
+fn resolve_call_max_depth(args: &JsonValue, inherited_max_depth: usize) -> Result<usize, GraphemeError> {
+    let Some(map) = args.as_object() else {
+        return Ok(inherited_max_depth);
+    };
+
+    let Some(raw) = map.get("max_depth") else {
+        return Ok(inherited_max_depth);
+    };
+
+    let value = raw.as_i64().ok_or_else(|| {
+        GraphemeError::RuntimeError("call max_depth must be an integer".to_string())
+    })?;
+
+    if value < 1 {
+        return Err(GraphemeError::RuntimeError(
+            "call max_depth must be >= 1".to_string(),
+        ));
     }
+
+    Ok(value as usize)
+}
+
+fn fail_execution(
+    state: &mut AgentState,
+    step_index: usize,
+    capability: &Capability,
+    code: &str,
+    message: String,
+    outcome: ExecutionOutcome,
+) -> ExecutionResult {
+    state.fail_in_place(
+        step_index,
+        capability.0.clone(),
+        code.to_string(),
+        message.clone(),
+    );
+
+    ExecutionResult {
+        outcome,
+        output_sttp_node_id: None,
+        trace_summary: TraceSummary {
+            steps: step_index + 1,
+            failed_step: Some(step_index),
+        },
+        message: Some(message),
+    }
+}
+
+fn loop_until_satisfied(function: &MirFunction, state: &AgentState) -> bool {
+    let Some(loop_cfg) = function.loop_config.as_ref() else {
+        return false;
+    };
+
+    let Some(until) = loop_cfg.until.as_ref() else {
+        return false;
+    };
+
+    state
+        .current
+        .as_object()
+        .and_then(|obj| obj.get(&until.field))
+        .map(|value| value == &until.eq)
+        .unwrap_or(false)
 }
 
 fn verify_artifact_compatibility(artifact: &ArtifactEnvelope) -> Result<(), GraphemeError> {

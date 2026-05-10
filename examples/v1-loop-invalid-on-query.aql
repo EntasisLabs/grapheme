@@ -1,0 +1,3 @@
+query InvalidLoopOnQuery @loop(max: 2) {
+  core.echo(message: "nope")
+}

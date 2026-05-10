@@ -1,0 +1,8 @@
+query LoopUntilBreak {
+  call Poll
+  |> core.echo(message: "done")
+}
+
+iterator Poll on Any @loop(max: 5, until: { field: "message", eq: "ready" }) {
+  core.echo(message: "ready")
+}

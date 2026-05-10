@@ -253,17 +253,54 @@ fn parse_pipeline(pair: Pair<Rule>) -> Result<Pipeline, GraphemeError> {
 
     for p in pair.into_inner() {
         match p.as_rule() {
-            Rule::field_call => steps.push(parse_field_call(p)?),
+            Rule::field_call => steps.push(PipelineStep::Field(parse_field_call(p)?)),
+            Rule::call_step  => steps.push(PipelineStep::Call(parse_call_step(p)?)),
             Rule::pipe_step  => {
-                // pipe_step = { "|>" ~ field_call }
-                let fc = p.into_inner().next().unwrap();
-                steps.push(parse_field_call(fc)?);
+                // pipe_step = { "|>" ~ (call_step | field_call) }
+                let inner = p.into_inner().next().unwrap();
+                match inner.as_rule() {
+                    Rule::field_call => steps.push(PipelineStep::Field(parse_field_call(inner)?)),
+                    Rule::call_step => steps.push(PipelineStep::Call(parse_call_step(inner)?)),
+                    r => return Err(GraphemeError::UnexpectedRule(format!("{r:?}"))),
+                }
             }
             _ => {}
         }
     }
 
     Ok(Pipeline { steps })
+}
+
+fn parse_call_step(pair: Pair<Rule>) -> Result<CallStep, GraphemeError> {
+    let mut target = String::new();
+    let mut args = vec![];
+    let mut directives = vec![];
+    let mut selection = None;
+
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::ident => {
+                target = p.as_str().to_string();
+            }
+            Rule::arg_list => {
+                for arg in p.into_inner() {
+                    if arg.as_rule() == Rule::named_arg {
+                        args.push(parse_named_arg(arg)?);
+                    }
+                }
+            }
+            Rule::directive => directives.push(parse_directive(p)?),
+            Rule::selection_set => selection = Some(parse_selection_set(p)?),
+            _ => {}
+        }
+    }
+
+    Ok(CallStep {
+        target,
+        args,
+        directives,
+        selection,
+    })
 }
 
 // ── Field Calls ───────────────────────────────────────────────
@@ -405,10 +442,20 @@ fn parse_value(pair: Pair<Rule>) -> Result<Value, GraphemeError> {
 fn parse_directive(pair: Pair<Rule>) -> Result<Directive, GraphemeError> {
     let mut inner = pair.into_inner();
     let name      = inner.next().unwrap().as_str().to_string();
-    let args      = inner
-        .filter(|p| p.as_rule() == Rule::named_arg)
-        .map(parse_named_arg)
-        .collect::<Result<_, _>>()?;
+    let mut args = Vec::new();
+
+    for p in inner {
+        if p.as_rule() != Rule::arg_list {
+            continue;
+        }
+
+        for arg in p.into_inner() {
+            if arg.as_rule() == Rule::named_arg {
+                args.push(parse_named_arg(arg)?);
+            }
+        }
+    }
+
     Ok(Directive { name, args })
 }
 

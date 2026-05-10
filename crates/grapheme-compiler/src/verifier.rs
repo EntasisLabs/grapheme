@@ -1,8 +1,9 @@
 use crate::error::GraphemeError;
 use grapheme_artifact::{CapabilityPolicy, MirProgram};
 use serde_json::Value as JsonValue;
+use std::collections::HashSet;
 
-use super::hir::{HirProgram, HirStep};
+use super::hir::{HirExecutableKind, HirProgram, HirStep};
 
 #[derive(Debug, Clone, Copy)]
 enum ArgType {
@@ -132,6 +133,12 @@ pub fn verify_hir(hir: &HirProgram) -> Result<(), GraphemeError> {
         ));
     }
 
+    let executable_names: HashSet<String> = hir
+        .executable_defs
+        .iter()
+        .map(|d| d.name.clone())
+        .collect();
+
     for def in &hir.executable_defs {
         if def.name.trim().is_empty() {
             return Err(GraphemeError::VerificationError(
@@ -156,8 +163,175 @@ pub fn verify_hir(hir: &HirProgram) -> Result<(), GraphemeError> {
 
             for (step_idx, step) in pipeline.steps.iter().enumerate() {
                 verify_step_types(&def.name, i, step_idx, step)?;
+                verify_call_step(&def.name, i, step_idx, step, &executable_names)?;
             }
         }
+
+        verify_loop_directive(def)?;
+    }
+
+    Ok(())
+}
+
+fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), GraphemeError> {
+    if def.loop_directive_count == 0 {
+        return Ok(());
+    }
+
+    if def.loop_directive_count > 1 {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}': multiple @loop directives are not allowed",
+            def.name
+        )));
+    }
+
+    if !matches!(def.kind, HirExecutableKind::Fragment) {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}': @loop is only allowed on iterator/fragment definitions",
+            def.name
+        )));
+    }
+
+    let args = def.loop_args.as_ref().and_then(|v| v.as_object()).ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "definition '{}': @loop requires named args",
+            def.name
+        ))
+    })?;
+
+    for key in args.keys() {
+        if key != "max" && key != "until" {
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}': @loop unknown arg '{}'",
+                def.name, key
+            )));
+        }
+    }
+
+    let max = args.get("max").ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "definition '{}': @loop requires max",
+            def.name
+        ))
+    })?;
+
+    let max_value = max.as_i64().ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "definition '{}': @loop max must be an integer",
+            def.name
+        ))
+    })?;
+
+    if max_value < 1 {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}': @loop max must be >= 1",
+            def.name
+        )));
+    }
+
+    if let Some(until) = args.get("until") {
+        let until_obj = until.as_object().ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}': @loop until must be an object",
+                def.name
+            ))
+        })?;
+
+        for key in until_obj.keys() {
+            if key != "field" && key != "eq" {
+                return Err(GraphemeError::TypeError(format!(
+                    "definition '{}': @loop until unknown field '{}'",
+                    def.name, key
+                )));
+            }
+        }
+
+        let field = until_obj.get("field").and_then(|v| v.as_str()).ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}': @loop until.field must be a string",
+                def.name
+            ))
+        })?;
+
+        if field.trim().is_empty() {
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}': @loop until.field cannot be empty",
+                def.name
+            )));
+        }
+
+        if !until_obj.contains_key("eq") {
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}': @loop until requires eq",
+                def.name
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn verify_call_step(
+    def_name: &str,
+    pipeline_idx: usize,
+    step_idx: usize,
+    step: &HirStep,
+    executable_names: &HashSet<String>,
+) -> Result<(), GraphemeError> {
+    let Some(module_raw) = step.module.as_deref() else {
+        return Ok(());
+    };
+
+    if !module_raw.eq_ignore_ascii_case("call") {
+        return Ok(());
+    }
+
+    if !executable_names.contains(&step.op) {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: unknown call target '{}'",
+            def_name, pipeline_idx, step_idx, step.op
+        )));
+    }
+
+    let args = step.args.as_object().ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: args for call '{}' must be an object",
+            def_name, pipeline_idx, step_idx, step.op
+        ))
+    })?;
+
+    for arg_name in args.keys() {
+        if arg_name != "max_depth" {
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: unknown call arg '{}' for target '{}'",
+                def_name, pipeline_idx, step_idx, arg_name, step.op
+            )));
+        }
+    }
+
+    if let Some(max_depth) = args.get("max_depth") {
+        if !is_variable_placeholder(max_depth) {
+            let value = max_depth.as_i64().ok_or_else(|| {
+                GraphemeError::TypeError(format!(
+                    "definition '{}', pipeline {}, step {}: call '{}': max_depth must be an integer",
+                    def_name, pipeline_idx, step_idx, step.op
+                ))
+            })?;
+
+            if value < 1 {
+                return Err(GraphemeError::TypeError(format!(
+                    "definition '{}', pipeline {}, step {}: call '{}': max_depth must be >= 1",
+                    def_name, pipeline_idx, step_idx, step.op
+                )));
+            }
+        }
+    }
+
+    if step.op == def_name && !args.contains_key("max_depth") {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: self-recursive call requires max_depth",
+            def_name, pipeline_idx, step_idx
+        )));
     }
 
     Ok(())
