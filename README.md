@@ -80,6 +80,8 @@ Runtime tuning env vars:
 
 - `GRAPHEME_WASIX_CACHE_MAX_MODULES`: max compiled Wasm modules cached in runtime (default: `8`).
 - `GRAPHEME_RUNTIME_TIMING`: when set to `1` or `true`, print aggregated runtime timing summary.
+- `GRAPHEME_RUNTIME_MAX_STEPS`: runtime step budget (`none`/`unbounded` disables this bound).
+- `GRAPHEME_RUNTIME_MAX_CALL_DEPTH`: runtime call-depth budget (`none`/`unbounded` disables this bound).
 
 ## Loop Benchmark and Step 4 Checks
 

@@ -25,6 +25,8 @@ pub struct RuntimeOptions {
     pub verify_integrity: bool,
     pub trace_policy: TracePolicy,
     pub stream_step_output: bool,
+    pub max_steps: Option<usize>,
+    pub max_call_depth: Option<usize>,
 }
 
 impl Default for RuntimeOptions {
@@ -36,6 +38,8 @@ impl Default for RuntimeOptions {
             verify_integrity: true,
             trace_policy: TracePolicy::default(),
             stream_step_output: false,
+            max_steps: Some(100_000),
+            max_call_depth: Some(DEFAULT_MAX_CALL_DEPTH),
         }
     }
 }
@@ -45,25 +49,57 @@ struct LoopFrame<'a> {
     max_iterations: usize,
     merge_mode: MirLoopMergeMode,
     input_snapshot: JsonValue,
+    each_inputs: Option<Vec<JsonValue>>,
     iteration_outputs: Vec<JsonValue>,
 }
 
 impl<'a> LoopFrame<'a> {
     fn new(function: &'a MirFunction, state: &AgentState) -> Self {
+        let input_snapshot = state.current.clone();
+        let each_inputs = function
+            .loop_config
+            .as_ref()
+            .and_then(|cfg| cfg.each.as_deref())
+            .map(|selector| resolve_each_inputs(selector, &input_snapshot));
+        let configured_max = function
+            .loop_config
+            .as_ref()
+            .and_then(|cfg| cfg.max)
+            .map(|max| max as usize)
+            .unwrap_or_else(|| {
+                if function.loop_config.is_some() {
+                    usize::MAX
+                } else {
+                    1
+                }
+            });
+        let max_iterations = each_inputs
+            .as_ref()
+            .map(|inputs| configured_max.min(inputs.len()))
+            .unwrap_or(configured_max);
+
         Self {
             function,
-            max_iterations: function
-                .loop_config
-                .as_ref()
-                .map(|cfg| cfg.max as usize)
-                .unwrap_or(1),
+            max_iterations,
             merge_mode: function
                 .loop_config
                 .as_ref()
                 .map(|cfg| cfg.merge.clone())
                 .unwrap_or(MirLoopMergeMode::Replace),
-            input_snapshot: state.current.clone(),
+            input_snapshot,
+            each_inputs,
             iteration_outputs: Vec::new(),
+        }
+    }
+
+    fn apply_iteration_input(&self, state: &mut AgentState, iteration: usize) {
+        let Some(inputs) = &self.each_inputs else {
+            return;
+        };
+
+        if let Some(input) = inputs.get(iteration) {
+            state.current = input.clone();
+            state.diff = None;
         }
     }
 
@@ -154,6 +190,8 @@ impl RuntimeEngine {
 
         let mut state = AgentState::with_trace_policy(self.options.trace_policy.clone());
         let mut step_index = 0usize;
+        let mut remaining_steps = self.options.max_steps;
+        let max_call_depth = self.options.max_call_depth.unwrap_or(usize::MAX);
 
         if let Some(result) = self.execute_function(
             functions,
@@ -162,8 +200,9 @@ impl RuntimeEngine {
             host,
             &mut state,
             &mut step_index,
+            &mut remaining_steps,
             0,
-            DEFAULT_MAX_CALL_DEPTH,
+            max_call_depth,
         )? {
             return Ok((state, result));
         }
@@ -198,6 +237,7 @@ impl RuntimeEngine {
         host: &mut dyn CapabilityHost,
         state: &mut AgentState,
         step_index: &mut usize,
+        remaining_steps: &mut Option<usize>,
         call_depth: usize,
         max_call_depth: usize,
     ) -> Result<Option<ExecutionResult>, GraphemeError> {
@@ -206,9 +246,27 @@ impl RuntimeEngine {
         let mut loop_frame = LoopFrame::new(function, state);
 
         for iteration in 0..loop_frame.max_iterations {
+            loop_frame.apply_iteration_input(state, iteration);
             let iteration_index = loop_frame.iteration_index(iteration);
             for block in &function.blocks {
                 for inst in &block.instructions {
+                    if !consume_step_budget(remaining_steps) {
+                        return Ok(Some(fail_execution(
+                            state,
+                            *step_index,
+                            &Capability::from_module_op("runtime", "step_budget"),
+                            "STEP_BUDGET_EXCEEDED",
+                            "runtime step budget exhausted".to_string(),
+                            ExecutionOutcome::FatalFailure,
+                            StepContext {
+                                function_name: Some(function_name.clone()),
+                                call_depth,
+                                iteration_index,
+                                call_target: None,
+                            },
+                        )));
+                    }
+
                     match inst {
                     MirInst::Call {
                         module,
@@ -273,6 +331,7 @@ impl RuntimeEngine {
                                 host,
                                 state,
                                 step_index,
+                                remaining_steps,
                                 call_depth + 1,
                                 call_max_depth,
                             )? {
@@ -402,6 +461,90 @@ impl RuntimeEngine {
                         );
                         *step_index += 1;
                         }
+                    MirInst::BranchCall {
+                        field,
+                        eq,
+                        then_target,
+                        else_target,
+                        max_depth,
+                    } => {
+                        let base_context = StepContext {
+                            function_name: Some(function_name.clone()),
+                            call_depth,
+                            iteration_index,
+                            call_target: None,
+                        };
+
+                        let branch_matches = select_json_path(&state.current, field)
+                            .map(|value| value == eq)
+                            .unwrap_or(false);
+
+                        let target = if branch_matches {
+                            Some(then_target.as_str())
+                        } else {
+                            else_target.as_deref()
+                        };
+
+                        if let Some(target) = target {
+                            if target == "$return" {
+                                loop_frame.apply_merge(state);
+                                return Ok(None);
+                            }
+
+                            let call_max_depth = max_depth
+                                .map(|v| v as usize)
+                                .unwrap_or(max_call_depth);
+
+                            if call_depth + 1 > call_max_depth {
+                                let message = format!(
+                                    "max call depth exceeded while invoking '{}': depth {} > max_depth {}",
+                                    target,
+                                    call_depth + 1,
+                                    call_max_depth
+                                );
+                                return Ok(Some(fail_execution(
+                                    state,
+                                    *step_index,
+                                    &Capability::from_module_op("flow", "branch"),
+                                    "MAX_CALL_DEPTH_EXCEEDED",
+                                    message,
+                                    ExecutionOutcome::FatalFailure,
+                                    base_context,
+                                )));
+                            }
+
+                            let target_index = function_index.get(target).copied().ok_or_else(|| {
+                                GraphemeError::RuntimeError(format!(
+                                    "call target '{}' not found in artifact MIR",
+                                    target
+                                ))
+                            })?;
+
+                            if let Some(result) = self.execute_function(
+                                functions,
+                                function_index,
+                                target_index,
+                                host,
+                                state,
+                                step_index,
+                                remaining_steps,
+                                call_depth + 1,
+                                call_max_depth,
+                            )? {
+                                return Ok(Some(result));
+                            }
+
+                            state.record_passthrough_in_place(
+                                *step_index,
+                                "flow.branch".to_string(),
+                                StepContext {
+                                    call_target: Some(target.to_string()),
+                                    ..base_context
+                                },
+                            );
+                            *step_index += 1;
+                        }
+                    }
                     }
                 }
             }
@@ -600,13 +743,159 @@ fn verify_artifact_integrity(artifact: &ArtifactEnvelope) -> Result<(), Grapheme
 }
 
 fn args_with_pipeline_input(args: &JsonValue, input: &JsonValue) -> JsonValue {
-    let mut merged = match args {
-        JsonValue::Object(map) => map.clone(),
+    let mut merged = match resolve_current_templates(args, input) {
+        JsonValue::Object(map) => map,
         _ => Map::new(),
     };
 
     merged.insert("__input".to_string(), input.clone());
     JsonValue::Object(merged)
+}
+
+fn consume_step_budget(remaining_steps: &mut Option<usize>) -> bool {
+    let Some(remaining) = remaining_steps.as_mut() else {
+        return true;
+    };
+
+    if *remaining == 0 {
+        return false;
+    }
+
+    *remaining -= 1;
+    true
+}
+
+fn resolve_each_inputs(selector: &str, input_snapshot: &JsonValue) -> Vec<JsonValue> {
+    if selector == "$current" {
+        return input_snapshot
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+    }
+
+    let Some(path) = selector.strip_prefix("$current.") else {
+        return Vec::new();
+    };
+
+    let Some(selected) = select_json_path(input_snapshot, path) else {
+        return Vec::new();
+    };
+
+    selected.as_array().cloned().unwrap_or_default()
+}
+
+fn resolve_current_templates(value: &JsonValue, current: &JsonValue) -> JsonValue {
+    match value {
+        JsonValue::Object(map) => {
+            if let Some(var_ref) = variable_ref_from_object(map) {
+                return resolve_variable_reference(var_ref, current);
+            }
+
+            let mapped = map
+                .iter()
+                .map(|(k, v)| (k.clone(), resolve_current_templates(v, current)))
+                .collect::<Map<String, JsonValue>>();
+            JsonValue::Object(mapped)
+        }
+        JsonValue::Array(items) => JsonValue::Array(
+            items
+                .iter()
+                .map(|item| resolve_current_templates(item, current))
+                .collect(),
+        ),
+        JsonValue::String(s) => resolve_current_string_template(s, current),
+        _ => value.clone(),
+    }
+}
+
+fn variable_ref_from_object(map: &Map<String, JsonValue>) -> Option<&str> {
+    if map.len() != 1 {
+        return None;
+    }
+
+    map.get("$var")?.as_str()
+}
+
+fn resolve_variable_reference(reference: &str, current: &JsonValue) -> JsonValue {
+    if reference == "current" {
+        return current.clone();
+    }
+
+    if let Some(path) = reference.strip_prefix("current.") {
+        return select_json_path(current, path)
+            .cloned()
+            .unwrap_or(JsonValue::Null);
+    }
+
+    JsonValue::String(format!("${reference}"))
+}
+
+fn resolve_current_string_template(template: &str, current: &JsonValue) -> JsonValue {
+    if template == "$current" {
+        return current.clone();
+    }
+
+    if let Some(path) = template.strip_prefix("$current.") {
+        if path.chars().all(is_selector_char) {
+            return select_json_path(current, path)
+                .cloned()
+                .unwrap_or(JsonValue::Null);
+        }
+    }
+
+    let mut out = String::new();
+    let bytes = template.as_bytes();
+    let mut i = 0usize;
+
+    while i < bytes.len() {
+        if bytes[i] == b'$' && template[i..].starts_with("$current") {
+            let mut j = i + "$current".len();
+            if j < bytes.len() && bytes[j] == b'.' {
+                j += 1;
+                while j < bytes.len() && is_selector_char(bytes[j] as char) {
+                    j += 1;
+                }
+                let path = &template[i + "$current.".len()..j];
+                if let Some(value) = select_json_path(current, path) {
+                    out.push_str(&json_value_to_inline_string(value));
+                }
+                i = j;
+                continue;
+            }
+
+            out.push_str(&json_value_to_inline_string(current));
+            i += "$current".len();
+            continue;
+        }
+
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+
+    JsonValue::String(out)
+}
+
+fn is_selector_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '.'
+}
+
+fn select_json_path<'a>(root: &'a JsonValue, path: &str) -> Option<&'a JsonValue> {
+    let mut current = root;
+    for segment in path.split('.') {
+        if segment.is_empty() {
+            return None;
+        }
+        current = current.get(segment)?;
+    }
+    Some(current)
+}
+
+fn json_value_to_inline_string(value: &JsonValue) -> String {
+    if let Some(s) = value.as_str() {
+        return s.to_string();
+    }
+
+    serde_json::to_string(value).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -713,6 +1002,40 @@ mod tests {
         assert_eq!(output, "abcde...");
     }
 
+    #[test]
+    fn loop_each_selector_reads_array_from_current_path() {
+        let snapshot = json!({
+            "jobs": [
+                {"id": "a"},
+                {"id": "b"}
+            ]
+        });
+
+        let items = resolve_each_inputs("$current.jobs", &snapshot);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].get("id"), Some(&JsonValue::String("a".to_string())));
+        assert_eq!(items[1].get("id"), Some(&JsonValue::String("b".to_string())));
+    }
+
+    #[test]
+    fn args_with_pipeline_input_interpolates_current_templates() {
+        let args = json!({
+            "url": "https://example.com/job/$current.id",
+            "payload": "$current",
+            "id": "$current.id"
+        });
+        let current = json!({"id": "123", "status": "ready"});
+
+        let resolved = args_with_pipeline_input(&args, &current);
+        assert_eq!(
+            resolved.get("url"),
+            Some(&JsonValue::String("https://example.com/job/123".to_string()))
+        );
+        assert_eq!(resolved.get("payload"), Some(&current));
+        assert_eq!(resolved.get("id"), Some(&JsonValue::String("123".to_string())));
+        assert_eq!(resolved.get("__input"), Some(&current));
+    }
+
     fn execute_loop(
         max: u32,
         merge: MirLoopMergeMode,
@@ -749,7 +1072,8 @@ mod tests {
             name: "Main".to_string(),
             kind: MirFunctionKind::Fragment,
             loop_config: Some(MirLoopConfig {
-                max,
+                max: Some(max),
+                each: None,
                 until: None,
                 merge,
             }),

@@ -23,7 +23,9 @@ bool_lit = { "true" | "false" }
 
 null_lit = { "null" }
 
-variable = ${ "$" ~ ident }
+variable = ${ "$" ~ ident ~ ("." ~ ident)* }
+
+symbol_lit = { ident }
 
 type_name = @{ ident ~ ("!")?  }        // optional non-null bang
 
@@ -36,6 +38,7 @@ value = {
   | bool_lit
   | null_lit
   | variable
+    | symbol_lit
   | list_value
   | object_value
 }

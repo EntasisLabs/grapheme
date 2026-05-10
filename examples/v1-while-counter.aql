@@ -1,0 +1,18 @@
+query RunCounter {
+  core.add(a: 0, b: 0)
+  |> Step
+  |> core.echo()
+}
+
+iterator Step on Any @recursive {
+  flow.branch(
+    when: { field: "value", eq: 5.0 },
+    then: return,
+    else: Increment
+  )
+}
+
+iterator Increment on Any {
+  core.add(a: $current.value, b: 1)
+  |> Step
+}

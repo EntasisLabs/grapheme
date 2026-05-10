@@ -15,6 +15,10 @@ During execution (per call):
 3. Policy guard argument check.
 4. ABI dispatch (`MirV1` host or `WasixV1` module).
 
+Global execution guard:
+
+5. Step budget enforcement (`max_steps`) aborts execution when exhausted.
+
 ## PolicyGuard Rules
 
 Current operation-specific checks:
@@ -34,6 +38,21 @@ The CLI builds `PolicyGuard` from environment variables:
 - `GRAPHEME_ALLOWED_TCP_TARGETS`
 - `GRAPHEME_ALLOWED_SMTP_DOMAINS`
 - `GRAPHEME_ALLOWED_SECRETS`
+
+Runtime budget control:
+
+- `GRAPHEME_RUNTIME_MAX_STEPS`
+- `GRAPHEME_RUNTIME_MAX_CALL_DEPTH`
+
+`GRAPHEME_RUNTIME_MAX_STEPS` accepts:
+
+- integer value (for bounded execution)
+- `none` or `unbounded` (to disable step-budget bound)
+
+`GRAPHEME_RUNTIME_MAX_CALL_DEPTH` accepts:
+
+- integer value (for bounded nested call depth)
+- `none` or `unbounded` (to disable call-depth bound)
 
 Each variable is parsed as comma-separated values.
 
@@ -58,3 +77,4 @@ GRAPHEME_ALLOWED_SECRETS=api_key \
 - Policy checks are focused on selected operations and argument fields.
 - Deeper semantic policy (payload schemas, contextual approvals) is planned.
 - Memory persistence and long-horizon data governance are still evolving.
+- Runtime policy currently emphasizes step-budget control; dedicated time/memory budget controls are planned.

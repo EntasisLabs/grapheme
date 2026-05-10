@@ -19,7 +19,8 @@ pub struct MirFunction {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MirLoopConfig {
-    pub max: u32,
+    pub max: Option<u32>,
+    pub each: Option<String>,
     pub until: Option<MirLoopUntil>,
     pub merge: MirLoopMergeMode,
 }
@@ -63,6 +64,13 @@ pub enum MirInst {
         arg_count: u16,
         args: JsonValue,
         stores_state: bool,
+    },
+    BranchCall {
+        field: String,
+        eq: JsonValue,
+        then_target: String,
+        else_target: Option<String>,
+        max_depth: Option<u32>,
     },
 }
 

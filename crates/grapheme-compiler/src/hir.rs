@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as JsonValue};
 use grapheme_artifact::Capability;
+use std::collections::HashSet;
 
 use crate::ast::{Definition, Directive, OpKind, Pipeline, PipelineStep, Program, Value};
 
@@ -23,6 +24,9 @@ pub struct HirExecutable {
     pub name: String,
     pub loop_directive_count: usize,
     pub loop_args: Option<JsonValue>,
+    pub recursive_directive_count: usize,
+    pub recursive_args: Option<JsonValue>,
+    pub recursive_max_depth: Option<u32>,
     pub pipelines: Vec<HirPipeline>,
 }
 
@@ -50,6 +54,18 @@ pub struct HirStep {
 }
 
 pub fn lower_from_ast(program: &Program) -> HirProgram {
+    let executable_names = program
+        .definitions
+        .iter()
+        .filter_map(|def| match def {
+            Definition::Query(q) => Some(q.name.clone()),
+            Definition::Mutation(m) => Some(m.name.clone()),
+            Definition::Subscription(s) => Some(s.name.clone()),
+            Definition::Fragment(f) => Some(f.name.clone()),
+            Definition::Schema(_) | Definition::ModuleProposal(_) => None,
+        })
+        .collect::<HashSet<_>>();
+
     let imports = program
         .imports
         .iter()
@@ -68,28 +84,60 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
                 name: q.name.clone(),
                 loop_directive_count: loop_directive_count(&q.directives),
                 loop_args: first_loop_args(&q.directives),
-                pipelines: lower_pipelines(&q.pipelines),
+                recursive_directive_count: recursive_directive_count(&q.directives),
+                recursive_args: first_recursive_args(&q.directives),
+                recursive_max_depth: first_recursive_max_depth(first_recursive_args(&q.directives).as_ref()),
+                pipelines: lower_pipelines(
+                    &q.name,
+                    &q.pipelines,
+                    &executable_names,
+                    first_recursive_max_depth(first_recursive_args(&q.directives).as_ref()),
+                ),
             }),
             Definition::Mutation(m) => executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Mutation,
                 name: m.name.clone(),
                 loop_directive_count: loop_directive_count(&m.directives),
                 loop_args: first_loop_args(&m.directives),
-                pipelines: lower_pipelines(&m.pipelines),
+                recursive_directive_count: recursive_directive_count(&m.directives),
+                recursive_args: first_recursive_args(&m.directives),
+                recursive_max_depth: first_recursive_max_depth(first_recursive_args(&m.directives).as_ref()),
+                pipelines: lower_pipelines(
+                    &m.name,
+                    &m.pipelines,
+                    &executable_names,
+                    first_recursive_max_depth(first_recursive_args(&m.directives).as_ref()),
+                ),
             }),
             Definition::Subscription(s) => executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Subscription,
                 name: s.name.clone(),
                 loop_directive_count: loop_directive_count(&s.directives),
                 loop_args: first_loop_args(&s.directives),
-                pipelines: lower_pipelines(&s.pipelines),
+                recursive_directive_count: recursive_directive_count(&s.directives),
+                recursive_args: first_recursive_args(&s.directives),
+                recursive_max_depth: first_recursive_max_depth(first_recursive_args(&s.directives).as_ref()),
+                pipelines: lower_pipelines(
+                    &s.name,
+                    &s.pipelines,
+                    &executable_names,
+                    first_recursive_max_depth(first_recursive_args(&s.directives).as_ref()),
+                ),
             }),
             Definition::Fragment(f) => executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Fragment,
                 name: f.name.clone(),
                 loop_directive_count: loop_directive_count(&f.directives),
                 loop_args: first_loop_args(&f.directives),
-                pipelines: lower_pipelines(&f.pipelines),
+                recursive_directive_count: recursive_directive_count(&f.directives),
+                recursive_args: first_recursive_args(&f.directives),
+                recursive_max_depth: first_recursive_max_depth(first_recursive_args(&f.directives).as_ref()),
+                pipelines: lower_pipelines(
+                    &f.name,
+                    &f.pipelines,
+                    &executable_names,
+                    first_recursive_max_depth(first_recursive_args(&f.directives).as_ref()),
+                ),
             }),
             Definition::Schema(_) | Definition::ModuleProposal(_) => {}
         }
@@ -112,18 +160,57 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
     }
 }
 
-fn lower_pipelines(pipelines: &[Pipeline]) -> Vec<HirPipeline> {
+fn lower_pipelines(
+    executable_name: &str,
+    pipelines: &[Pipeline],
+    executable_names: &HashSet<String>,
+    recursive_max_depth: Option<u32>,
+) -> Vec<HirPipeline> {
     pipelines
         .iter()
         .map(|p| HirPipeline {
-            steps: p.steps.iter().map(lower_step).collect(),
+            steps: p
+                .steps
+                .iter()
+                .map(|step| {
+                    lower_step(
+                        step,
+                        executable_name,
+                        executable_names,
+                        recursive_max_depth,
+                    )
+                })
+                .collect(),
         })
         .collect()
 }
 
-fn lower_step(step: &PipelineStep) -> HirStep {
+fn lower_step(
+    step: &PipelineStep,
+    executable_name: &str,
+    executable_names: &HashSet<String>,
+    recursive_max_depth: Option<u32>,
+) -> HirStep {
     match step {
         PipelineStep::Field(field) => {
+            if field.module.is_none() && executable_names.contains(&field.name) {
+                let mut args = lower_args(&field.args);
+                maybe_inject_recursive_max_depth(
+                    &mut args,
+                    executable_name,
+                    &field.name,
+                    recursive_max_depth,
+                );
+                return HirStep {
+                    op: field.name.clone(),
+                    module: Some("call".to_string()),
+                    arg_count: field.args.len(),
+                    args,
+                    has_selection: field.selection.is_some(),
+                    capability: Capability::from_module_op("call", &field.name),
+                };
+            }
+
             let capability = match &field.module {
                 Some(module) => Capability::from_module_op(module, &field.name),
                 None => Capability::from_bare_op(&field.name),
@@ -138,14 +225,23 @@ fn lower_step(step: &PipelineStep) -> HirStep {
                 capability,
             }
         }
-        PipelineStep::Call(call) => HirStep {
-            op: call.target.clone(),
-            module: Some("call".to_string()),
-            arg_count: call.args.len(),
-            args: lower_args(&call.args),
-            has_selection: call.selection.is_some(),
-            capability: Capability::from_module_op("call", &call.target),
-        },
+        PipelineStep::Call(call) => {
+            let mut args = lower_args(&call.args);
+            maybe_inject_recursive_max_depth(
+                &mut args,
+                executable_name,
+                &call.target,
+                recursive_max_depth,
+            );
+            HirStep {
+                op: call.target.clone(),
+                module: Some("call".to_string()),
+                arg_count: call.args.len(),
+                args,
+                has_selection: call.selection.is_some(),
+                capability: Capability::from_module_op("call", &call.target),
+            }
+        }
     }
 }
 
@@ -168,6 +264,50 @@ fn first_loop_args(directives: &[Directive]) -> Option<JsonValue> {
         .map(|d| lower_args(&d.args))
 }
 
+fn recursive_directive_count(directives: &[Directive]) -> usize {
+    directives.iter().filter(|d| d.name == "recursive").count()
+}
+
+fn first_recursive_args(directives: &[Directive]) -> Option<JsonValue> {
+    directives
+        .iter()
+        .find(|d| d.name == "recursive")
+        .map(|d| lower_args(&d.args))
+}
+
+fn first_recursive_max_depth(recursive_args: Option<&JsonValue>) -> Option<u32> {
+    recursive_args
+        .and_then(|args| args.as_object())
+        .and_then(|args| args.get("max_depth"))
+        .and_then(|value| value.as_i64())
+        .and_then(|value| if value >= 1 { Some(value as u32) } else { None })
+}
+
+fn maybe_inject_recursive_max_depth(
+    args: &mut JsonValue,
+    executable_name: &str,
+    call_target: &str,
+    recursive_max_depth: Option<u32>,
+) {
+    if executable_name != call_target {
+        return;
+    }
+
+    let Some(max_depth) = recursive_max_depth else {
+        return;
+    };
+
+    let Some(args_map) = args.as_object_mut() else {
+        return;
+    };
+
+    if args_map.contains_key("max_depth") {
+        return;
+    }
+
+    args_map.insert("max_depth".to_string(), JsonValue::from(max_depth));
+}
+
 fn value_to_json(value: &Value) -> JsonValue {
     match value {
         Value::Int(v) => JsonValue::from(*v),
@@ -175,7 +315,16 @@ fn value_to_json(value: &Value) -> JsonValue {
         Value::Bool(v) => JsonValue::from(*v),
         Value::Null => JsonValue::Null,
         Value::String(v) => JsonValue::from(v.clone()),
-        Value::Variable(name) => JsonValue::from(format!("${name}")),
+        Value::Variable(name) => {
+            let mut object = Map::new();
+            object.insert("$var".to_string(), JsonValue::from(name.clone()));
+            JsonValue::Object(object)
+        }
+        Value::Symbol(name) => {
+            let mut object = Map::new();
+            object.insert("$symbol".to_string(), JsonValue::from(name.clone()));
+            JsonValue::Object(object)
+        }
         Value::List(items) => JsonValue::Array(items.iter().map(value_to_json).collect()),
         Value::Object(fields) => {
             let mut object = Map::new();

@@ -1,0 +1,18 @@
+query RunMinskyTransfer {
+  core.merge(left: {}, right: { c1: 3.0, c2: 2.0 })
+  |> L0
+}
+
+iterator L0 on Any @recursive {
+  flow.branch(
+    when: { field: "c1", eq: 0.0 },
+    then: "$return",
+    else: "L1"
+  )
+}
+
+iterator L1 on Any @recursive {
+  core.dec_field(field: "c1")
+  |> core.inc_field(field: "c2")
+  |> L0
+}

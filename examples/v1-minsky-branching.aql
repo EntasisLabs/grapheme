@@ -1,0 +1,32 @@
+query RunMinskyBranching {
+  core.merge(left: {}, right: { c1: 2.0, c2: 1.0 })
+  |> L0
+}
+
+iterator L0 on Any @recursive {
+  flow.branch(
+    when: { field: "c1", eq: 0.0 },
+    then: L2,
+    else: L1
+  )
+}
+
+iterator L1 on Any @recursive {
+  core.dec_field(field: "c1")
+  |> core.inc_field(field: "c2")
+  |> L0
+}
+
+iterator L2 on Any @recursive {
+  flow.branch(
+    when: { field: "c2", eq: 0.0 },
+    then: return,
+    else: L3
+  )
+}
+
+iterator L3 on Any @recursive {
+  core.dec_field(field: "c2")
+  |> core.inc_field(field: "c1")
+  |> L2
+}

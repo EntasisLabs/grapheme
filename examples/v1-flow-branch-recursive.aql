@@ -1,0 +1,17 @@
+query RunBranchRecursive {
+  core.merge(left: {}, right: { status: "pending" })
+  |> Step
+}
+
+iterator Step on Any @recursive(max_depth: 5) {
+  flow.branch(
+    when: { field: "status", eq: "done" },
+    then: return,
+    else: ContinueStep
+  )
+}
+
+iterator ContinueStep on Any {
+  core.merge(left: $current, right: { status: "done" })
+  |> Step
+}

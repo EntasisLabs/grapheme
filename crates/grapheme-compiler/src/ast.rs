@@ -17,6 +17,7 @@ pub enum Value {
     Null,
     String(String),
     Variable(String),          // $name
+    Symbol(String),            // unquoted symbol target
     List(Vec<Value>),
     Object(Vec<(String, Value)>),
 }

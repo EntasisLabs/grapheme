@@ -329,7 +329,9 @@ fn collect_called_modules(artifact: &grapheme_artifact::ArtifactEnvelope) -> Vec
                     module,
                     capability,
                     ..
-                } = inst;
+                } = inst else {
+                    continue;
+                };
 
                 let module_id = module
                     .as_deref()
@@ -713,6 +715,16 @@ fn run_program(
     options.policy_guard = policy_guard_from_env();
     options.trace_policy = trace_policy;
     options.stream_step_output = run_options.output_mode == RunOutputMode::Plain;
+    let (is_set, max_steps) = parse_optional_usize_env("GRAPHEME_RUNTIME_MAX_STEPS")
+        .map_err(|e| CompilerError::RuntimeError(e.to_string()))?;
+    if is_set {
+        options.max_steps = max_steps;
+    }
+    let (is_set, max_call_depth) = parse_optional_usize_env("GRAPHEME_RUNTIME_MAX_CALL_DEPTH")
+        .map_err(|e| CompilerError::RuntimeError(e.to_string()))?;
+    if is_set {
+        options.max_call_depth = max_call_depth;
+    }
     for (module, path) in module_bindings {
         options.module_registry.set_wasm_path(&module, path);
     }
@@ -815,6 +827,22 @@ fn parse_csv_env(var: &str) -> Vec<String> {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default()
+}
+
+fn parse_optional_usize_env(var: &str) -> Result<(bool, Option<usize>), String> {
+    let Some(raw) = env::var(var).ok() else {
+        return Ok((false, None));
+    };
+
+    let trimmed = raw.trim();
+    if trimmed.eq_ignore_ascii_case("none") || trimmed.eq_ignore_ascii_case("unbounded") {
+        return Ok((true, None));
+    }
+
+    trimmed
+        .parse::<usize>()
+        .map(|value| (true, Some(value)))
+        .map_err(|_| format!("{var} must be an integer or 'none'"))
 }
 
 fn parse_run_args(

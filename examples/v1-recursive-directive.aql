@@ -1,0 +1,8 @@
+query RunRecursive {
+  Step
+}
+
+iterator Step on Any @recursive(max_depth: 3) {
+  core.echo(message: "tick")
+  |> Step
+}

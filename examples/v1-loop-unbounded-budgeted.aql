@@ -1,0 +1,7 @@
+query RunUnbounded {
+  Ticker
+}
+
+iterator Ticker on Any @loop {
+  core.echo(message: "tick")
+}

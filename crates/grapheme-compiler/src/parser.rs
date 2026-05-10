@@ -410,10 +410,11 @@ fn parse_value(pair: Pair<Rule>) -> Result<Value, GraphemeError> {
         Rule::null_lit   => Ok(Value::Null),
         Rule::string_lit => Ok(Value::String(parse_string_lit(inner))),
         Rule::variable   => {
-            // variable = ${ "$" ~ ident }
-            let name = inner.into_inner().next().unwrap().as_str().to_string();
+            // variable includes full token, e.g. "$name" or "$current.value".
+            let name = inner.as_str().trim_start_matches('$').to_string();
             Ok(Value::Variable(name))
         }
+        Rule::symbol_lit => Ok(Value::Symbol(inner.as_str().to_string())),
         Rule::list_value => {
             let items = inner
                 .into_inner()

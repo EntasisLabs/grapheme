@@ -14,6 +14,8 @@ This documentation set reflects the current implementation of Grapheme in this r
 8. `docs/runtime/runtime-state-flow.md`
 9. `docs/runtime/wit-contract-v1.5.md`
 10. `docs/runtime/loop-state-contract-v1.5.md`
+11. `docs/turing-completeness-roadmap.md`
+12. `docs/runtime/policy-profile-matrix.md`
 
 ## Tooling and Distribution
 

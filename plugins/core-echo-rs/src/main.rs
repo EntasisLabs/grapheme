@@ -151,6 +151,87 @@ fn op_validate_schema(args: &Value) -> Value {
     })
 }
 
+fn arg_number(args: &Value, key: &str) -> Option<f64> {
+    args.get(key).and_then(|v| v.as_f64())
+}
+
+fn op_add(args: &Value) -> Value {
+    let a = arg_number(args, "a").unwrap_or(0.0);
+    let b = arg_number(args, "b").unwrap_or(0.0);
+    json!({ "value": a + b })
+}
+
+fn op_sub(args: &Value) -> Value {
+    let a = arg_number(args, "a").unwrap_or(0.0);
+    let b = arg_number(args, "b").unwrap_or(0.0);
+    json!({ "value": a - b })
+}
+
+fn op_inc(args: &Value) -> Value {
+    let value = arg_number(args, "value")
+        .or_else(|| args.get("__input").and_then(|v| v.as_f64()))
+        .unwrap_or(0.0);
+    json!({ "value": value + 1.0 })
+}
+
+fn op_dec(args: &Value) -> Value {
+    let value = arg_number(args, "value")
+        .or_else(|| args.get("__input").and_then(|v| v.as_f64()))
+        .unwrap_or(0.0);
+    json!({ "value": value - 1.0 })
+}
+
+fn op_eq(args: &Value) -> Value {
+    let a = args.get("a").cloned().unwrap_or(Value::Null);
+    let b = args.get("b").cloned().unwrap_or(Value::Null);
+    json!({ "result": a == b })
+}
+
+fn op_lt(args: &Value) -> Value {
+    let a = arg_number(args, "a").unwrap_or(0.0);
+    let b = arg_number(args, "b").unwrap_or(0.0);
+    json!({ "result": a < b })
+}
+
+fn op_gt(args: &Value) -> Value {
+    let a = arg_number(args, "a").unwrap_or(0.0);
+    let b = arg_number(args, "b").unwrap_or(0.0);
+    json!({ "result": a > b })
+}
+
+fn object_input(args: &Value) -> Map<String, Value> {
+    args
+        .get("input")
+        .or_else(|| args.get("__input"))
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_else(Map::new)
+}
+
+fn op_inc_field(args: &Value) -> Value {
+    let field = arg_string(args, "field").unwrap_or_default();
+    let mut out = object_input(args);
+    if field.is_empty() {
+        return Value::Object(out);
+    }
+
+    let current = out.get(&field).and_then(|v| v.as_f64()).unwrap_or(0.0);
+    out.insert(field, json!(current + 1.0));
+    Value::Object(out)
+}
+
+fn op_dec_field(args: &Value) -> Value {
+    let field = arg_string(args, "field").unwrap_or_default();
+    let mut out = object_input(args);
+    if field.is_empty() {
+        return Value::Object(out);
+    }
+
+    let current = out.get(&field).and_then(|v| v.as_f64()).unwrap_or(0.0);
+    out.insert(field, json!(current - 1.0));
+    Value::Object(out)
+}
+
 fn main() {
     let mut input = String::new();
     if io::stdin().read_to_string(&mut input).is_err() {
@@ -173,6 +254,15 @@ fn main() {
         "filter" => op_filter(&request.args),
         "merge" => op_merge(&request.args),
         "validate_schema" => op_validate_schema(&request.args),
+        "add" => op_add(&request.args),
+        "sub" => op_sub(&request.args),
+        "inc" => op_inc(&request.args),
+        "dec" => op_dec(&request.args),
+        "eq" => op_eq(&request.args),
+        "lt" => op_lt(&request.args),
+        "gt" => op_gt(&request.args),
+        "inc_field" => op_inc_field(&request.args),
+        "dec_field" => op_dec_field(&request.args),
         other => json!({ "error": format!("unsupported core op: {other}") }),
     };
 

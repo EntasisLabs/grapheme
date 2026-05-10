@@ -1,0 +1,17 @@
+query RunEachJobs {
+  core.merge(
+    left: {},
+    right: {
+      jobs: [
+        { id: "101", status: "pending" },
+        { id: "102", status: "pending" }
+      ]
+    }
+  )
+  |> ProcessJobs
+}
+
+iterator ProcessJobs on Any @loop(max: 100, each: "$current.jobs", merge: "append") {
+  core.echo(message: "job-$current.id")
+  |> core.pick(fields: ["message"])
+}

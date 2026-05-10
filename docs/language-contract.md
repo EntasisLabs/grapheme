@@ -25,7 +25,7 @@ Top-level definitions currently supported:
 - query
 - mutation
 - subscription
-- fragment
+- iterator
 - schema
 - module proposal
 
@@ -34,7 +34,7 @@ Only executable definitions are lowered to MIR functions:
 - query
 - mutation
 - subscription
-- fragment
+- iterator
 
 ## Entrypoint and Execution Scope
 
@@ -139,14 +139,25 @@ Unknown modules are currently tolerated by verifier type tables.
 
 ## Non-Goals (Current)
 
-Not implemented as language/runtime guarantees yet:
+Not implemented as fully finalized language/runtime guarantees yet:
 
-- loops
-- recursion
-- user-defined function invocation semantics
+- unbounded recursion without runtime policy bounds
 - transactional mutations
 - native streaming subscriptions
 - complete variable binding model
+
+Current control-flow capabilities now include iterator loops, iterator invocation, and branch dispatch (`flow.branch`) lowered through compiler-to-MIR.
+
+Loop policy shift (current draft behavior):
+
+- `@loop max` is optional at compile time.
+- When `@loop` is present without max, loop semantics are unbounded at language level.
+- Runtime policy (step budget) is expected to bound execution operationally.
+
+Recursive policy shift (current draft behavior):
+
+- `@recursive max_depth` is optional at compile time.
+- Runtime call-depth policy is expected to bound recursive execution operationally.
 
 Control-flow design draft for loops and recursion:
 
