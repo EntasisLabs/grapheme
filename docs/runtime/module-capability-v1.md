@@ -78,6 +78,11 @@ Two ABIs are modeled for V1:
 2. `wasix_v1`
 - Used by modules compiled to Wasm and executed through Wasmer WASIX.
 
+V1.5 adds:
+
+3. `wasix_wit_v1_5`
+- Used by Wasm modules that implement the typed WIT contract surface.
+
 ## Plugin Manifest Model
 
 Runtime now includes a typed manifest model:

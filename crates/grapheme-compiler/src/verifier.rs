@@ -200,7 +200,7 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
     })?;
 
     for key in args.keys() {
-        if key != "max" && key != "until" {
+        if key != "max" && key != "until" && key != "merge" {
             return Err(GraphemeError::TypeError(format!(
                 "definition '{}': @loop unknown arg '{}'",
                 def.name, key
@@ -263,6 +263,26 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
         if !until_obj.contains_key("eq") {
             return Err(GraphemeError::TypeError(format!(
                 "definition '{}': @loop until requires eq",
+                def.name
+            )));
+        }
+    }
+
+    if let Some(merge) = args.get("merge") {
+        let merge_value = merge.as_str().ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}': @loop merge must be a string",
+                def.name
+            ))
+        })?;
+
+        if merge_value != "replace"
+            && merge_value != "append"
+            && merge_value != "reduce"
+            && merge_value != "none"
+        {
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}': @loop merge must be one of replace|append|reduce|none",
                 def.name
             )));
         }

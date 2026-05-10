@@ -4,6 +4,23 @@ This is the implementation checklist for the approved v1 control-flow scope.
 
 Related proposal: `docs/language-control-flow-v1.md`
 
+## V1.5 Progress Snapshot
+
+Implemented:
+
+1. Internal loop frame scaffold in runtime.
+2. Bounded trace retention policy with minimal projection defaults.
+3. Loop merge metadata propagated through compiler -> MIR -> runtime.
+4. Runtime merge behavior implemented for `replace|append|reduce|none`.
+5. Compiler verifier accepts and validates `@loop(merge: ...)` values.
+6. Runtime conformance tests for merge semantics and trace budget behavior.
+
+Examples:
+
+1. `examples/v1-loop-merge-append.aql`
+2. `examples/v1-loop-merge-reduce.aql`
+3. `examples/v1-loop-merge-none.aql`
+
 ## V1 Frozen Scope
 
 Implement in v1:

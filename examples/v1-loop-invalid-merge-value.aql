@@ -1,0 +1,7 @@
+query InvalidLoopMerge {
+  call Ticker
+}
+
+iterator Ticker on Any @loop(max: 3, merge: "invalid") {
+  core.echo(message: "tick")
+}

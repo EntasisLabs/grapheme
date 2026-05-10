@@ -60,13 +60,21 @@ impl ModuleRegistry {
         Some(ResolvedModuleCall {
             module_id,
             op: op.to_string(),
-            abi: if binding.wasm_path.is_some() {
-                ModuleAbi::WasixV1
-            } else {
-                binding.manifest.abi.clone()
-            },
+            abi: effective_abi(binding),
             wasm_path: binding.wasm_path.clone(),
         })
+    }
+}
+
+fn effective_abi(binding: &ModuleBinding) -> ModuleAbi {
+    if binding.wasm_path.is_none() {
+        return binding.manifest.abi.clone();
+    }
+
+    match binding.manifest.abi {
+        ModuleAbi::MirV1 => ModuleAbi::WasixV1,
+        ModuleAbi::WasixV1 => ModuleAbi::WasixV1,
+        ModuleAbi::WasixWitV15 => ModuleAbi::WasixWitV15,
     }
 }
 

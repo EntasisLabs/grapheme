@@ -1,0 +1,52 @@
+package grapheme:runtime@1.5.0;
+
+interface types {
+  record trace-context {
+    trace-id: string,
+    step-index: u32,
+    call-depth: u16,
+    iteration-index: option<u32>,
+    function-name: string,
+    call-target: string,
+  }
+
+  record capability-context {
+    capability: string,
+  }
+
+  record resource-budget {
+    max-cpu-ms: u64,
+    max-memory-mb: u64,
+    max-io-bytes: u64,
+    max-network-calls: u32,
+  }
+
+  record invoke-input {
+    args-json: string,
+    pipeline-input-json: string,
+    trace: trace-context,
+    capability: capability-context,
+    budget: resource-budget,
+  }
+
+  record diagnostic {
+    level: string,
+    code: string,
+    message: string,
+  }
+
+  record invoke-output {
+    output-json: string,
+    diagnostics: list<diagnostic>,
+    cpu-ms: u64,
+    io-bytes: u64,
+    network-calls: u32,
+  }
+
+  variant invoke-error {
+    invalid-args(string),
+    denied(string),
+    retryable(string),
+    fatal(string),
+  }
+}

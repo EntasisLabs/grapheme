@@ -1,0 +1,8 @@
+package grapheme:runtime@1.5.0;
+
+interface host {
+  use types.{trace-context};
+
+  log: func(level: string, message: string, trace: trace-context);
+  unix-time-ms: func() -> u64;
+}

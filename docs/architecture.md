@@ -43,6 +43,16 @@ Runtime module metadata is expressed as manifests with:
 
 By default, built-in core manifests are loaded. When a wasm path is bound for a module, call resolution upgrades dispatch to `WasixV1` for that module.
 
+## WIT Direction (V1.5)
+
+The V1.5 direction is to formalize runtime-module interop using WIT contracts:
+
+- Runtime keeps semantic authority (control flow, state ownership, policy checks).
+- Wasm modules are capability providers behind typed WIT boundaries.
+- JSON remains acceptable at external I/O edges and as transitional payload encoding.
+
+See: `docs/runtime/wit-contract-v1.5.md`
+
 ## Security and Governance
 
 Current controls:

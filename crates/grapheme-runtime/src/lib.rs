@@ -14,6 +14,6 @@ pub use module_manifest::{core_v1_manifests, EffectKind, ExportedOp, ModuleAbi, 
 pub use module_registry::{ModuleBinding, ModuleRegistry, ResolvedModuleCall};
 pub use policy::PolicyGuard;
 pub use runtime::{RuntimeEngine, RuntimeOptions};
-pub use state::AgentState;
+pub use state::{AgentState, TracePolicy, TraceProjection};
 #[cfg(feature = "wasix-runtime")]
 pub use wasix_backend::WasixBackend;

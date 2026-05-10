@@ -1,4 +1,7 @@
-use grapheme_artifact::{MirBlock, MirFunction, MirFunctionKind, MirInst, MirLoopConfig, MirLoopUntil, MirProgram, MirTerminator};
+use grapheme_artifact::{
+    MirBlock, MirFunction, MirFunctionKind, MirInst, MirLoopConfig, MirLoopMergeMode,
+    MirLoopUntil, MirProgram, MirTerminator,
+};
 use serde_json::Value as JsonValue;
 
 use crate::hir::{HirExecutableKind, HirProgram};
@@ -56,7 +59,20 @@ fn lower_loop_config(loop_args: Option<&JsonValue>) -> Option<MirLoopConfig> {
         Some(MirLoopUntil { field, eq })
     });
 
-    Some(MirLoopConfig { max, until })
+    Some(MirLoopConfig {
+        max,
+        until,
+        merge: lower_loop_merge_mode(args.get("merge")),
+    })
+}
+
+fn lower_loop_merge_mode(value: Option<&JsonValue>) -> MirLoopMergeMode {
+    match value.and_then(|v| v.as_str()) {
+        Some("append") => MirLoopMergeMode::Append,
+        Some("reduce") => MirLoopMergeMode::Reduce,
+        Some("none") => MirLoopMergeMode::None,
+        _ => MirLoopMergeMode::Replace,
+    }
 }
 
 fn lower_kind(kind: &HirExecutableKind) -> MirFunctionKind {

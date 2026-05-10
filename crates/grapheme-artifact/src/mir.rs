@@ -21,6 +21,16 @@ pub struct MirFunction {
 pub struct MirLoopConfig {
     pub max: u32,
     pub until: Option<MirLoopUntil>,
+    pub merge: MirLoopMergeMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MirLoopMergeMode {
+    Replace,
+    Append,
+    Reduce,
+    None,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -16,6 +16,7 @@ pub struct ModuleManifest {
 pub enum ModuleAbi {
     MirV1,
     WasixV1,
+    WasixWitV15,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

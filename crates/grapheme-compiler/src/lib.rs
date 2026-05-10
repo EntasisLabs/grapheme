@@ -24,3 +24,25 @@ pub fn compile_to_artifact(source: &str, entrypoint: Option<&str>) -> Result<Art
 	build_artifact_from_mir(&compilation.mir, entrypoint)
 		.map_err(|e| CompilerError::ArtifactEmitError(e.to_string()))
 }
+
+#[cfg(test)]
+mod tests {
+		use super::*;
+
+		#[test]
+		fn rejects_invalid_loop_merge_value() {
+				let source = r#"
+query InvalidLoopMerge {
+	call Ticker
+}
+
+iterator Ticker on Any @loop(max: 3, merge: "invalid") {
+	core.echo(message: "tick")
+}
+"#;
+
+				let err = compile(source).expect_err("compile should fail for invalid merge mode");
+				let msg = err.to_string();
+				assert!(msg.contains("@loop merge must be one of replace|append|reduce|none"));
+		}
+}

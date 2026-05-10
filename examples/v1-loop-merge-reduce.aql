@@ -1,0 +1,7 @@
+query LoopMergeReduce {
+  call Ticker
+}
+
+iterator Ticker on Any @loop(max: 5, merge: "reduce") {
+  core.echo(message: "tick")
+}

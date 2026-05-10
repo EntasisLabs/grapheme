@@ -76,6 +76,25 @@ GRAPHEME_ALLOWED_HTTP_DOMAINS=example.com \
   cargo run -- run examples/http-get.aql --native-modules
 ```
 
+Runtime tuning env vars:
+
+- `GRAPHEME_WASIX_CACHE_MAX_MODULES`: max compiled Wasm modules cached in runtime (default: `8`).
+- `GRAPHEME_RUNTIME_TIMING`: when set to `1` or `true`, print aggregated runtime timing summary.
+
+## Loop Benchmark and Step 4 Checks
+
+Run repeatable loop benchmark profiles:
+
+```bash
+bash scripts/benchmark-loop.sh
+```
+
+Run the full step-4 validation suite (tests + invalid fixture + benchmark):
+
+```bash
+bash scripts/step4-checks.sh
+```
+
 ## Documentation
 
 Start here for full docs:

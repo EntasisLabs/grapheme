@@ -1,0 +1,7 @@
+package grapheme:runtime@1.5.0;
+
+interface module {
+  use types.{invoke-input, invoke-output, invoke-error};
+
+  invoke: func(op: string, input: invoke-input) -> result<invoke-output, invoke-error>;
+}

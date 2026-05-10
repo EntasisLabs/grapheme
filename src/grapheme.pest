@@ -175,9 +175,9 @@ mutation_def = {
     ~ "}"
 }
 
-// Fragments: reusable named pipelines (like functions)
+// Iterators: reusable named pipelines (like functions)
 fragment_def = {
-    "fragment" ~ ident ~ "on" ~ type_name ~ directive* ~ "{"
+    "iterator" ~ ident ~ "on" ~ type_name ~ directive* ~ "{"
     ~ pipeline+
     ~ "}"
 }

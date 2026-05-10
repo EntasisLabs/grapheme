@@ -11,7 +11,11 @@
 
 use grapheme_artifact::{ExecutionResult, MirInst};
 use grapheme_compiler::{Compiler, CompilerError, CompilerOptions};
-use grapheme_runtime::{AgentState, CapabilityCall, CapabilityHost, HostCallError, PolicyGuard, RuntimeEngine};
+use grapheme_runtime::state::StepResult;
+use grapheme_runtime::{
+    CapabilityCall, CapabilityHost, HostCallError, PolicyGuard, RuntimeEngine,
+    TracePolicy, TraceProjection,
+};
 use serde::Serialize;
 use serde_json::{json, Value as JsonValue};
 use std::collections::{BTreeSet, HashMap};
@@ -33,6 +37,16 @@ struct RunOptions {
     bindings: Vec<(String, PathBuf)>,
     output_mode: RunOutputMode,
     native_modules: bool,
+    trace_profile: TraceProfile,
+    trace_steps: Option<usize>,
+    trace_projection: Option<TraceProjection>,
+    trace_max_string_bytes: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TraceProfile {
+    Lean,
+    Debug,
 }
 
 struct PluginBuildSpec {
@@ -664,6 +678,8 @@ fn run_program(
     let cwd = env::current_dir()
         .map_err(|e| CompilerError::RuntimeError(format!("resolve current directory: {e}")))?;
 
+    let trace_policy = trace_policy_from_run_options(&run_options);
+
     let mut module_bindings: HashMap<String, PathBuf> = HashMap::new();
     for (module, path) in run_options.bindings {
         module_bindings.insert(module, path);
@@ -695,6 +711,8 @@ fn run_program(
     let mut host = CliHost;
     let mut options = grapheme_runtime::RuntimeOptions::default();
     options.policy_guard = policy_guard_from_env();
+    options.trace_policy = trace_policy;
+    options.stream_step_output = run_options.output_mode == RunOutputMode::Plain;
     for (module, path) in module_bindings {
         options.module_registry.set_wasm_path(&module, path);
     }
@@ -713,11 +731,14 @@ fn run_program(
             print_json(&out)
         }
         RunOutputMode::Plain => {
-            let lines = collect_plain_output_lines(&state);
-            if !lines.is_empty() {
-                for line in lines {
-                    println!("{line}");
-                }
+            let streamed_any = state
+                .pipeline
+                .iter()
+                .filter(|step| step.ok)
+                .filter(|step| !step.op.starts_with("call."))
+                .any(|step| printable_line_from_step(step).is_some());
+
+            if streamed_any {
                 return Ok(());
             }
 
@@ -746,15 +767,20 @@ fn run_program(
     }
 }
 
-fn collect_plain_output_lines(state: &AgentState) -> Vec<String> {
-    state
-        .pipeline
-        .iter()
-        .filter(|step| step.ok)
-        // call.* entries are wrapper bookkeeping around called executable output.
-        .filter(|step| !step.op.starts_with("call."))
-        .filter_map(|step| printable_line_from_json(&step.output))
-        .collect()
+fn printable_line_from_step(step: &StepResult) -> Option<String> {
+    let body = printable_line_from_json(&step.output)
+        .or_else(|| step.iteration_index.and_then(|_| serde_json::to_string(&step.output).ok()))?;
+
+    let mut prefix_parts = Vec::new();
+    if let Some(iteration_index) = step.iteration_index {
+        prefix_parts.push(format!("iter {}", iteration_index + 1));
+    }
+    if step.call_depth > 0 {
+        prefix_parts.push(format!("depth {}", step.call_depth));
+    }
+    prefix_parts.push(step.op.clone());
+
+    Some(format!("[{}] {}", prefix_parts.join(" | "), body))
 }
 
 fn printable_line_from_json(value: &JsonValue) -> Option<String> {
@@ -802,6 +828,10 @@ fn parse_run_args(
     let mut bindings = Vec::new();
     let mut output_mode = RunOutputMode::Plain;
     let mut native_modules = false;
+    let mut trace_profile = TraceProfile::Lean;
+    let mut trace_steps: Option<usize> = None;
+    let mut trace_projection: Option<TraceProjection> = None;
+    let mut trace_max_string_bytes: Option<usize> = None;
     let mut i = 1;
 
     while i < args.len() {
@@ -832,6 +862,49 @@ fn parse_run_args(
                 native_modules = true;
                 i += 1;
             }
+            "--trace-profile" => {
+                if i + 1 >= args.len() {
+                    return Err(CompilerError::RuntimeError(
+                        "--trace-profile requires lean|debug".to_string(),
+                    ));
+                }
+
+                trace_profile = parse_trace_profile(&args[i + 1])?;
+                i += 2;
+            }
+            "--trace-steps" => {
+                if i + 1 >= args.len() {
+                    return Err(CompilerError::RuntimeError(
+                        "--trace-steps requires an integer >= 0".to_string(),
+                    ));
+                }
+
+                trace_steps = Some(parse_usize_flag("--trace-steps", &args[i + 1])?);
+                i += 2;
+            }
+            "--trace-projection" => {
+                if i + 1 >= args.len() {
+                    return Err(CompilerError::RuntimeError(
+                        "--trace-projection requires minimal|full".to_string(),
+                    ));
+                }
+
+                trace_projection = Some(parse_trace_projection(&args[i + 1])?);
+                i += 2;
+            }
+            "--trace-max-string-bytes" => {
+                if i + 1 >= args.len() {
+                    return Err(CompilerError::RuntimeError(
+                        "--trace-max-string-bytes requires an integer >= 0".to_string(),
+                    ));
+                }
+
+                trace_max_string_bytes = Some(parse_usize_flag(
+                    "--trace-max-string-bytes",
+                    &args[i + 1],
+                )?);
+                i += 2;
+            }
             other => {
                 return Err(CompilerError::RuntimeError(format!(
                     "unknown run flag '{}'",
@@ -847,8 +920,59 @@ fn parse_run_args(
             bindings,
             output_mode,
             native_modules,
+            trace_profile,
+            trace_steps,
+            trace_projection,
+            trace_max_string_bytes,
         },
     ))
+}
+
+fn trace_policy_from_run_options(run_options: &RunOptions) -> TracePolicy {
+    let mut policy = match run_options.trace_profile {
+        TraceProfile::Lean => TracePolicy::lean_default(),
+        TraceProfile::Debug => TracePolicy::debug_default(),
+    };
+
+    if let Some(steps) = run_options.trace_steps {
+        policy.max_pipeline_steps = steps;
+    }
+    if let Some(projection) = run_options.trace_projection.clone() {
+        policy.projection = projection;
+    }
+    if let Some(max_string_bytes) = run_options.trace_max_string_bytes {
+        policy.max_string_bytes = max_string_bytes;
+    }
+
+    policy
+}
+
+fn parse_trace_profile(value: &str) -> Result<TraceProfile, CompilerError> {
+    match value {
+        "lean" => Ok(TraceProfile::Lean),
+        "debug" => Ok(TraceProfile::Debug),
+        _ => Err(CompilerError::RuntimeError(format!(
+            "invalid --trace-profile '{}', expected lean|debug",
+            value
+        ))),
+    }
+}
+
+fn parse_trace_projection(value: &str) -> Result<TraceProjection, CompilerError> {
+    match value {
+        "minimal" => Ok(TraceProjection::Minimal),
+        "full" => Ok(TraceProjection::Full),
+        _ => Err(CompilerError::RuntimeError(format!(
+            "invalid --trace-projection '{}', expected minimal|full",
+            value
+        ))),
+    }
+}
+
+fn parse_usize_flag(flag: &str, value: &str) -> Result<usize, CompilerError> {
+    value.parse::<usize>().map_err(|_| {
+        CompilerError::RuntimeError(format!("invalid {} value '{}', expected integer >= 0", flag, value))
+    })
 }
 
 fn emit_parse(file_path: &str) -> Result<(), CompilerError> {
@@ -930,5 +1054,7 @@ fn print_usage() {
     eprintln!("  grapheme compile <file.aql> --emit ast|hir|mir|artifact");
     eprintln!("  grapheme plugins build [all|core|io ...]");
     eprintln!("  grapheme run <file.aql> [--bind module=path.wasm ...] [--json] [--native-modules]");
+    eprintln!("               [--trace-profile lean|debug] [--trace-steps N]");
+    eprintln!("               [--trace-projection minimal|full] [--trace-max-string-bytes N]");
     eprintln!("  grapheme modules");
 }
