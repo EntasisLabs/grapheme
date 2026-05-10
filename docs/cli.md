@@ -8,7 +8,7 @@ The CLI binary is `grapheme` (crate `crates/grapheme-cli`).
 grapheme <file.aql>
 grapheme parse <file.aql>
 grapheme compile <file.aql> --emit ast|hir|mir|artifact
-grapheme plugins build [all|core|io|http|memory|tcp|smtp|secrets ...]
+grapheme plugins build [all|core|docs|io|http|memory|tcp|smtp|secrets ...]
 grapheme run <file.aql> [--bind module=path.wasm ...] [--json] [--native-modules]
 grapheme modules
 ```

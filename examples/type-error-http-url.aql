@@ -1,0 +1,7 @@
+import HTTP from "grapheme/http"
+
+query TypeErrorHttpUrl {
+  HTTP.get(url: 123) {
+    state { current }
+  }
+}

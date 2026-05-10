@@ -1,4 +1,5 @@
 use sha2::{Digest, Sha256};
+use serde_json::{Map, Value as JsonValue};
 use grapheme_artifact::{ArtifactEnvelope, Capability, CapabilityPolicy, ExecutionOutcome, ExecutionResult, MirInst, TraceSummary};
 
 use crate::error::RuntimeError as GraphemeError;
@@ -109,7 +110,9 @@ impl RuntimeEngine {
                                 ))
                             })?;
 
-                        if let Err(err) = self.options.policy_guard.check(&resolved, args) {
+                        let call_args = args_with_pipeline_input(args, &state.current);
+
+                        if let Err(err) = self.options.policy_guard.check(&resolved, &call_args) {
                             let message = err.to_string();
                             state = state.fail(
                                 step_index,
@@ -139,7 +142,7 @@ impl RuntimeEngine {
                                     op: op.clone(),
                                     capability: capability.0.clone(),
                                     arg_count: *arg_count,
-                                    args: args.clone(),
+                                    args: call_args.clone(),
                                     step_index,
                                 };
 
@@ -199,7 +202,7 @@ impl RuntimeEngine {
                                         ))
                                     })?;
                                     let backend = WasixBackend::new();
-                                    backend.execute_call(path, &resolved, args)?
+                                    backend.execute_call(path, &resolved, &call_args)?
                                 }
 
                                 #[cfg(not(feature = "wasix-runtime"))]
@@ -277,4 +280,14 @@ fn verify_artifact_integrity(artifact: &ArtifactEnvelope) -> Result<(), Grapheme
     }
 
     Ok(())
+}
+
+fn args_with_pipeline_input(args: &JsonValue, input: &JsonValue) -> JsonValue {
+    let mut merged = match args {
+        JsonValue::Object(map) => map.clone(),
+        _ => Map::new(),
+    };
+
+    merged.insert("__input".to_string(), input.clone());
+    JsonValue::Object(merged)
 }

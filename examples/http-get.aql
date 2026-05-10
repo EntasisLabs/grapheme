@@ -1,7 +1,7 @@
 import HTTP from "grapheme/http"
 
 query HttpGetDemo {
-  HTTP.get(url: "https://example.com") {
+  HTTP.get(url: "https://httpbin.org/get") {
     state { current }
   }
 }

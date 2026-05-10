@@ -9,6 +9,7 @@ This documentation set reflects the current implementation of Grapheme in this r
 3. `docs/cli.md`
 4. `docs/modules.md`
 5. `docs/runtime-policy.md`
+6. `docs/native-modules.md`
 
 ## Tooling and Distribution
 

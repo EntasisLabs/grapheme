@@ -21,8 +21,40 @@ fn write_json(value: &Value) {
 }
 
 fn op_echo(args: &Value) -> Value {
-    let message = arg_string(args, "message").unwrap_or_default();
+    let message = if let Some(message) = arg_string(args, "message") {
+        message
+    } else if let Some(input) = args.get("__input") {
+        serde_json::to_string_pretty(input).unwrap_or_default()
+    } else {
+        String::new()
+    };
     json!({ "message": message })
+}
+
+fn op_pick(args: &Value) -> Value {
+    let source = args
+        .get("input")
+        .or_else(|| args.get("__input"))
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_else(Map::new);
+
+    let fields = args
+        .get("fields")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut out = Map::new();
+    for field in fields {
+        if let Some(name) = field.as_str() {
+            if let Some(value) = source.get(name) {
+                out.insert(name.to_string(), value.clone());
+            }
+        }
+    }
+
+    Value::Object(out)
 }
 
 fn op_map(args: &Value) -> Value {
@@ -126,6 +158,7 @@ fn main() {
 
     let output = match request.op.as_str() {
         "echo" => op_echo(&request.args),
+        "pick" => op_pick(&request.args),
         "map" => op_map(&request.args),
         "filter" => op_filter(&request.args),
         "merge" => op_merge(&request.args),

@@ -5,6 +5,7 @@
 The runtime ships with core manifests for:
 
 - `core`
+- `docs`
 - `io`
 - `http`
 - `tcp`

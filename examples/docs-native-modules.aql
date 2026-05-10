@@ -1,0 +1,7 @@
+import Docs from "grapheme/docs"
+
+query NativeModuleDocsDemo {
+  Docs.native_module_guide(topic: "steps") {
+    state { current }
+  }
+}

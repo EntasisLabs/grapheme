@@ -82,6 +82,12 @@ const PLUGIN_BUILD_SPECS: &[PluginBuildSpec] = &[
         wasm_binary_name: "secrets-plugin",
         output_rel: "plugins/secrets-rs.wasm",
     },
+    PluginBuildSpec {
+        name: "docs",
+        manifest_rel: "plugins/docs-rs/Cargo.toml",
+        wasm_binary_name: "docs-plugin",
+        output_rel: "plugins/docs-rs.wasm",
+    },
 ];
 
 fn main() {

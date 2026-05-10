@@ -81,6 +81,7 @@ GRAPHEME_ALLOWED_HTTP_DOMAINS=example.com \
 Start here for full docs:
 
 - `docs/README.md`
+- `docs/native-modules.md`
 
 ## LSP and VS Code
 

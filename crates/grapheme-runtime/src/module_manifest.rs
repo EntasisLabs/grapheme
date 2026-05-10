@@ -48,6 +48,7 @@ pub struct ResourceLimits {
 pub fn core_v1_manifests() -> Vec<ModuleManifest> {
     vec![
         module_core(),
+        module_docs(),
         module_io(),
         module_http(),
         module_tcp(),
@@ -57,6 +58,22 @@ pub fn core_v1_manifests() -> Vec<ModuleManifest> {
         module_secrets(),
         module_policy(),
     ]
+}
+
+fn module_docs() -> ModuleManifest {
+    ModuleManifest {
+        module_id: "docs".to_string(),
+        version: "1.0.0".to_string(),
+        abi: ModuleAbi::WasixV1,
+        entrypoint: "docs.main".to_string(),
+        exported_ops: vec![
+            op("native_module_guide", EffectKind::Control),
+            op("native_module_registry", EffectKind::Control),
+            op("native_module_example", EffectKind::Control),
+        ],
+        required_capabilities: vec!["docs.read.native_modules".to_string()],
+        limits: limits_standard(),
+    }
 }
 
 fn limits_standard() -> ResourceLimits {
@@ -79,6 +96,7 @@ fn module_core() -> ModuleManifest {
             op("map", EffectKind::Pure),
             op("filter", EffectKind::Pure),
             op("merge", EffectKind::Pure),
+            op("pick", EffectKind::Pure),
             op("validate_schema", EffectKind::Pure),
         ],
         required_capabilities: vec!["core.execute".to_string()],
