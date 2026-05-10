@@ -1,25 +1,42 @@
 # Grapheme LSP Quickstart
 
-## Run The Server
+This guide covers local development and validation for `crates/grapheme-lsp`.
 
-Use stdio mode for editor integration:
+## What The LSP Currently Provides
+
+- parse diagnostics for `.aql` documents via `grapheme_compiler::parse`
+- full-document formatting (trim trailing spaces, normalize ending newline)
+
+## Run Locally
 
 ```bash
 cargo run -p grapheme-lsp
 ```
 
-## Current Capabilities
+The server communicates over stdio and is intended to be launched by an editor client.
 
-- `.aql` parse diagnostics via `grapheme-compiler::parse`
-- full-document formatting (trailing-space cleanup + newline normalization)
+## Build Release Binary
 
-## VSIX Next Step
+```bash
+cargo build -p grapheme-lsp --release
+```
 
-For a VS Code extension package, wire a client that:
+Binary output:
 
-1. registers language id `aql`
-2. starts `grapheme-lsp` over stdio
-3. contributes syntax grammar for highlighting
-4. contributes formatting command bound to LSP formatting
+- `target/release/grapheme-lsp`
 
-This keeps the language intelligence in Rust while VSIX handles editor UX.
+## Validate In VS Code Extension
+
+The extension in `extensions/grapheme-vscode` runs a prebuilt binary and resolves it in this order:
+
+1. `grapheme.lsp.binaryPath`
+2. bundled binary in `server/`
+3. GitHub release auto-download
+
+For extension details, see:
+
+- `extensions/grapheme-vscode/README.md`
+
+For release flows, see:
+
+- `docs/release/lsp-release.md`

@@ -1,5 +1,7 @@
 # Grapheme Compiler and Runtime Split
 
+> Historical note: this document describes an early architecture framing. For current crate layout and runtime behavior, see `docs/architecture.md`.
+
 ## Intent
 
 Model Grapheme after a Roslyn-style architecture:

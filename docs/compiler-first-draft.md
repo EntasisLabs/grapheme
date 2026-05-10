@@ -1,5 +1,7 @@
 # Grapheme Compiler First Draft
 
+> Historical note: this document captures early design intent and is not the primary source of truth for the current implementation. Use `docs/README.md` for up-to-date guidance.
+
 ## Goal
 
 Establish an LLVM-like compiler pipeline for Grapheme that lowers declarative agent workflows into a verifiable execution form suitable for WebAssembly runtimes (Wasmer).

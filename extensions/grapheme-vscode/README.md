@@ -1,27 +1,22 @@
 # Grapheme VS Code Extension
 
-Grapheme language support for `.aql` files using a prebuilt `grapheme-lsp` binary.
+VS Code language support for AgentQL (`.aql`) powered by `grapheme-lsp`.
 
 ## Runtime Model
 
-The extension does **not** launch Cargo for LSP execution.
+The extension runs a prebuilt LSP binary and does not invoke Cargo at runtime.
 
 Binary resolution order:
 
-1. `grapheme.lsp.binaryPath` (explicit absolute path)
+1. `grapheme.lsp.binaryPath` (explicit path)
 2. bundled binary at `server/grapheme-lsp` (or `.exe` on Windows)
 3. auto-download from GitHub Releases into VS Code global storage
 
-## GitHub Release Assets
+## Supported Features
 
-Publish one binary per target with names:
-
-- `grapheme-lsp-linux-x64`
-- `grapheme-lsp-linux-arm64`
-- `grapheme-lsp-macos-x64`
-- `grapheme-lsp-macos-arm64`
-- `grapheme-lsp-windows-x64.exe`
-- `grapheme-lsp-windows-arm64.exe`
+- diagnostics from parser errors
+- document formatting via LSP
+- syntax grammar and language configuration for `.aql`
 
 ## Settings
 
@@ -30,7 +25,18 @@ Publish one binary per target with names:
 - `grapheme.lsp.releaseTag`
 - `grapheme.lsp.autoDownload`
 
-## Build
+## Expected Release Asset Names
+
+Auto-download looks for one of these names by platform:
+
+- `grapheme-lsp-linux-x64`
+- `grapheme-lsp-linux-arm64`
+- `grapheme-lsp-macos-x64`
+- `grapheme-lsp-macos-arm64`
+- `grapheme-lsp-windows-x64.exe`
+- `grapheme-lsp-windows-arm64.exe`
+
+## Local Development
 
 ```bash
 cd extensions/grapheme-vscode
@@ -38,10 +44,16 @@ npm install
 npm run build
 ```
 
+Press `F5` in VS Code to launch an Extension Development Host.
+
 ## Package VSIX
 
 ```bash
-npm install -g @vscode/vsce
 cd extensions/grapheme-vscode
-vsce package
+npx --yes @vscode/vsce package --allow-missing-repository
 ```
+
+## Related Docs
+
+- LSP quickstart: `docs/lsp/quickstart.md`
+- Release guide: `docs/release/lsp-release.md`

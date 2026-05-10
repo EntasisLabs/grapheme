@@ -1,76 +1,112 @@
-# Grapheme LSP Release Guide
+# Grapheme LSP and VSIX Release Guide
+
+This repository supports both CI-based and manual release flows for:
+
+1. `grapheme-lsp` platform binaries
+2. `grapheme-vscode` VSIX package
 
 ## CI Workflow
 
 Workflow file:
 
-- .github/workflows/release-lsp.yml
+- `.github/workflows/release-lsp.yml`
 
-Triggers:
+Expected binary asset names (used by extension auto-download logic):
 
-- push tag `v*`
-- manual dispatch with optional inputs:
-  - `tag`
-  - `publish` (true/false)
+- `grapheme-lsp-linux-x64`
+- `grapheme-lsp-linux-arm64`
+- `grapheme-lsp-macos-x64`
+- `grapheme-lsp-macos-arm64`
+- `grapheme-lsp-windows-x64.exe`
+- `grapheme-lsp-windows-arm64.exe`
 
-Build outputs (asset names expected by extension downloader):
+## Manual LSP Release Script
 
-- grapheme-lsp-linux-x64
-- grapheme-lsp-linux-arm64
-- grapheme-lsp-macos-x64
-- grapheme-lsp-macos-arm64
-- grapheme-lsp-windows-x64.exe
-- grapheme-lsp-windows-arm64.exe
+Script:
 
-If publish is enabled, assets are uploaded to the GitHub release.
+- `scripts/release-lsp.sh`
 
-## Manual Script
+Build for host target:
 
-Script file:
+```bash
+./scripts/release-lsp.sh
+```
 
-- scripts/release-lsp.sh
+Build for explicit targets:
 
-Bundle script (LSP + VSIX):
+```bash
+./scripts/release-lsp.sh \
+  --target x86_64-unknown-linux-gnu \
+  --target aarch64-unknown-linux-gnu
+```
 
-- scripts/release-bundle.sh
+Build and publish to release tag:
 
-Build host target only:
+```bash
+./scripts/release-lsp.sh \
+  --target x86_64-unknown-linux-gnu \
+  --tag v0.1.0 \
+  --publish
+```
 
-- ./scripts/release-lsp.sh
+Publish to a different repo:
 
-Build explicit targets:
+```bash
+./scripts/release-lsp.sh \
+  --target x86_64-unknown-linux-gnu \
+  --tag v0.1.0 \
+  --publish \
+  --repo owner/repo
+```
 
-- ./scripts/release-lsp.sh --target x86_64-unknown-linux-gnu --target aarch64-unknown-linux-gnu
+Artifacts output to:
 
-Build and publish:
+- `dist/lsp-release`
 
-- ./scripts/release-lsp.sh --target x86_64-unknown-linux-gnu --tag v0.1.0 --publish
+## Bundle Script (LSP + VSIX)
 
-Override release repo:
+Script:
 
-- ./scripts/release-lsp.sh --target x86_64-unknown-linux-gnu --tag v0.1.0 --publish --repo owner/repo
+- `scripts/release-bundle.sh`
 
-Notes:
+Build both artifacts:
 
-- Publishing requires `gh` CLI auth.
-- Artifacts are written to `dist/lsp-release`.
-
-## Bundle Script
-
-Build host LSP + VSIX:
-
-- ./scripts/release-bundle.sh
+```bash
+./scripts/release-bundle.sh
+```
 
 Build only VSIX:
 
-- ./scripts/release-bundle.sh --skip-lsp
+```bash
+./scripts/release-bundle.sh --skip-lsp
+```
 
-Build only LSP assets:
+Build only LSP binaries:
 
-- ./scripts/release-bundle.sh --skip-vsix
+```bash
+./scripts/release-bundle.sh --skip-vsix
+```
 
-Build and publish both:
+Build and publish combined bundle:
 
-- ./scripts/release-bundle.sh --target x86_64-unknown-linux-gnu --tag v0.1.0 --publish
+```bash
+./scripts/release-bundle.sh \
+  --target x86_64-unknown-linux-gnu \
+  --tag v0.1.0 \
+  --publish
+```
 
-Bundle artifacts are written to `dist/release-bundle`.
+Bundle output directory:
+
+- `dist/release-bundle`
+
+## Release Prerequisites
+
+- Rust toolchain + `rustup`
+- Node.js + npm
+- `gh` CLI authenticated (for `--publish`)
+
+## Notes
+
+- Extension packaging currently works with `package.json` `files` allowlist.
+- `vsce` may still warn about file count/bundling; this is an optimization concern, not a release blocker.
