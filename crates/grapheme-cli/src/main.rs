@@ -198,7 +198,7 @@ fn build_plugins(targets: &[String]) -> Result<(), CompilerError> {
         })?;
         let wasm_source = plugin_dir
             .join("target")
-            .join("wasm32-wasip1")
+            .join("wasm32-wasmer-wasi")
             .join("release")
             .join(format!("{}.wasm", spec.wasm_binary_name));
         let output = root.join(spec.output_rel);

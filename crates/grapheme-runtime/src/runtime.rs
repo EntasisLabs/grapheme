@@ -1,6 +1,9 @@
-use sha2::{Digest, Sha256};
+use grapheme_artifact::{
+    ArtifactEnvelope, Capability, CapabilityPolicy, ExecutionOutcome, ExecutionResult, MirInst,
+    TraceSummary,
+};
 use serde_json::{Map, Value as JsonValue};
-use grapheme_artifact::{ArtifactEnvelope, Capability, CapabilityPolicy, ExecutionOutcome, ExecutionResult, MirInst, TraceSummary};
+use sha2::{Digest, Sha256};
 
 use crate::error::RuntimeError as GraphemeError;
 use crate::host::{CapabilityCall, CapabilityHost, HostCallError};
@@ -77,7 +80,8 @@ impl RuntimeEngine {
                         ..
                     } => {
                         if !self.options.capability_policy.is_allowed(capability) {
-                            let message = format!("capability '{}' denied by runtime policy", capability.0);
+                            let message =
+                                format!("capability '{}' denied by runtime policy", capability.0);
                             state = state.fail(
                                 step_index,
                                 capability.0.clone(),
@@ -133,6 +137,30 @@ impl RuntimeEngine {
                                     message: Some(message),
                                 },
                             ));
+                        }
+                        if let Some(input) = call_args.get("__input") {
+                            if let Some(error) = input.get("error") {
+                                let message = error.to_string();
+                                state = state.fail(
+                                    step_index,
+                                    capability.0.clone(),
+                                    "EXECUTION_ERROR".to_string(),
+                                    message.clone(),
+                                );
+
+                                return Ok((
+                                    state,
+                                    ExecutionResult {
+                                        outcome: ExecutionOutcome::FatalFailure,
+                                        output_sttp_node_id: None,
+                                        trace_summary: TraceSummary {
+                                            steps: step_index + 1,
+                                            failed_step: Some(step_index),
+                                        },
+                                        message: Some(message),
+                                    },
+                                ));
+                            }
                         }
 
                         let output = match resolved.abi {
@@ -255,8 +283,9 @@ fn verify_artifact_compatibility(artifact: &ArtifactEnvelope) -> Result<(), Grap
 }
 
 fn verify_artifact_integrity(artifact: &ArtifactEnvelope) -> Result<(), GraphemeError> {
-    let mir_bytes = serde_json::to_vec(&artifact.payload.mir)
-        .map_err(|e| GraphemeError::RuntimeError(format!("serialize MIR for integrity verification: {e}")))?;
+    let mir_bytes = serde_json::to_vec(&artifact.payload.mir).map_err(|e| {
+        GraphemeError::RuntimeError(format!("serialize MIR for integrity verification: {e}"))
+    })?;
 
     let hash = Sha256::digest(&mir_bytes);
     let hash_hex = hex::encode(hash);

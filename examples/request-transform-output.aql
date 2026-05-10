@@ -2,14 +2,20 @@ import HTTP from "grapheme/http"
 import Core from "grapheme/core"
 
 query RequestTransformOutputDemo {
-  HTTP.get(url: "https://google.m") {
+  HTTP.get(url: "https://httpbin.org/get") {
     state { current }
   }
   |> Core.pick(
-    fields: ["status", "method", "url"]
+    fields: ["status", "method", "url", "body"]
   ) {
     state { current }
   }
+|> Core.map(
+    identifier: "body"
+    ,field: "args"
+){
+  state {current pipeline}
+}
   |> Core.echo() {
     state { current pipeline }
   }

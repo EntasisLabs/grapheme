@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use std::io::{self, Read, Write};
 
 #[derive(Debug, Deserialize)]
@@ -10,7 +10,9 @@ struct Request {
 }
 
 fn arg_string(args: &Value, key: &str) -> Option<String> {
-    args.get(key).and_then(|v| v.as_str()).map(ToOwned::to_owned)
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .map(ToOwned::to_owned)
 }
 
 fn write_json(value: &Value) {
@@ -58,23 +60,31 @@ fn op_pick(args: &Value) -> Value {
 }
 
 fn op_map(args: &Value) -> Value {
-    let items = args
-        .get("items")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
+    let identifier = arg_string(args, "identifier").unwrap_or_else(|| "items".to_string());
+
+    let items = if let Some(input) = args.get("__input") {
+        input
+            .get(&identifier)
+
+            .unwrap_or_default()
+    } else {
+        args.get(&identifier)
+            // .and_then(|v| v.as_array())
+            // .cloned()
+            .unwrap_or_default()
+    };
     let field = arg_string(args, "field");
 
     let mapped = if let Some(field) = field {
+        write_json(items);
         items
-            .into_iter()
-            .map(|item| item.get(&field).cloned().unwrap_or(Value::Null))
-            .collect::<Vec<_>>()
+        .get(&field)
+        .unwrap_or_default()
     } else {
         items
     };
 
-    json!({ "values": mapped })
+    json!({ "items": mapped })
 }
 
 fn op_filter(args: &Value) -> Value {
