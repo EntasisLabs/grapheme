@@ -29,6 +29,8 @@ symbol_lit = { ident }
 
 qualified_ident = @{ ident ~ ("::" ~ ident)? }
 
+compare_op = { "==" | ">=" | "<=" | ">" | "<" }
+
 // ── Values ───────────────────────────────────────────────────
 
 value = {
@@ -78,6 +80,20 @@ struct_field_def = { ident ~ "?"? ~ ":" ~ type_ref }
 struct_def = {
     "struct" ~ ident ~ "{"
     ~ struct_field_def+
+    ~ "}"
+}
+
+enum_def = {
+    "enum" ~ ident ~ "{" ~ ident ~ ("," ~ ident)* ~ "}"
+}
+
+state_terminal_def = { "terminal" ~ ident }
+
+state_transition_def = { "transition" ~ ident ~ "->" ~ ident }
+
+state_machine_def = {
+    "state_machine" ~ ident ~ "on" ~ ident ~ "{"
+    ~ (state_terminal_def | state_transition_def)+
     ~ "}"
 }
 
@@ -176,12 +192,84 @@ struct_init_step = {
     ~ object_value
 }
 
+if_step = {
+    "if"
+    ~ variable
+    ~ compare_op
+    ~ value
+    ~ "then"
+    ~ branch_target
+    ~ "else"
+    ~ branch_target
+}
+
+match_step = {
+    "match"
+    ~ variable
+    ~ "{" 
+    ~ match_case+
+    ~ match_default
+    ~ "}"
+}
+
+match_case = {
+    "case"
+    ~ value
+    ~ ("," ~ value)*
+    ~ "=>"
+    ~ match_target
+}
+
+match_default = {
+    "default"
+    ~ "=>"
+    ~ match_target
+}
+
+inline_target_step = {
+    transition_step
+    | set_step
+    | struct_init_step
+    | call_step
+    | field_call
+}
+
+inline_target_pipe = { "|>" ~ inline_target_step }
+
+inline_target_pipeline = {
+    inline_target_step
+    ~ inline_target_pipe*
+}
+
+branch_target = {
+    inline_target_pipeline
+    | symbol_lit
+}
+
+match_target = {
+    match_step
+    | branch_target
+}
+
+set_step = {
+    "set"
+    ~ object_value
+}
+
+transition_step = {
+    "transition"
+    ~ variable
+    ~ "->"
+    ~ value
+    ~ object_value?
+}
+
 // The pipe operator |> chains steps left to right
 // Each step receives the AgentState from the previous
-pipe_step = { "|>" ~ (struct_init_step | call_step | field_call) }
+pipe_step = { "|>" ~ (match_step | if_step | transition_step | set_step | struct_init_step | call_step | field_call) }
 
 pipeline = {
-    (struct_init_step | call_step | field_call) ~ pipe_step*
+    (match_step | if_step | transition_step | set_step | struct_init_step | call_step | field_call) ~ pipe_step*
 }
 
 // ── Top-Level Definitions ─────────────────────────────────────
@@ -205,9 +293,16 @@ mutation_def = {
     ~ "}"
 }
 
-// Iterators: reusable named pipelines (like functions)
-fragment_def = {
+// Iterators: reusable named executable pipelines (like functions)
+iterator_def = {
     "iterator" ~ ident ~ executable_signature ~ directive* ~ "{"
+    ~ pipeline+
+    ~ "}"
+}
+
+// Fragments: reusable inline pipelines (non-executable in Phase A)
+fragment_def = {
+    "fragment" ~ ident ~ executable_signature ~ directive* ~ "{"
     ~ pipeline+
     ~ "}"
 }
@@ -224,9 +319,12 @@ subscription_def = {
 definition = {
     query_def
   | mutation_def
-  | fragment_def
+    | iterator_def
+    | fragment_def
   | subscription_def
     | struct_def
+    | enum_def
+    | state_machine_def
   | schema_def
   | module_proposal
 }

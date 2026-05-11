@@ -1,6 +1,6 @@
 # Language Contract
 
-This document defines the current behavior contract for Grapheme Grapheme Lang in this repository.
+This document defines the current behavior contract for Grapheme Lang in this repository.
 
 Status: prototype contract for current implementation, not a final spec.
 
@@ -28,6 +28,10 @@ Top-level definitions currently supported:
 - iterator
 - schema
 - module proposal
+
+Planned (not yet implemented):
+
+- fragment
 
 Only executable definitions are lowered to MIR functions:
 
@@ -147,6 +151,51 @@ Not implemented as fully finalized language/runtime guarantees yet:
 - complete variable binding model
 
 Current control-flow capabilities now include iterator loops, iterator invocation, and branch dispatch (`flow.branch`) lowered through compiler-to-MIR.
+
+Branch target normalization contract (current behavior):
+
+- Applies to `if ... then ... else ...` and `match case/default => ...` targets.
+- Plain target forms stay plain symbols (for example: `return`, `Step`, `call Step`) and are emitted as direct branch/match targets.
+- Inline pipeline target forms (for example: `transition ...`, `set {...}`, or chained `... |> ...`) are lowered into synthetic helper iterators named `__inline_target_N` and branch/match targets point to those helpers.
+- Single-step target spellings that are semantically plain symbols are preserved as symbols to avoid changing verifier/runtime behavior.
+
+## Iterator and Fragment Contract (Proposed vNext)
+
+Current implementation behavior:
+
+- `iterator` is the only reusable executable unit.
+- Reuse is modeled as call targets (`call Step` or bare iterator invocation).
+
+Proposed split (non-breaking, additive):
+
+- `iterator`: executable runtime unit.
+- `fragment`: compile-time composition unit that expands inline into its caller.
+
+Proposed `iterator` contract:
+
+- Can be a direct call target.
+- Can declare runtime directives (`@loop`, `@recursive`, `@retry`, `@timeout`).
+- Produces visible runtime call graph and trace boundaries.
+
+Proposed `fragment` contract:
+
+- Cannot be a runtime call target.
+- Cannot declare runtime directives.
+- Expands inline before MIR lowering.
+- Exists to reduce authoring verbosity and improve local readability.
+
+Proposed verifier rules for `fragment`:
+
+- Reject runtime directives on `fragment`.
+- Reject recursive `fragment` expansion cycles.
+- Preserve existing typed field checks and state-machine transition checks after expansion.
+
+Migration and compatibility guidance:
+
+- Keep existing `iterator` behavior unchanged.
+- Add `fragment` as purely additive syntax and lowering.
+- Optional codemod path: convert "pure helper" iterators with no directives into fragments.
+- Preserve error wording and line mapping where possible by tracking expansion source spans.
 
 Loop policy shift (current draft behavior):
 

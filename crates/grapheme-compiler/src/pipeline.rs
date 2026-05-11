@@ -27,7 +27,7 @@ pub struct CompilationArtifact {
 }
 
 pub fn compile_program(ast: Program, options: CompileOptions) -> Result<CompilationArtifact, GraphemeError> {
-    let hir = hir::lower_from_ast(&ast);
+    let hir = hir::lower_from_ast(&ast)?;
     verifier::verify_hir(&hir)?;
 
     let mir = mir_lower::lower_from_hir(&hir);

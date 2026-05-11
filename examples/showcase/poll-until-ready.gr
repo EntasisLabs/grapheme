@@ -3,8 +3,8 @@ query PollUntilReady {
   |> Poller
 }
 
-iterator Poller on Any @loop(max: 8, until: { field: "status", eq: "ready" }, merge: "replace") {
-  core.inc_field(field: "attempt")
+iterator Poller on Any @core_default @loop(max: 8, until: { field: "status", eq: "ready" }, merge: "replace") {
+  inc_field(field: "attempt")
   |> flow.branch(
     when: { field: "attempt", eq: 3.0 },
     then: MarkReady,
@@ -12,11 +12,11 @@ iterator Poller on Any @loop(max: 8, until: { field: "status", eq: "ready" }, me
   )
 }
 
-iterator MarkReady on Any {
+iterator MarkReady on Any @core_default {
   core.merge(left: $current, right: { status: "ready" })
-  |> core.echo(message: "ready-at:$current.attempt")
+  |> echo(message: "ready-at:$current.attempt")
 }
 
-iterator KeepWaiting on Any {
-  core.echo(message: "waiting:$current.attempt")
+iterator KeepWaiting on Any @core_default {
+  echo(message: "waiting:$current.attempt")
 }

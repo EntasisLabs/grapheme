@@ -81,6 +81,26 @@ pub struct StructDef {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnumDef {
+    pub name: String,
+    pub members: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateTransitionDef {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateMachineDef {
+    pub name: String,
+    pub enum_name: String,
+    pub terminals: Vec<String>,
+    pub transitions: Vec<StateTransitionDef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutableSignature {
     pub input: TypeRef,
     pub output: Option<TypeRef>,
@@ -219,12 +239,20 @@ pub struct MutationDef {
     pub pipelines: Vec<Pipeline>,
 }
 
-/// Fragment: a named, reusable pipeline — like a function
+/// Iterator: a named, reusable executable pipeline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IteratorDef {
+    pub name: String,
+    pub signature: ExecutableSignature,
+    pub directives: Vec<Directive>,
+    pub pipelines: Vec<Pipeline>,
+}
+
+/// Fragment: a named, reusable inline pipeline (non-executable in Phase A).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FragmentDef {
     pub name: String,
     pub signature: ExecutableSignature,
-    pub directives: Vec<Directive>,
     pub pipelines: Vec<Pipeline>,
 }
 
@@ -244,9 +272,12 @@ pub struct SubscriptionDef {
 pub enum Definition {
     Query(QueryDef),
     Mutation(MutationDef),
+    Iterator(IteratorDef),
     Fragment(FragmentDef),
     Subscription(SubscriptionDef),
     Struct(StructDef),
+    Enum(EnumDef),
+    StateMachine(StateMachineDef),
     Schema(SchemaDef),
     ModuleProposal(ModuleProposal),
 }

@@ -1,0 +1,31 @@
+enum DeployStatus { planned, validating, building, testing, canary, rolling, stabilized, failed, rolled_back }
+
+state_machine DeployLifecycle on DeployStatus {
+  transition planned -> validating
+  transition validating -> building
+  transition building -> testing
+  transition testing -> canary
+  transition testing -> failed
+  transition canary -> rolling
+  transition canary -> failed
+  transition rolling -> stabilized
+  transition rolling -> failed
+  transition failed -> rolled_back
+  terminal stabilized
+  terminal rolled_back
+}
+
+struct DeployState {
+  status: DeployStatus
+  service: String
+  priority: String
+  attempt: Float
+  max_attempts: Float
+  test_fail_at: Float
+  canary_fail_at: Float
+  rollback_done: Bool
+  owner?: String
+  artifact?: String
+  timeline?: String
+  notes?: String
+}

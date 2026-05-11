@@ -1,0 +1,151 @@
+import types Release from "./types-release-domain.gr"
+
+query ReleaseControlTower on Release::DeployState -> Release::DeployState {
+  Release::DeployState {
+    status: "planned",
+    service: "billing-api",
+    priority: "critical",
+    attempt: 0.0,
+    max_attempts: 4.0,
+    test_fail_at: 99.0,
+    canary_fail_at: 99.0,
+    rollback_done: false,
+    owner: "release-bot",
+    timeline: "init"
+  }
+  |> RunDeployment
+}
+
+iterator RunDeployment on Release::DeployState -> Release::DeployState @loop(max: 32, merge: "replace") @retry(max: 2, backoff_ms: 25, on_fail: RecordRetryExhaustion) @timeout(ms: 25000, on_timeout: RecordTimeout) {
+  core.echo(message: "deploy:{$current.service}:{$current.status}:attempt={$current.attempt}")
+  |> if $current.status == "stabilized" then return else RouteLifecycle
+}
+
+iterator RouteLifecycle on Release::DeployState -> Release::DeployState {
+  match $current.status {
+    case planned => StartValidation
+    case validating => StartBuild
+    case building => StartTesting
+    case testing => match $current.priority {
+      case critical => DecideTestingOutcome
+      default => PromoteCanary
+    }
+    case canary => DecideCanaryOutcome
+    case rolling => DecideRollingOutcome
+    case failed => RollbackRelease
+    default => ReturnAsIs
+  }
+}
+
+iterator ReturnAsIs on Release::DeployState -> Release::DeployState {
+  MarkNoop
+}
+
+iterator StartValidation on Release::DeployState -> Release::DeployState {
+  MarkValidating
+}
+
+iterator StartBuild on Release::DeployState -> Release::DeployState {
+  MarkBuilding
+}
+
+iterator StartTesting on Release::DeployState -> Release::DeployState {
+  MarkTesting
+}
+
+iterator DecideTestingOutcome on Release::DeployState -> Release::DeployState {
+  if $current.attempt == $current.test_fail_at then FailFromTesting else PromoteCanary
+}
+
+iterator PromoteCanary on Release::DeployState -> Release::DeployState {
+  MarkCanary
+}
+
+iterator FailFromTesting on Release::DeployState -> Release::DeployState {
+  MarkFailedTest
+}
+
+iterator DecideCanaryOutcome on Release::DeployState -> Release::DeployState {
+  if $current.attempt == $current.canary_fail_at then FailFromCanary else PromoteRolling
+}
+
+iterator PromoteRolling on Release::DeployState -> Release::DeployState {
+  MarkRolling
+}
+
+iterator FailFromCanary on Release::DeployState -> Release::DeployState {
+  MarkFailedCanary
+}
+
+iterator DecideRollingOutcome on Release::DeployState -> Release::DeployState {
+  if $current.attempt >= $current.max_attempts then StabilizeRelease else ContinueRolling
+}
+
+iterator ContinueRolling on Release::DeployState -> Release::DeployState {
+  core.inc_field(field: "attempt")
+  |> core.set_fields(fields: { timeline: "rolling-progress" })
+}
+
+iterator StabilizeRelease on Release::DeployState -> Release::DeployState {
+  MarkStabilized
+}
+
+iterator RollbackRelease on Release::DeployState -> Release::DeployState {
+  MarkRolledBack
+}
+
+iterator RecordRetryExhaustion on Release::DeployState -> Release::DeployState {
+  MarkRetryExhausted
+}
+
+iterator RecordTimeout on Release::DeployState -> Release::DeployState {
+  MarkRuntimeTimeout
+}
+
+fragment MarkNoop on Release::DeployState -> Release::DeployState {
+  core.set_fields(fields: { timeline: "noop" })
+}
+
+fragment MarkValidating on Release::DeployState -> Release::DeployState {
+  core.set_fields(fields: { status: "validating", timeline: "validate-config" })
+}
+
+fragment MarkBuilding on Release::DeployState -> Release::DeployState {
+  core.set_fields(fields: { status: "building", artifact: "oci://registry/billing-api:2026.05.10", timeline: "build" })
+}
+
+fragment MarkTesting on Release::DeployState -> Release::DeployState {
+  core.set_fields(fields: { status: "testing", timeline: "integration-test" })
+}
+
+fragment MarkCanary on Release::DeployState -> Release::DeployState {
+  core.set_fields(fields: { status: "canary", timeline: "canary-5pct" })
+}
+
+fragment MarkFailedTest on Release::DeployState -> Release::DeployState {
+  core.set_fields(fields: { status: "failed", notes: "integration regression", timeline: "failed-test" })
+}
+
+fragment MarkRolling on Release::DeployState -> Release::DeployState {
+  core.set_fields(fields: { status: "rolling", timeline: "rollout-25pct" })
+}
+
+fragment MarkFailedCanary on Release::DeployState -> Release::DeployState {
+  core.set_fields(fields: { status: "failed", notes: "canary error budget burn", timeline: "failed-canary" })
+}
+
+fragment MarkStabilized on Release::DeployState -> Release::DeployState {
+  core.set_fields(fields: { status: "stabilized", timeline: "stable-100pct" })
+}
+
+fragment MarkRolledBack on Release::DeployState -> Release::DeployState {
+  core.set_fields(fields: { status: "rolled_back", rollback_done: true, timeline: "rollback" })
+}
+
+fragment MarkRetryExhausted on Release::DeployState -> Release::DeployState {
+  core.set_fields(fields: { notes: "retry budget exhausted", timeline: "runtime-retry-exhausted" })
+}
+
+fragment MarkRuntimeTimeout on Release::DeployState -> Release::DeployState {
+  core.set_fields(fields: { notes: "execution timeout", timeline: "runtime-timeout" })
+}

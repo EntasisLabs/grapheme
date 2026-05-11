@@ -13,11 +13,10 @@ query QueueTriageEach {
 }
 
 iterator Triage on Any @loop(each: "$current.tasks", merge: "append") {
-  flow.branch(
-    when: { field: "priority", eq: "high" },
-    then: EscalateTask,
-    else: StandardTask
-  )
+  match $current.priority {
+    case high, critical => EscalateTask
+    default => StandardTask
+  }
 }
 
 iterator EscalateTask on Any {

@@ -1,0 +1,57 @@
+struct IncidentState {
+  status: String
+  service: String
+  severity: String
+  wait_ticks: Float
+  ack_at: Float
+  pages_sent: Float
+  timeline?: String
+  notes?: String
+}
+
+query Q on IncidentState -> IncidentState {
+  IncidentState {
+    status: "new",
+    service: "checkout",
+    severity: "sev1",
+    wait_ticks: 0.0,
+    ack_at: 2.0,
+    pages_sent: 0.0
+  }
+  |> Run
+}
+
+iterator Run on IncidentState -> IncidentState @core_default @loop(max: 20, merge: "replace") {
+  echo(message: "oc:{$current.service}:{$current.status}:pages={$current.pages_sent}")
+  |> match $current.status {
+    case resolved, exhausted => return
+    default => Step
+  }
+}
+
+iterator Step on IncidentState -> IncidentState {
+  match $current.status {
+    case new => transition $current.status -> paging_l1 { wait_ticks: 0.0, pages_sent: 1.0, timeline: "p1" }
+    case paging_l1 => L1
+    case paging_l2 => L2
+    case paging_manager => Mgr
+    case acknowledged => transition $current.status -> resolved { timeline: "resolved" }
+    default => set { timeline: "noop" }
+  }
+}
+
+iterator L1 on IncidentState -> IncidentState {
+  if $current.wait_ticks >= 1.0 then transition $current.status -> paging_l2 { wait_ticks: 0.0, pages_sent: 2.0, timeline: "p2" } else inc_field(field: "wait_ticks") |> set { timeline: "wait-l1" }
+}
+
+iterator L2 on IncidentState -> IncidentState {
+  if $current.wait_ticks >= 1.0 then transition $current.status -> paging_manager { wait_ticks: 0.0, pages_sent: 3.0, timeline: "p3" } else inc_field(field: "wait_ticks") |> set { timeline: "wait-l2" }
+}
+
+iterator Mgr on IncidentState -> IncidentState {
+  if $current.wait_ticks >= 3.0 then transition $current.status -> exhausted { notes: "no-ack", timeline: "exhausted" } else AckOrWait
+}
+
+iterator AckOrWait on IncidentState -> IncidentState {
+  if $current.wait_ticks >= $current.ack_at then transition $current.status -> acknowledged { timeline: "acked" } else inc_field(field: "wait_ticks") |> set { timeline: "wait-mgr" }
+}

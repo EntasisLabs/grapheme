@@ -165,6 +165,7 @@ impl LanguageServer for Backend {
                 }),
                 definition_provider: Some(OneOf::Left(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
+                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 ..ServerCapabilities::default()
             },
         })
@@ -668,6 +669,68 @@ impl LanguageServer for Backend {
             active_signature: Some(0),
             active_parameter: Some(active_parameter),
         }))
+    }
+
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        let uri = params.text_document.uri;
+        let line_number = params.range.start.line as usize;
+
+        let text = {
+            let docs = self.documents.lock().await;
+            match docs.get(&uri) {
+                Some(content) => content.clone(),
+                None => return Ok(None),
+            }
+        };
+
+        let existing_defs = index_definitions(&text)
+            .into_iter()
+            .map(|d| d.name)
+            .collect::<std::collections::HashSet<_>>();
+
+        let missing_targets = missing_if_branch_targets_at_line(&text, line_number, &existing_defs);
+        if missing_targets.is_empty() {
+            return Ok(None);
+        }
+
+        let (input_type, output_type) = enclosing_executable_signature(&text, line_number)
+            .unwrap_or(("Any".to_string(), None));
+
+        let insert_at = full_document_range(&text).end;
+        let mut actions = Vec::new();
+
+        for target in missing_targets {
+            let new_text = build_iterator_skeleton(&target, &input_type, output_type.as_deref());
+
+            let mut changes = HashMap::new();
+            changes.insert(
+                uri.clone(),
+                vec![TextEdit {
+                    range: Range {
+                        start: insert_at,
+                        end: insert_at,
+                    },
+                    new_text,
+                }],
+            );
+
+            actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                title: format!("Generate iterator '{}'", target),
+                kind: Some(CodeActionKind::QUICKFIX),
+                diagnostics: None,
+                edit: Some(WorkspaceEdit {
+                    changes: Some(changes),
+                    document_changes: None,
+                    change_annotations: None,
+                }),
+                command: None,
+                is_preferred: Some(false),
+                disabled: None,
+                data: None,
+            }));
+        }
+
+        Ok(Some(actions))
     }
 
     async fn semantic_tokens_full(
@@ -1754,6 +1817,85 @@ fn active_user_call_at(line: &str, cursor: usize) -> Option<(String, u32)> {
     let args_so_far = &before[open_idx + 1..];
     let active_parameter = args_so_far.chars().filter(|c| *c == ',').count() as u32;
     Some((token.to_string(), active_parameter))
+}
+
+fn missing_if_branch_targets_at_line(
+    text: &str,
+    line_number: usize,
+    existing_defs: &std::collections::HashSet<String>,
+) -> Vec<String> {
+    let Some(line) = line_at(text, line_number) else {
+        return Vec::new();
+    };
+
+    let Some((then_target, else_target)) = parse_if_step_targets(line) else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for target in [then_target, else_target] {
+        if is_branch_return_target(&target) || existing_defs.contains(&target) {
+            continue;
+        }
+
+        if !out.contains(&target) {
+            out.push(target);
+        }
+    }
+
+    out
+}
+
+fn parse_if_step_targets(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim();
+    if !trimmed.starts_with("if ") {
+        return None;
+    }
+
+    let then_idx = trimmed.find(" then ")?;
+    let else_idx = trimmed[then_idx + 6..].find(" else ")? + then_idx + 6;
+
+    let then_raw = &trimmed[then_idx + 6..else_idx];
+    let else_raw = &trimmed[else_idx + 6..];
+
+    let then_target = parse_branch_target_token(then_raw)?;
+    let else_target = parse_branch_target_token(else_raw)?;
+    Some((then_target, else_target))
+}
+
+fn parse_branch_target_token(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    let token = trimmed
+        .split(|c: char| c.is_ascii_whitespace() || c == ',' || c == ')' || c == '(')
+        .next()
+        .unwrap_or("")
+        .trim();
+
+    if token.is_empty() {
+        return None;
+    }
+
+    if is_ident(token) || token == "return" {
+        Some(token.to_string())
+    } else {
+        None
+    }
+}
+
+fn is_branch_return_target(target: &str) -> bool {
+    target == "return" || target == "$return"
+}
+
+fn build_iterator_skeleton(target: &str, input_type: &str, output_type: Option<&str>) -> String {
+    let signature = match output_type {
+        Some(out) => format!("on {} -> {}", input_type, out),
+        None => format!("on {}", input_type),
+    };
+
+    format!(
+        "\n\niterator {} {} {{\n  core.echo(message: \"todo:{}\")\n}}\n",
+        target, signature, target
+    )
 }
 
 fn workspace_roots_from_initialize(params: &InitializeParams) -> Vec<Url> {

@@ -2,10 +2,11 @@ use grapheme_artifact::{
     ArtifactEnvelope, Capability, CapabilityPolicy, ExecutionOutcome, ExecutionResult, MirFunction,
     MirInst, MirLoopMergeMode, TraceSummary,
 };
-use grapheme_artifact::mir::MirCompareOp;
+use grapheme_artifact::mir::{MirCompareOp, MirMatchTarget};
 use serde_json::{Map, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::time::Instant;
 
 use crate::error::RuntimeError as GraphemeError;
 use crate::host::{CapabilityCall, CapabilityHost, HostCallError};
@@ -243,14 +244,120 @@ impl RuntimeEngine {
         max_call_depth: usize,
     ) -> Result<Option<ExecutionResult>, GraphemeError> {
         let function = &functions[function_idx];
+        let retry_max_attempts = function
+            .retry_config
+            .as_ref()
+            .map(|cfg| cfg.max.max(1) as usize)
+            .unwrap_or(1);
+
+        for attempt in 0..retry_max_attempts {
+            let state_snapshot = state.clone();
+            let step_snapshot = *step_index;
+            let remaining_snapshot = *remaining_steps;
+
+            let result = self.execute_function_once(
+                functions,
+                function_index,
+                function_idx,
+                host,
+                state,
+                step_index,
+                remaining_steps,
+                call_depth,
+                max_call_depth,
+            )?;
+
+            if let Some(result_value) = result {
+                if matches!(result_value.outcome, ExecutionOutcome::RetryableFailure)
+                    && attempt + 1 < retry_max_attempts
+                {
+                    *state = state_snapshot;
+                    *step_index = step_snapshot;
+                    *remaining_steps = remaining_snapshot;
+                    continue;
+                }
+
+                if matches!(result_value.outcome, ExecutionOutcome::RetryableFailure) {
+                    if let Some(retry_cfg) = function.retry_config.as_ref() {
+                        let base_context = StepContext {
+                            function_name: Some(function.name.clone()),
+                            call_depth,
+                            iteration_index: None,
+                            call_target: None,
+                        };
+                        return self.invoke_target(
+                            functions,
+                            function_index,
+                            host,
+                            state,
+                            step_index,
+                            remaining_steps,
+                            call_depth,
+                            max_call_depth,
+                            &retry_cfg.on_fail,
+                            "runtime.retry",
+                            base_context,
+                        );
+                    }
+                }
+
+                return Ok(Some(result_value));
+            }
+
+            return Ok(None);
+        }
+
+        Ok(None)
+    }
+
+    fn execute_function_once(
+        &self,
+        functions: &[MirFunction],
+        function_index: &HashMap<String, usize>,
+        function_idx: usize,
+        host: &mut dyn CapabilityHost,
+        state: &mut AgentState,
+        step_index: &mut usize,
+        remaining_steps: &mut Option<usize>,
+        call_depth: usize,
+        max_call_depth: usize,
+    ) -> Result<Option<ExecutionResult>, GraphemeError> {
+        let function = &functions[function_idx];
         let function_name = function.name.clone();
         let mut loop_frame = LoopFrame::new(function, state);
+        let timeout_started = Instant::now();
 
         for iteration in 0..loop_frame.max_iterations {
             loop_frame.apply_iteration_input(state, iteration);
             let iteration_index = loop_frame.iteration_index(iteration);
             for block in &function.blocks {
                 for inst in &block.instructions {
+                    let base_context = StepContext {
+                        function_name: Some(function_name.clone()),
+                        call_depth,
+                        iteration_index,
+                        call_target: None,
+                    };
+
+                    if let Some(timeout_cfg) = function.timeout_config.as_ref() {
+                        if timeout_started.elapsed().as_millis() >= timeout_cfg.ms as u128 {
+                            loop_frame.apply_merge(state);
+                            return self.invoke_target(
+                                functions,
+                                function_index,
+                                host,
+                                state,
+                                step_index,
+                                remaining_steps,
+                                call_depth,
+                                max_call_depth,
+                                &timeout_cfg.on_timeout,
+                                "runtime.timeout",
+                                base_context,
+                            );
+                        }
+                    }
+
                     if !consume_step_budget(remaining_steps) {
                         return Ok(Some(fail_execution(
                             state,
@@ -259,295 +366,279 @@ impl RuntimeEngine {
                             "STEP_BUDGET_EXCEEDED",
                             "runtime step budget exhausted".to_string(),
                             ExecutionOutcome::FatalFailure,
-                            StepContext {
-                                function_name: Some(function_name.clone()),
-                                call_depth,
-                                iteration_index,
-                                call_target: None,
-                            },
+                            base_context,
                         )));
                     }
 
                     match inst {
-                    MirInst::Call {
-                        module,
-                        op,
-                        capability,
-                        arg_count,
-                        args,
-                        ..
-                    } => {
-                        let base_context = StepContext {
-                            function_name: Some(function_name.clone()),
-                            call_depth,
-                            iteration_index,
-                            call_target: None,
-                        };
+                        MirInst::Call {
+                            module,
+                            op,
+                            capability,
+                            arg_count,
+                            args,
+                            ..
+                        } => {
+                            let base_context = StepContext {
+                                function_name: Some(function_name.clone()),
+                                call_depth,
+                                iteration_index,
+                                call_target: None,
+                            };
 
-                        if !self.options.capability_policy.is_allowed(capability) {
-                            let message =
-                                format!("capability '{}' denied by runtime policy", capability.0);
-                            return Ok(Some(fail_execution(
-                                state,
-                                *step_index,
-                                capability,
-                                "CAPABILITY_DENIED",
-                                message,
-                                ExecutionOutcome::FatalFailure,
-                                base_context,
-                            )));
-                        }
-
-                        if is_call_step(module) {
-                            let call_max_depth = resolve_call_max_depth(args, max_call_depth)?;
-                            if call_depth + 1 > call_max_depth {
-                                let message = format!(
-                                    "max call depth exceeded while invoking '{}': depth {} > max_depth {}",
-                                    op,
-                                    call_depth + 1,
-                                    call_max_depth
-                                );
+                            if !self.options.capability_policy.is_allowed(capability) {
+                                let message =
+                                    format!("capability '{}' denied by runtime policy", capability.0);
                                 return Ok(Some(fail_execution(
                                     state,
                                     *step_index,
                                     capability,
-                                    "MAX_CALL_DEPTH_EXCEEDED",
+                                    "CAPABILITY_DENIED",
                                     message,
                                     ExecutionOutcome::FatalFailure,
                                     base_context,
                                 )));
                             }
 
-                            let target_index = function_index.get(op.as_str()).copied().ok_or_else(|| {
-                                GraphemeError::RuntimeError(format!(
-                                    "call target '{}' not found in artifact MIR",
-                                    op
-                                ))
-                            })?;
-
-                            if let Some(result) = self.execute_function(
-                                functions,
-                                function_index,
-                                target_index,
-                                host,
-                                state,
-                                step_index,
-                                remaining_steps,
-                                call_depth + 1,
-                                call_max_depth,
-                            )? {
-                                return Ok(Some(result));
+                            if is_call_step(module) {
+                                let call_max_depth = resolve_call_max_depth(args, max_call_depth)?;
+                                if let Some(result) = self.invoke_target(
+                                    functions,
+                                    function_index,
+                                    host,
+                                    state,
+                                    step_index,
+                                    remaining_steps,
+                                    call_depth,
+                                    call_max_depth,
+                                    op,
+                                    &capability.0,
+                                    base_context,
+                                )? {
+                                    return Ok(Some(result));
+                                }
+                                continue;
                             }
 
-                            state.record_passthrough_in_place(
-                                *step_index,
-                                capability.0.clone(),
-                                StepContext {
-                                    call_target: Some(op.clone()),
-                                    ..base_context
-                                },
-                            );
-                            *step_index += 1;
-                            continue;
-                        }
+                            let resolved = self
+                                .options
+                                .module_registry
+                                .resolve_call(module.as_deref(), op, &capability.0)
+                                .ok_or_else(|| {
+                                    GraphemeError::RuntimeError(format!(
+                                        "module/op not registered for capability '{}': module={:?}, op={}",
+                                        capability.0, module, op
+                                    ))
+                                })?;
 
-                        let resolved = self
-                            .options
-                            .module_registry
-                            .resolve_call(module.as_deref(), op, &capability.0)
-                            .ok_or_else(|| {
-                                GraphemeError::RuntimeError(format!(
-                                    "module/op not registered for capability '{}': module={:?}, op={}",
-                                    capability.0, module, op
-                                ))
-                            })?;
+                            let call_args = args_with_pipeline_input(args, &state.current);
 
-                        let call_args = args_with_pipeline_input(args, &state.current);
-
-                        if let Err(err) = self.options.policy_guard.check(&resolved, &call_args) {
-                            return Ok(Some(fail_execution(
-                                state,
-                                *step_index,
-                                capability,
-                                "POLICY_DENIED",
-                                err.to_string(),
-                                ExecutionOutcome::FatalFailure,
-                                base_context.clone(),
-                            )));
-                        }
-
-                        if let Some(input) = call_args.get("__input") {
-                            if let Some(error) = input.get("error") {
+                            if let Err(err) = self.options.policy_guard.check(&resolved, &call_args) {
                                 return Ok(Some(fail_execution(
                                     state,
                                     *step_index,
                                     capability,
-                                    "EXECUTION_ERROR",
-                                    error.to_string(),
+                                    "POLICY_DENIED",
+                                    err.to_string(),
                                     ExecutionOutcome::FatalFailure,
                                     base_context.clone(),
                                 )));
                             }
-                        }
 
-                        let output = match resolved.abi {
-                            ModuleAbi::MirV1 => {
-                                let call = CapabilityCall {
-                                    module: module.clone(),
-                                    op: op.clone(),
-                                    capability: capability.0.clone(),
-                                    arg_count: *arg_count,
-                                    args: call_args.clone(),
-                                    step_index: *step_index,
-                                };
+                            if let Some(input) = call_args.get("__input") {
+                                if let Some(error) = input.get("error") {
+                                    return Ok(Some(fail_execution(
+                                        state,
+                                        *step_index,
+                                        capability,
+                                        "EXECUTION_ERROR",
+                                        error.to_string(),
+                                        ExecutionOutcome::FatalFailure,
+                                        base_context.clone(),
+                                    )));
+                                }
+                            }
 
-                                match host.call(&call) {
-                                    Ok(output) => output,
-                                    Err(HostCallError::Retryable(message)) => {
-                                        return Ok(Some(fail_execution(
-                                            state,
-                                            *step_index,
-                                            capability,
-                                            "RETRYABLE",
-                                            message,
-                                            ExecutionOutcome::RetryableFailure,
-                                            base_context.clone(),
-                                        )));
+                            let output = match resolved.abi {
+                                ModuleAbi::MirV1 => {
+                                    let call = CapabilityCall {
+                                        module: module.clone(),
+                                        op: op.clone(),
+                                        capability: capability.0.clone(),
+                                        arg_count: *arg_count,
+                                        args: call_args.clone(),
+                                        step_index: *step_index,
+                                    };
+
+                                    match host.call(&call) {
+                                        Ok(output) => output,
+                                        Err(HostCallError::Retryable(message)) => {
+                                            return Ok(Some(fail_execution(
+                                                state,
+                                                *step_index,
+                                                capability,
+                                                "RETRYABLE",
+                                                message,
+                                                ExecutionOutcome::RetryableFailure,
+                                                base_context.clone(),
+                                            )));
+                                        }
+                                        Err(HostCallError::Fatal(message)) => {
+                                            return Ok(Some(fail_execution(
+                                                state,
+                                                *step_index,
+                                                capability,
+                                                "FATAL",
+                                                message,
+                                                ExecutionOutcome::FatalFailure,
+                                                base_context.clone(),
+                                            )));
+                                        }
                                     }
-                                    Err(HostCallError::Fatal(message)) => {
-                                        return Ok(Some(fail_execution(
-                                            state,
-                                            *step_index,
-                                            capability,
-                                            "FATAL",
-                                            message,
-                                            ExecutionOutcome::FatalFailure,
-                                            base_context.clone(),
-                                        )));
+                                }
+                                ModuleAbi::WasixV1 | ModuleAbi::WasixWitV15 => {
+                                    #[cfg(feature = "wasix-runtime")]
+                                    {
+                                        let path = resolved.wasm_path.as_deref().ok_or_else(|| {
+                                            GraphemeError::RuntimeError(format!(
+                                                "module '{}' requires wasm binding for op '{}'",
+                                                resolved.module_id, resolved.op
+                                            ))
+                                        })?;
+                                        self.wasix_backend.execute_call(path, &resolved, &call_args)?
+                                    }
+
+                                    #[cfg(not(feature = "wasix-runtime"))]
+                                    {
+                                        return Err(GraphemeError::RuntimeError(
+                                            "runtime built without wasix-runtime feature".to_string(),
+                                        ));
                                     }
                                 }
-                            }
-                            ModuleAbi::WasixV1 | ModuleAbi::WasixWitV15 => {
-                                #[cfg(feature = "wasix-runtime")]
-                                {
-                                    let path = resolved.wasm_path.as_deref().ok_or_else(|| {
-                                        GraphemeError::RuntimeError(format!(
-                                            "module '{}' requires wasm binding for op '{}'",
-                                            resolved.module_id, resolved.op
-                                        ))
-                                    })?;
-                                    // Transitional behavior: WIT ABI modules use the same backend path
-                                    // until typed component-model invocation is implemented.
-                                    self.wasix_backend.execute_call(path, &resolved, &call_args)?
-                                }
+                            };
 
-                                #[cfg(not(feature = "wasix-runtime"))]
-                                {
-                                    return Err(GraphemeError::RuntimeError(
-                                        "runtime built without wasix-runtime feature".to_string(),
-                                    ));
-                                }
-                            }
-                        };
-
-                        if self.options.stream_step_output {
-                            emit_streamed_step_output(op, &base_context, &output);
-                        }
-
-                        state.advance_in_place_with_context(
-                            *step_index,
-                            capability.0.clone(),
-                            output,
-                            base_context,
-                        );
-                        *step_index += 1;
-                        }
-                    MirInst::BranchCall {
-                        field,
-                        cmp,
-                        value,
-                        then_target,
-                        else_target,
-                        max_depth,
-                    } => {
-                        let base_context = StepContext {
-                            function_name: Some(function_name.clone()),
-                            call_depth,
-                            iteration_index,
-                            call_target: None,
-                        };
-
-                        let compare_to = resolve_current_templates(value, &state.current);
-                        let branch_matches = select_json_path(&state.current, field)
-                            .map(|current_value| branch_compare(current_value, cmp, &compare_to))
-                            .unwrap_or(false);
-
-                        let target = if branch_matches {
-                            Some(then_target.as_str())
-                        } else {
-                            else_target.as_deref()
-                        };
-
-                        if let Some(target) = target {
-                            if target == "$return" {
-                                loop_frame.apply_merge(state);
-                                return Ok(None);
+                            if self.options.stream_step_output {
+                                emit_streamed_step_output(op, &base_context, &output);
                             }
 
-                            let call_max_depth = max_depth
-                                .map(|v| v as usize)
-                                .unwrap_or(max_call_depth);
-
-                            if call_depth + 1 > call_max_depth {
-                                let message = format!(
-                                    "max call depth exceeded while invoking '{}': depth {} > max_depth {}",
-                                    target,
-                                    call_depth + 1,
-                                    call_max_depth
-                                );
-                                return Ok(Some(fail_execution(
-                                    state,
-                                    *step_index,
-                                    &Capability::from_module_op("flow", "branch"),
-                                    "MAX_CALL_DEPTH_EXCEEDED",
-                                    message,
-                                    ExecutionOutcome::FatalFailure,
-                                    base_context,
-                                )));
-                            }
-
-                            let target_index = function_index.get(target).copied().ok_or_else(|| {
-                                GraphemeError::RuntimeError(format!(
-                                    "call target '{}' not found in artifact MIR",
-                                    target
-                                ))
-                            })?;
-
-                            if let Some(result) = self.execute_function(
-                                functions,
-                                function_index,
-                                target_index,
-                                host,
-                                state,
-                                step_index,
-                                remaining_steps,
-                                call_depth + 1,
-                                call_max_depth,
-                            )? {
-                                return Ok(Some(result));
-                            }
-
-                            state.record_passthrough_in_place(
+                            state.advance_in_place_with_context(
                                 *step_index,
-                                "flow.branch".to_string(),
-                                StepContext {
-                                    call_target: Some(target.to_string()),
-                                    ..base_context
-                                },
+                                capability.0.clone(),
+                                output,
+                                base_context,
                             );
                             *step_index += 1;
                         }
-                    }
+                        MirInst::BranchCall {
+                            field,
+                            cmp,
+                            value,
+                            then_target,
+                            else_target,
+                            max_depth,
+                        } => {
+                            let base_context = StepContext {
+                                function_name: Some(function_name.clone()),
+                                call_depth,
+                                iteration_index,
+                                call_target: None,
+                            };
+
+                            let compare_to = resolve_current_templates(value, &state.current);
+                            let branch_matches = select_json_path(&state.current, field)
+                                .map(|current_value| branch_compare(current_value, cmp, &compare_to))
+                                .unwrap_or(false);
+
+                            let target = if branch_matches {
+                                Some(then_target.as_str())
+                            } else {
+                                else_target.as_deref()
+                            };
+
+                            if let Some(target) = target {
+                                if target == "$return" {
+                                    loop_frame.apply_merge(state);
+                                    return Ok(None);
+                                }
+
+                                let call_max_depth = max_depth
+                                    .map(|v| v as usize)
+                                    .unwrap_or(max_call_depth);
+
+                                if let Some(result) = self.invoke_target(
+                                    functions,
+                                    function_index,
+                                    host,
+                                    state,
+                                    step_index,
+                                    remaining_steps,
+                                    call_depth,
+                                    call_max_depth,
+                                    target,
+                                    "flow.branch",
+                                    base_context,
+                                )? {
+                                    return Ok(Some(result));
+                                }
+                            }
+                        }
+                        MirInst::MatchCall {
+                            field,
+                            cases,
+                            default_target,
+                            max_depth,
+                        } => {
+                            let base_context = StepContext {
+                                function_name: Some(function_name.clone()),
+                                call_depth,
+                                iteration_index,
+                                call_target: None,
+                            };
+
+                            let compare_value = select_json_path(&state.current, field);
+                            let mut chosen = None;
+
+                            if let Some(current_value) = compare_value {
+                                for case in cases {
+                                    let expected = resolve_current_templates(&case.eq, &state.current);
+                                    if current_value == &expected {
+                                        chosen = Some(&case.then_target);
+                                        break;
+                                    }
+                                }
+                            }
+
+                            let resolved_target = chosen
+                                .and_then(|target| resolve_match_target(&state.current, target))
+                                .or_else(|| resolve_match_target(&state.current, default_target));
+
+                            if let Some(target) = resolved_target {
+                                if target == "$return" {
+                                    loop_frame.apply_merge(state);
+                                    return Ok(None);
+                                }
+
+                                let call_max_depth = max_depth
+                                    .map(|v| v as usize)
+                                    .unwrap_or(max_call_depth);
+
+                                if let Some(result) = self.invoke_target(
+                                    functions,
+                                    function_index,
+                                    host,
+                                    state,
+                                    step_index,
+                                    remaining_steps,
+                                    call_depth,
+                                    call_max_depth,
+                                    &target,
+                                    "flow.match",
+                                    base_context,
+                                )? {
+                                    return Ok(Some(result));
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -562,6 +653,99 @@ impl RuntimeEngine {
         loop_frame.apply_merge(state);
 
         Ok(None)
+    }
+
+    fn invoke_target(
+        &self,
+        functions: &[MirFunction],
+        function_index: &HashMap<String, usize>,
+        host: &mut dyn CapabilityHost,
+        state: &mut AgentState,
+        step_index: &mut usize,
+        remaining_steps: &mut Option<usize>,
+        call_depth: usize,
+        max_call_depth: usize,
+        target: &str,
+        capability_label: &str,
+        base_context: StepContext,
+    ) -> Result<Option<ExecutionResult>, GraphemeError> {
+        if target == "$return" {
+            return Ok(None);
+        }
+
+        if call_depth + 1 > max_call_depth {
+            let message = format!(
+                "max call depth exceeded while invoking '{}': depth {} > max_depth {}",
+                target,
+                call_depth + 1,
+                max_call_depth
+            );
+            return Ok(Some(fail_execution(
+                state,
+                *step_index,
+                &Capability::from_module_op("runtime", "call_depth"),
+                "MAX_CALL_DEPTH_EXCEEDED",
+                message,
+                ExecutionOutcome::FatalFailure,
+                base_context,
+            )));
+        }
+
+        let target_index = function_index.get(target).copied().ok_or_else(|| {
+            GraphemeError::RuntimeError(format!(
+                "call target '{}' not found in artifact MIR",
+                target
+            ))
+        })?;
+
+        if let Some(result) = self.execute_function(
+            functions,
+            function_index,
+            target_index,
+            host,
+            state,
+            step_index,
+            remaining_steps,
+            call_depth + 1,
+            max_call_depth,
+        )? {
+            return Ok(Some(result));
+        }
+
+        state.record_passthrough_in_place(
+            *step_index,
+            capability_label.to_string(),
+            StepContext {
+                call_target: Some(target.to_string()),
+                ..base_context
+            },
+        );
+        *step_index += 1;
+
+        Ok(None)
+    }
+}
+
+fn resolve_match_target(current: &JsonValue, target: &MirMatchTarget) -> Option<String> {
+    match target {
+        MirMatchTarget::Target(target) => Some(target.clone()),
+        MirMatchTarget::Nested {
+            field,
+            cases,
+            default_target,
+        } => {
+            let compare_value = select_json_path(current, field);
+            if let Some(current_value) = compare_value {
+                for case in cases {
+                    let expected = resolve_current_templates(&case.eq, current);
+                    if current_value == &expected {
+                        return resolve_match_target(current, &case.then_target);
+                    }
+                }
+            }
+
+            resolve_match_target(current, default_target)
+        }
     }
 }
 
@@ -1152,6 +1336,8 @@ mod tests {
         let function = MirFunction {
             name: "Main".to_string(),
             kind: MirFunctionKind::Fragment,
+            retry_config: None,
+            timeout_config: None,
             loop_config: Some(MirLoopConfig {
                 max: Some(max),
                 each: None,

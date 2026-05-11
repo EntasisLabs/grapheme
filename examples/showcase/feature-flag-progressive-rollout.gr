@@ -1,0 +1,52 @@
+struct FlagState {
+  status: String
+  flag: String
+  rollout: Float
+  canary_score: Float
+  min_score: Float
+  timeline?: String
+  notes?: String
+}
+
+query Q on FlagState -> FlagState {
+  FlagState {
+    status: "planned",
+    flag: "checkout_v2",
+    rollout: 0.0,
+    canary_score: 98.0,
+    min_score: 95.0
+  }
+  |> Run
+}
+
+iterator Run on FlagState -> FlagState @core_default @loop(max: 20, merge: "replace") {
+  echo(message: "ff:{$current.flag}:{$current.status}:{$current.rollout}%")
+  |> match $current.status {
+    case done, rolled_back => return
+    default => Step
+  }
+}
+
+iterator Step on FlagState -> FlagState {
+  match $current.status {
+    case planned => transition $current.status -> ramp_1 { rollout: 1.0, timeline: "1%" }
+    case ramp_1 => Gate10
+    case ramp_10 => Gate50
+    case ramp_50 => Gate100
+    case ramp_100 => transition $current.status -> done { timeline: "100%" }
+    case rollback => transition $current.status -> rolled_back { rollout: 0.0, timeline: "rb" }
+    default => set { timeline: "noop" }
+  }
+}
+
+iterator Gate10 on FlagState -> FlagState {
+  if $current.canary_score < $current.min_score then transition $current.status -> rollback { notes: "bad@10", timeline: "rb-10" } else transition $current.status -> ramp_10 { rollout: 10.0, timeline: "10%" }
+}
+
+iterator Gate50 on FlagState -> FlagState {
+  if $current.canary_score < $current.min_score then transition $current.status -> rollback { notes: "bad@50", timeline: "rb-50" } else transition $current.status -> ramp_50 { rollout: 50.0, timeline: "50%" }
+}
+
+iterator Gate100 on FlagState -> FlagState {
+  if $current.canary_score < $current.min_score then transition $current.status -> rollback { notes: "bad@100", timeline: "rb-100" } else transition $current.status -> ramp_100 { rollout: 100.0, timeline: "100%" }
+}

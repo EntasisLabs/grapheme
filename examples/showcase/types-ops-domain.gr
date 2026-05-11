@@ -1,0 +1,25 @@
+enum JobStatus { queued, running, blocked, done, timeout }
+
+state_machine JobLifecycle on JobStatus {
+  transition queued -> running
+  transition running -> blocked
+  transition blocked -> running
+  transition running -> done
+  transition running -> timeout
+  terminal done
+  terminal timeout
+}
+
+struct JobState {
+  status: JobStatus
+  priority: String
+  attempt: Float
+  max_attempts: Float
+  ready_at: Float
+  failure_at: Float
+  escalated: Bool
+  owner?: String
+  last_error?: String
+  result?: String
+  timeline?: String
+}

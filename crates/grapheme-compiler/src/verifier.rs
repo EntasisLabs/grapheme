@@ -3,7 +3,7 @@ use grapheme_artifact::{CapabilityPolicy, MirProgram};
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
 
-use super::hir::{HirExecutableKind, HirProgram, HirStep};
+use super::hir::{HirExecutable, HirExecutableKind, HirProgram, HirStateMachineDef, HirStep};
 use crate::ast::TypeRef;
 use crate::ast::ImportKind;
 
@@ -207,6 +207,12 @@ pub fn verify_hir(hir: &HirProgram) -> Result<(), GraphemeError> {
         .map(|d| d.name.clone())
         .collect();
 
+    let executable_by_name = hir
+        .executable_defs
+        .iter()
+        .map(|d| (d.name.clone(), d))
+        .collect::<HashMap<_, _>>();
+
     let struct_fields_by_name = hir
         .struct_defs
         .iter()
@@ -221,6 +227,38 @@ pub fn verify_hir(hir: &HirProgram) -> Result<(), GraphemeError> {
             )
         })
         .collect::<HashMap<_, _>>();
+
+    let struct_field_types_by_name = hir
+        .struct_defs
+        .iter()
+        .map(|struct_def| {
+            (
+                struct_def.name.clone(),
+                struct_def
+                    .fields
+                    .iter()
+                    .map(|field| (field.name.clone(), field.type_ref.clone()))
+                    .collect::<HashMap<_, _>>(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+
+    let enum_members_by_name = hir
+        .enum_defs
+        .iter()
+        .map(|enum_def| {
+            (
+                enum_def.name.clone(),
+                enum_def
+                    .members
+                    .iter()
+                    .cloned()
+                    .collect::<HashSet<_>>(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+
+    let state_machines_by_enum = index_state_machines_by_enum(&hir.state_machines)?;
 
     let required_struct_fields_by_name = hir
         .struct_defs
@@ -242,6 +280,7 @@ pub fn verify_hir(hir: &HirProgram) -> Result<(), GraphemeError> {
         .struct_defs
         .iter()
         .map(|struct_def| struct_def.name.clone())
+        .chain(hir.enum_defs.iter().map(|enum_def| enum_def.name.clone()))
         .collect::<HashSet<_>>();
 
     let imported_type_namespaces = hir
@@ -252,6 +291,7 @@ pub fn verify_hir(hir: &HirProgram) -> Result<(), GraphemeError> {
         .collect::<HashSet<_>>();
 
     verify_known_type_refs(hir, &known_type_names, &imported_type_namespaces)?;
+    verify_state_machines(hir, &enum_members_by_name)?;
 
     for def in &hir.executable_defs {
         if def.name.trim().is_empty() {
@@ -285,7 +325,30 @@ pub fn verify_hir(hir: &HirProgram) -> Result<(), GraphemeError> {
                     &executable_names,
                     def.recursive_directive_count > 0,
                 )?;
-                verify_flow_branch_step(&def.name, i, step_idx, step, &executable_names)?;
+                verify_flow_branch_step(
+                    &def.name,
+                    i,
+                    step_idx,
+                    step,
+                    &executable_names,
+                    &executable_by_name,
+                    def.input_type.as_ref(),
+                    &struct_field_types_by_name,
+                    &enum_members_by_name,
+                    &state_machines_by_enum,
+                )?;
+                verify_flow_match_step(
+                    &def.name,
+                    i,
+                    step_idx,
+                    step,
+                    &executable_names,
+                    &executable_by_name,
+                    def.input_type.as_ref(),
+                    &struct_field_types_by_name,
+                    &enum_members_by_name,
+                    &state_machines_by_enum,
+                )?;
                 verify_typed_current_field_access(
                     &def.name,
                     i,
@@ -295,6 +358,16 @@ pub fn verify_hir(hir: &HirProgram) -> Result<(), GraphemeError> {
                     &struct_fields_by_name,
                 )?;
             }
+
+            verify_state_machine_transitions_in_pipeline(
+                &def.name,
+                i,
+                pipeline.steps.as_slice(),
+                def.input_type.as_ref(),
+                &struct_field_types_by_name,
+                &enum_members_by_name,
+                &state_machines_by_enum,
+            )?;
 
             verify_typed_output_field_population(
                 &def.name,
@@ -309,6 +382,8 @@ pub fn verify_hir(hir: &HirProgram) -> Result<(), GraphemeError> {
 
         verify_loop_directive(def)?;
         verify_recursive_directive(def)?;
+        verify_retry_directive(def, &executable_names)?;
+        verify_timeout_directive(def, &executable_names)?;
     }
 
     Ok(())
@@ -475,6 +550,227 @@ fn verify_type_ref_known(
     }
 
     Ok(())
+}
+
+fn verify_state_machines(
+    hir: &HirProgram,
+    enum_members_by_name: &HashMap<String, HashSet<String>>,
+) -> Result<(), GraphemeError> {
+    for sm in &hir.state_machines {
+        verify_state_machine(sm, enum_members_by_name)?;
+    }
+
+    Ok(())
+}
+
+fn verify_state_machine(
+    sm: &HirStateMachineDef,
+    enum_members_by_name: &HashMap<String, HashSet<String>>,
+) -> Result<(), GraphemeError> {
+    let members = enum_members_by_name.get(&sm.enum_name).ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "state_machine '{}' references unknown enum '{}'",
+            sm.name, sm.enum_name
+        ))
+    })?;
+
+    let terminal_set = sm.terminals.iter().cloned().collect::<HashSet<_>>();
+    for terminal in &sm.terminals {
+        if !members.contains(terminal) {
+            return Err(GraphemeError::TypeError(format!(
+                "state_machine '{}' terminal '{}' is not a member of enum '{}'",
+                sm.name, terminal, sm.enum_name
+            )));
+        }
+    }
+
+    let mut transition_pairs = HashSet::new();
+    let mut outgoing = HashMap::<String, HashSet<String>>::new();
+    for t in &sm.transitions {
+        if !members.contains(&t.from) {
+            return Err(GraphemeError::TypeError(format!(
+                "state_machine '{}' transition from '{}' is not a member of enum '{}'",
+                sm.name, t.from, sm.enum_name
+            )));
+        }
+        if !members.contains(&t.to) {
+            return Err(GraphemeError::TypeError(format!(
+                "state_machine '{}' transition to '{}' is not a member of enum '{}'",
+                sm.name, t.to, sm.enum_name
+            )));
+        }
+        if terminal_set.contains(&t.from) {
+            return Err(GraphemeError::TypeError(format!(
+                "state_machine '{}' transition '{}' -> '{}' is invalid: terminals cannot have outgoing transitions",
+                sm.name, t.from, t.to
+            )));
+        }
+
+        if !transition_pairs.insert((t.from.clone(), t.to.clone())) {
+            return Err(GraphemeError::TypeError(format!(
+                "state_machine '{}' has duplicate transition '{} -> {}'",
+                sm.name, t.from, t.to
+            )));
+        }
+
+        outgoing
+            .entry(t.from.clone())
+            .or_default()
+            .insert(t.to.clone());
+    }
+
+    let mut missing = members
+        .iter()
+        .filter(|m| !terminal_set.contains(*m) && !outgoing.contains_key(*m))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if !missing.is_empty() {
+        missing.sort();
+        return Err(GraphemeError::TypeError(format!(
+            "state_machine '{}' non-terminal states without outgoing transitions: {}",
+            sm.name,
+            missing.join(", ")
+        )));
+    }
+
+    Ok(())
+}
+
+fn index_state_machines_by_enum(
+    state_machines: &[HirStateMachineDef],
+) -> Result<HashMap<String, HirStateMachineDef>, GraphemeError> {
+    let mut out = HashMap::new();
+    for sm in state_machines {
+        if let Some(existing) = out.insert(sm.enum_name.clone(), sm.clone()) {
+            return Err(GraphemeError::TypeError(format!(
+                "multiple state_machines declared for enum '{}': '{}' and '{}'",
+                sm.enum_name, existing.name, sm.name
+            )));
+        }
+    }
+    Ok(out)
+}
+
+fn verify_state_machine_transitions_in_pipeline(
+    def_name: &str,
+    pipeline_idx: usize,
+    steps: &[HirStep],
+    input_type: Option<&TypeRef>,
+    struct_field_types_by_name: &HashMap<String, HashMap<String, TypeRef>>,
+    enum_members_by_name: &HashMap<String, HashSet<String>>,
+    state_machines_by_enum: &HashMap<String, HirStateMachineDef>,
+) -> Result<(), GraphemeError> {
+    let Some(TypeRef::Named(input_type_name, _)) = input_type else {
+        return Ok(());
+    };
+
+    let Some(field_types) = struct_field_types_by_name.get(input_type_name) else {
+        return Ok(());
+    };
+
+    let mut field_context = HashMap::<String, (&HirStateMachineDef, &HashSet<String>)>::new();
+    for (field_name, type_ref) in field_types {
+        let TypeRef::Named(enum_name, _) = type_ref else {
+            continue;
+        };
+
+        let Some(sm) = state_machines_by_enum.get(enum_name) else {
+            continue;
+        };
+        let Some(members) = enum_members_by_name.get(enum_name) else {
+            continue;
+        };
+
+        field_context.insert(field_name.clone(), (sm, members));
+    }
+
+    if field_context.is_empty() {
+        return Ok(());
+    }
+
+    let mut last_literal_state = HashMap::<String, String>::new();
+
+    for (step_idx, step) in steps.iter().enumerate() {
+        let Some(module) = step.module.as_deref() else {
+            continue;
+        };
+
+        if !module.eq_ignore_ascii_case("core") {
+            continue;
+        }
+
+        let Some(args_obj) = step.args.as_object() else {
+            continue;
+        };
+
+        let literal_patch = match step.op.as_str() {
+            "merge" => args_obj.get("right").and_then(|v| v.as_object()),
+            "set_fields" => args_obj.get("fields").and_then(|v| v.as_object()),
+            _ => None,
+        };
+
+        let Some(literal_patch) = literal_patch else {
+            continue;
+        };
+
+        for (field, value) in literal_patch {
+            let Some((sm, members)) = field_context.get(field) else {
+                continue;
+            };
+
+            let Some(next_state) = parse_literal_member(value) else {
+                // Dynamic values cannot be statically transition-checked.
+                continue;
+            };
+
+            if !members.contains(next_state) {
+                return Err(GraphemeError::TypeError(format!(
+                    "definition '{}', pipeline {}, step {}: field '{}' assigns unknown enum member '{}' for enum '{}'",
+                    def_name, pipeline_idx, step_idx, field, next_state, sm.enum_name
+                )));
+            }
+
+            if let Some(prev_state) = last_literal_state.get(field) {
+                if prev_state == next_state {
+                    continue;
+                }
+
+                if sm.terminals.iter().any(|t| t == prev_state) {
+                    return Err(GraphemeError::TypeError(format!(
+                        "definition '{}', pipeline {}, step {}: invalid transition for field '{}' from terminal state '{}' to '{}' in state_machine '{}'",
+                        def_name, pipeline_idx, step_idx, field, prev_state, next_state, sm.name
+                    )));
+                }
+
+                let allowed = sm
+                    .transitions
+                    .iter()
+                    .any(|t| t.from == *prev_state && t.to == next_state);
+                if !allowed {
+                    return Err(GraphemeError::TypeError(format!(
+                        "definition '{}', pipeline {}, step {}: invalid transition for field '{}' from '{}' to '{}' in state_machine '{}'",
+                        def_name, pipeline_idx, step_idx, field, prev_state, next_state, sm.name
+                    )));
+                }
+            }
+
+            last_literal_state.insert(field.clone(), next_state.to_string());
+        }
+    }
+
+    Ok(())
+}
+
+fn parse_literal_member(value: &JsonValue) -> Option<&str> {
+    if let Some(s) = value.as_str() {
+        return Some(s);
+    }
+
+    value
+        .as_object()
+        .and_then(|obj| obj.get("$symbol"))
+        .and_then(|v| v.as_str())
 }
 
 fn verify_typed_current_field_access(
@@ -729,6 +1025,163 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
     Ok(())
 }
 
+fn verify_retry_directive(
+    def: &super::hir::HirExecutable,
+    executable_names: &HashSet<String>,
+) -> Result<(), GraphemeError> {
+    if def.retry_directive_count == 0 {
+        return Ok(());
+    }
+
+    if def.retry_directive_count > 1 {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}': multiple @retry directives are not allowed",
+            def.name
+        )));
+    }
+
+    if !matches!(def.kind, HirExecutableKind::Fragment) {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}': @retry is only allowed on iterator definitions",
+            def.name
+        )));
+    }
+
+    let args = def.retry_args.as_ref().and_then(|v| v.as_object()).ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "definition '{}': @retry requires named args",
+            def.name
+        ))
+    })?;
+
+    for key in args.keys() {
+        if key != "max" && key != "backoff_ms" && key != "on_fail" {
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}': @retry unknown arg '{}'",
+                def.name, key
+            )));
+        }
+    }
+
+    let max = args.get("max").and_then(|v| v.as_i64()).ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "definition '{}': @retry max must be an integer",
+            def.name
+        ))
+    })?;
+    if max < 1 {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}': @retry max must be >= 1",
+            def.name
+        )));
+    }
+
+    if let Some(backoff_ms) = args.get("backoff_ms") {
+        let value = backoff_ms.as_i64().ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}': @retry backoff_ms must be an integer",
+                def.name
+            ))
+        })?;
+        if value < 0 {
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}': @retry backoff_ms must be >= 0",
+                def.name
+            )));
+        }
+    }
+
+    let on_fail = args
+        .get("on_fail")
+        .and_then(|v| parse_branch_target(Some(v)))
+        .ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "definition '{}': @retry on_fail must be a target (string or symbol)",
+            def.name
+        ))
+    })?;
+
+    if on_fail != "$return" && !executable_names.contains(&on_fail) {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}': @retry on_fail target '{}' not found",
+            def.name, on_fail
+        )));
+    }
+
+    Ok(())
+}
+
+fn verify_timeout_directive(
+    def: &super::hir::HirExecutable,
+    executable_names: &HashSet<String>,
+) -> Result<(), GraphemeError> {
+    if def.timeout_directive_count == 0 {
+        return Ok(());
+    }
+
+    if def.timeout_directive_count > 1 {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}': multiple @timeout directives are not allowed",
+            def.name
+        )));
+    }
+
+    if !matches!(def.kind, HirExecutableKind::Fragment) {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}': @timeout is only allowed on iterator definitions",
+            def.name
+        )));
+    }
+
+    let args = def.timeout_args.as_ref().and_then(|v| v.as_object()).ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "definition '{}': @timeout requires named args",
+            def.name
+        ))
+    })?;
+
+    for key in args.keys() {
+        if key != "ms" && key != "on_timeout" {
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}': @timeout unknown arg '{}'",
+                def.name, key
+            )));
+        }
+    }
+
+    let ms = args.get("ms").and_then(|v| v.as_i64()).ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "definition '{}': @timeout ms must be an integer",
+            def.name
+        ))
+    })?;
+    if ms < 1 {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}': @timeout ms must be >= 1",
+            def.name
+        )));
+    }
+
+    let on_timeout = args
+        .get("on_timeout")
+        .and_then(|v| parse_branch_target(Some(v)))
+        .ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "definition '{}': @timeout on_timeout must be a target (string or symbol)",
+            def.name
+        ))
+    })?;
+
+    if on_timeout != "$return" && !executable_names.contains(&on_timeout) {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}': @timeout on_timeout target '{}' not found",
+            def.name, on_timeout
+        )));
+    }
+
+    Ok(())
+}
+
 fn verify_call_step(
     def_name: &str,
     pipeline_idx: usize,
@@ -872,6 +1325,11 @@ fn verify_flow_branch_step(
     step_idx: usize,
     step: &HirStep,
     executable_names: &HashSet<String>,
+    executable_by_name: &HashMap<String, &HirExecutable>,
+    input_type: Option<&TypeRef>,
+    struct_field_types_by_name: &HashMap<String, HashMap<String, TypeRef>>,
+    enum_members_by_name: &HashMap<String, HashSet<String>>,
+    state_machines_by_enum: &HashMap<String, HirStateMachineDef>,
 ) -> Result<(), GraphemeError> {
     let Some(module_raw) = step.module.as_deref() else {
         return Ok(());
@@ -932,6 +1390,43 @@ fn verify_flow_branch_step(
     }
 
     let (cmp_key, cmp_value) = provided[0];
+    let mut enum_context: Option<(String, String)> = None;
+
+    if let Some(enum_name) = resolve_enum_name_for_when_field(
+        field,
+        input_type,
+        struct_field_types_by_name,
+        enum_members_by_name,
+    ) {
+        enum_context = Some((field.to_string(), enum_name.clone()));
+        if cmp_key != "eq" {
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: enum field '{}' only supports eq comparator",
+                def_name, pipeline_idx, step_idx, field
+            )));
+        }
+
+        if !is_variable_placeholder(cmp_value) {
+            let member = parse_enum_member_value(cmp_value).ok_or_else(|| {
+                GraphemeError::TypeError(format!(
+                    "definition '{}', pipeline {}, step {}: enum field '{}' comparison must use a literal member",
+                    def_name, pipeline_idx, step_idx, field
+                ))
+            })?;
+
+            let members = enum_members_by_name
+                .get(&enum_name)
+                .expect("enum name resolved from existing enum map");
+
+            if !members.contains(member) {
+                return Err(GraphemeError::TypeError(format!(
+                    "definition '{}', pipeline {}, step {}: unknown enum member '{}' for enum '{}'",
+                    def_name, pipeline_idx, step_idx, member, enum_name
+                )));
+            }
+        }
+    }
+
     if matches!(cmp_key, "gt" | "gte" | "lt" | "lte")
         && !is_variable_placeholder(cmp_value)
         && !cmp_value.is_number()
@@ -950,6 +1445,23 @@ fn verify_flow_branch_step(
     })?;
 
     verify_branch_target(def_name, pipeline_idx, step_idx, "then", &then_target, executable_names)?;
+
+    if let Some((enum_field, enum_name)) = enum_context.as_ref() {
+        if let Some(sm) = state_machines_by_enum.get(enum_name) {
+            if let Some(from_state) = parse_enum_member_value(cmp_value) {
+                verify_branch_target_transition_from_status(
+                    def_name,
+                    pipeline_idx,
+                    step_idx,
+                    &then_target,
+                    enum_field,
+                    from_state,
+                    sm,
+                    executable_by_name,
+                )?;
+            }
+        }
+    }
 
     if let Some(else_value) = args.get("else") {
         let else_target = parse_branch_target(Some(else_value)).ok_or_else(|| {
@@ -1001,6 +1513,340 @@ fn verify_branch_target(
     )))
 }
 
+fn verify_flow_match_step(
+    def_name: &str,
+    pipeline_idx: usize,
+    step_idx: usize,
+    step: &HirStep,
+    executable_names: &HashSet<String>,
+    executable_by_name: &HashMap<String, &HirExecutable>,
+    input_type: Option<&TypeRef>,
+    struct_field_types_by_name: &HashMap<String, HashMap<String, TypeRef>>,
+    enum_members_by_name: &HashMap<String, HashSet<String>>,
+    state_machines_by_enum: &HashMap<String, HirStateMachineDef>,
+) -> Result<(), GraphemeError> {
+    let Some(module_raw) = step.module.as_deref() else {
+        return Ok(());
+    };
+
+    if !module_raw.eq_ignore_ascii_case("flow") || step.op != "match" {
+        return Ok(());
+    }
+
+    let args = step.args.as_object().ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: args for 'flow.match' must be an object",
+            def_name, pipeline_idx, step_idx
+        ))
+    })?;
+
+    for arg_name in args.keys() {
+        if arg_name != "field" && arg_name != "cases" && arg_name != "default" && arg_name != "max_depth" {
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: unknown arg '{}' for flow.match",
+                def_name, pipeline_idx, step_idx, arg_name
+            )));
+        }
+    }
+
+    let field = args.get("field").and_then(|v| v.as_str()).ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: flow.match field must be a string",
+            def_name, pipeline_idx, step_idx
+        ))
+    })?;
+
+    if field.trim().is_empty() {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: flow.match field cannot be empty",
+            def_name, pipeline_idx, step_idx
+        )));
+    }
+
+    let cases = args.get("cases").and_then(|v| v.as_array()).ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: flow.match cases must be an array",
+            def_name, pipeline_idx, step_idx
+        ))
+    })?;
+
+    if cases.is_empty() {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: flow.match requires at least one case",
+            def_name, pipeline_idx, step_idx
+        )));
+    }
+
+    let default_target = args.get("default").ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: flow.match requires default target",
+            def_name, pipeline_idx, step_idx
+        ))
+    })?;
+
+    let enum_name = resolve_enum_name_for_when_field(
+        field,
+        input_type,
+        struct_field_types_by_name,
+        enum_members_by_name,
+    );
+    let enum_field = field.to_string();
+
+    for (case_idx, case) in cases.iter().enumerate() {
+        let case_obj = case.as_object().ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: flow.match case {} must be an object",
+                def_name, pipeline_idx, step_idx, case_idx
+            ))
+        })?;
+
+        for key in case_obj.keys() {
+            if key != "eq" && key != "then" {
+                return Err(GraphemeError::TypeError(format!(
+                    "definition '{}', pipeline {}, step {}: flow.match case {} unknown key '{}'",
+                    def_name, pipeline_idx, step_idx, case_idx, key
+                )));
+            }
+        }
+
+        let eq_value = case_obj.get("eq").ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: flow.match case {} missing eq",
+                def_name, pipeline_idx, step_idx, case_idx
+            ))
+        })?;
+
+        let transition_from_state = if let Some(enum_name) = enum_name.as_ref() {
+            if is_variable_placeholder(eq_value) {
+                None
+            } else {
+                let member = parse_enum_member_value(eq_value).ok_or_else(|| {
+                    GraphemeError::TypeError(format!(
+                        "definition '{}', pipeline {}, step {}: enum field '{}' match case {} must use a literal member",
+                        def_name, pipeline_idx, step_idx, field, case_idx
+                    ))
+                })?;
+
+                let members = enum_members_by_name
+                    .get(enum_name)
+                    .expect("enum name resolved from existing enum map");
+                if !members.contains(member) {
+                    return Err(GraphemeError::TypeError(format!(
+                        "definition '{}', pipeline {}, step {}: unknown enum member '{}' for enum '{}'",
+                        def_name, pipeline_idx, step_idx, member, enum_name
+                    )));
+                }
+
+                Some(member.to_string())
+            }
+        } else {
+            None
+        };
+
+        let then_target = case_obj.get("then").ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: flow.match case {} missing then target",
+                def_name, pipeline_idx, step_idx, case_idx
+            ))
+        })?;
+
+        verify_match_target_value(
+            def_name,
+            pipeline_idx,
+            step_idx,
+            then_target,
+            executable_names,
+            executable_by_name,
+            transition_from_state.as_deref(),
+            enum_name.as_deref(),
+            &enum_field,
+            state_machines_by_enum,
+        )?;
+    }
+
+    verify_match_target_value(
+        def_name,
+        pipeline_idx,
+        step_idx,
+        default_target,
+        executable_names,
+        executable_by_name,
+        None,
+        enum_name.as_deref(),
+        &enum_field,
+        state_machines_by_enum,
+    )?;
+
+    if let Some(max_depth) = args.get("max_depth") {
+        let value = max_depth.as_i64().ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: flow.match max_depth must be an integer",
+                def_name, pipeline_idx, step_idx
+            ))
+        })?;
+        if value < 1 {
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: flow.match max_depth must be >= 1",
+                def_name, pipeline_idx, step_idx
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn verify_match_target_value(
+    def_name: &str,
+    pipeline_idx: usize,
+    step_idx: usize,
+    value: &JsonValue,
+    executable_names: &HashSet<String>,
+    executable_by_name: &HashMap<String, &HirExecutable>,
+    transition_from_state: Option<&str>,
+    enum_name: Option<&str>,
+    enum_field: &str,
+    state_machines_by_enum: &HashMap<String, HirStateMachineDef>,
+) -> Result<(), GraphemeError> {
+    if let Some(target) = parse_branch_target(Some(value)) {
+        verify_match_target_exists(def_name, pipeline_idx, step_idx, &target, executable_names)?;
+
+        if let (Some(from_state), Some(enum_name)) = (transition_from_state, enum_name) {
+            if let Some(sm) = state_machines_by_enum.get(enum_name) {
+                verify_branch_target_transition_from_status(
+                    def_name,
+                    pipeline_idx,
+                    step_idx,
+                    &target,
+                    enum_field,
+                    from_state,
+                    sm,
+                    executable_by_name,
+                )?;
+            }
+        }
+
+        return Ok(());
+    }
+
+    let nested = value
+        .as_object()
+        .and_then(|obj| obj.get("$match"))
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: flow.match target must be a symbol target or nested match",
+                def_name, pipeline_idx, step_idx
+            ))
+        })?;
+
+    for key in nested.keys() {
+        if key != "field" && key != "cases" && key != "default" {
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: nested match unknown key '{}'",
+                def_name, pipeline_idx, step_idx, key
+            )));
+        }
+    }
+
+    let field = nested.get("field").and_then(|v| v.as_str()).ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: nested match field must be a string",
+            def_name, pipeline_idx, step_idx
+        ))
+    })?;
+
+    if field.trim().is_empty() {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: nested match field cannot be empty",
+            def_name, pipeline_idx, step_idx
+        )));
+    }
+
+    let cases = nested.get("cases").and_then(|v| v.as_array()).ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: nested match cases must be an array",
+            def_name, pipeline_idx, step_idx
+        ))
+    })?;
+
+    if cases.is_empty() {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: nested match requires at least one case",
+            def_name, pipeline_idx, step_idx
+        )));
+    }
+
+    for (case_idx, case) in cases.iter().enumerate() {
+        let case_obj = case.as_object().ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: nested match case {} must be an object",
+                def_name, pipeline_idx, step_idx, case_idx
+            ))
+        })?;
+
+        let then_target = case_obj.get("then").ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: nested match case {} missing then target",
+                def_name, pipeline_idx, step_idx, case_idx
+            ))
+        })?;
+
+        verify_match_target_value(
+            def_name,
+            pipeline_idx,
+            step_idx,
+            then_target,
+            executable_names,
+            executable_by_name,
+            transition_from_state,
+            enum_name,
+            enum_field,
+            state_machines_by_enum,
+        )?;
+    }
+
+    let default_target = nested.get("default").ok_or_else(|| {
+        GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: nested match missing default target",
+            def_name, pipeline_idx, step_idx
+        ))
+    })?;
+
+    verify_match_target_value(
+        def_name,
+        pipeline_idx,
+        step_idx,
+        default_target,
+        executable_names,
+        executable_by_name,
+        transition_from_state,
+        enum_name,
+        enum_field,
+        state_machines_by_enum,
+    )
+}
+
+fn verify_match_target_exists(
+    def_name: &str,
+    pipeline_idx: usize,
+    step_idx: usize,
+    target: &str,
+    executable_names: &HashSet<String>,
+) -> Result<(), GraphemeError> {
+    if target == "$return" {
+        return Ok(());
+    }
+
+    if executable_names.contains(target) {
+        return Ok(());
+    }
+
+    Err(GraphemeError::TypeError(format!(
+        "definition '{}', pipeline {}, step {}: flow.match target '{}' not found",
+        def_name, pipeline_idx, step_idx, target
+    )))
+}
+
 fn parse_branch_target(value: Option<&JsonValue>) -> Option<String> {
     let value = value?;
 
@@ -1015,6 +1861,125 @@ fn parse_branch_target(value: Option<&JsonValue>) -> Option<String> {
     }
 
     Some(symbol.to_string())
+}
+
+fn resolve_enum_name_for_when_field(
+    field: &str,
+    input_type: Option<&TypeRef>,
+    struct_field_types_by_name: &HashMap<String, HashMap<String, TypeRef>>,
+    enum_members_by_name: &HashMap<String, HashSet<String>>,
+) -> Option<String> {
+    let TypeRef::Named(input_type_name, _) = input_type? else {
+        return None;
+    };
+
+    let field_types = struct_field_types_by_name.get(input_type_name)?;
+    let root_field = field.split('.').next().unwrap_or(field);
+    let TypeRef::Named(field_type_name, _) = field_types.get(root_field)? else {
+        return None;
+    };
+
+    if enum_members_by_name.contains_key(field_type_name) {
+        Some(field_type_name.clone())
+    } else {
+        None
+    }
+}
+
+fn parse_enum_member_value(value: &JsonValue) -> Option<&str> {
+    if let Some(member) = value.as_str() {
+        return Some(member);
+    }
+
+    value
+        .as_object()
+        .and_then(|map| map.get("$symbol"))
+        .and_then(|v| v.as_str())
+}
+
+fn verify_branch_target_transition_from_status(
+    def_name: &str,
+    pipeline_idx: usize,
+    step_idx: usize,
+    target: &str,
+    enum_field: &str,
+    from_state: &str,
+    state_machine: &HirStateMachineDef,
+    executable_by_name: &HashMap<String, &HirExecutable>,
+) -> Result<(), GraphemeError> {
+    if target == "$return" {
+        return Ok(());
+    }
+
+    let Some(target_exec) = executable_by_name.get(target) else {
+        // existence is validated elsewhere
+        return Ok(());
+    };
+
+    let Some(to_state) = first_literal_field_assignment(target_exec, enum_field) else {
+        // No literal assignment in target, cannot statically verify path transition.
+        return Ok(());
+    };
+
+    if to_state == from_state {
+        return Ok(());
+    }
+
+    if state_machine.terminals.iter().any(|t| t == from_state) {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: branch then target '{}' makes invalid transition for '{}' from terminal '{}' in state_machine '{}'",
+            def_name, pipeline_idx, step_idx, target, enum_field, from_state, state_machine.name
+        )));
+    }
+
+    let allowed = state_machine
+        .transitions
+        .iter()
+        .any(|t| t.from == from_state && t.to == to_state);
+    if !allowed {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: branch then target '{}' makes invalid transition for '{}' from '{}' to '{}' in state_machine '{}'",
+            def_name, pipeline_idx, step_idx, target, enum_field, from_state, to_state, state_machine.name
+        )));
+    }
+
+    Ok(())
+}
+
+fn first_literal_field_assignment<'a>(executable: &'a HirExecutable, field: &str) -> Option<&'a str> {
+    for pipeline in &executable.pipelines {
+        for step in &pipeline.steps {
+            let Some(module) = step.module.as_deref() else {
+                continue;
+            };
+
+            if !module.eq_ignore_ascii_case("core") {
+                continue;
+            }
+
+            let Some(args_obj) = step.args.as_object() else {
+                continue;
+            };
+
+            let literal_patch = match step.op.as_str() {
+                "merge" => args_obj.get("right").and_then(|v| v.as_object()),
+                "set_fields" => args_obj.get("fields").and_then(|v| v.as_object()),
+                _ => None,
+            };
+
+            let Some(literal_patch) = literal_patch else {
+                continue;
+            };
+
+            if let Some(value) = literal_patch.get(field) {
+                if let Some(member) = parse_literal_member(value) {
+                    return Some(member);
+                }
+            }
+        }
+    }
+
+    None
 }
 
 fn is_variable_placeholder(value: &JsonValue) -> bool {

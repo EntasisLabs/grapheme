@@ -1,15 +1,18 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as JsonValue};
 use grapheme_artifact::Capability;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use crate::ast::{Definition, Directive, OpKind, Pipeline, PipelineStep, Program, StructDef, TypeRef, Value};
+use crate::ast::{Definition, Directive, FragmentDef, OpKind, Pipeline, PipelineStep, Program, StructDef, TypeRef, Value};
 use crate::ast::ImportKind;
+use crate::error::GraphemeError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HirProgram {
     pub imports: Vec<HirImport>,
     pub struct_defs: Vec<HirStructDef>,
+    pub enum_defs: Vec<HirEnumDef>,
+    pub state_machines: Vec<HirStateMachineDef>,
     pub executable_defs: Vec<HirExecutable>,
     pub capabilities: Vec<Capability>,
 }
@@ -25,6 +28,26 @@ pub struct HirStructField {
     pub name: String,
     pub type_ref: TypeRef,
     pub optional: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HirEnumDef {
+    pub name: String,
+    pub members: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HirStateTransitionDef {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HirStateMachineDef {
+    pub name: String,
+    pub enum_name: String,
+    pub terminals: Vec<String>,
+    pub transitions: Vec<HirStateTransitionDef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,6 +68,10 @@ pub struct HirExecutable {
     pub recursive_directive_count: usize,
     pub recursive_args: Option<JsonValue>,
     pub recursive_max_depth: Option<u32>,
+    pub retry_directive_count: usize,
+    pub retry_args: Option<JsonValue>,
+    pub timeout_directive_count: usize,
+    pub timeout_args: Option<JsonValue>,
     pub pipelines: Vec<HirPipeline>,
 }
 
@@ -71,7 +98,16 @@ pub struct HirStep {
     pub capability: Capability,
 }
 
-pub fn lower_from_ast(program: &Program) -> HirProgram {
+pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
+    let fragment_defs = program
+        .definitions
+        .iter()
+        .filter_map(|def| match def {
+            Definition::Fragment(fragment) => Some((fragment.name.clone(), fragment)),
+            _ => None,
+        })
+        .collect::<HashMap<_, _>>();
+
     let executable_names = program
         .definitions
         .iter()
@@ -79,8 +115,8 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
             Definition::Query(q) => Some(q.name.clone()),
             Definition::Mutation(m) => Some(m.name.clone()),
             Definition::Subscription(s) => Some(s.name.clone()),
-            Definition::Fragment(f) => Some(f.name.clone()),
-            Definition::Struct(_) | Definition::Schema(_) | Definition::ModuleProposal(_) => None,
+            Definition::Iterator(f) => Some(f.name.clone()),
+            Definition::Fragment(_) | Definition::Struct(_) | Definition::Enum(_) | Definition::StateMachine(_) | Definition::Schema(_) | Definition::ModuleProposal(_) => None,
         })
         .collect::<HashSet<_>>();
 
@@ -89,6 +125,39 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
         .iter()
         .filter_map(|def| match def {
             Definition::Struct(struct_def) => Some(lower_struct_def(struct_def)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let enum_defs = program
+        .definitions
+        .iter()
+        .filter_map(|def| match def {
+            Definition::Enum(enum_def) => Some(HirEnumDef {
+                name: enum_def.name.clone(),
+                members: enum_def.members.clone(),
+            }),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let state_machines = program
+        .definitions
+        .iter()
+        .filter_map(|def| match def {
+            Definition::StateMachine(sm) => Some(HirStateMachineDef {
+                name: sm.name.clone(),
+                enum_name: sm.enum_name.clone(),
+                terminals: sm.terminals.clone(),
+                transitions: sm
+                    .transitions
+                    .iter()
+                    .map(|t| HirStateTransitionDef {
+                        from: t.from.clone(),
+                        to: t.to.clone(),
+                    })
+                    .collect(),
+            }),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -117,12 +186,18 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
                 recursive_directive_count: recursive_directive_count(&q.directives),
                 recursive_args: first_recursive_args(&q.directives),
                 recursive_max_depth: first_recursive_max_depth(first_recursive_args(&q.directives).as_ref()),
+                retry_directive_count: retry_directive_count(&q.directives),
+                retry_args: first_retry_args(&q.directives),
+                timeout_directive_count: timeout_directive_count(&q.directives),
+                timeout_args: first_timeout_args(&q.directives),
                 pipelines: lower_pipelines(
                     &q.name,
                     &q.pipelines,
                     &executable_names,
                     first_recursive_max_depth(first_recursive_args(&q.directives).as_ref()),
-                ),
+                    &fragment_defs,
+                    has_core_default_directive(&q.directives),
+                )?,
             }),
             Definition::Mutation(m) => executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Mutation,
@@ -134,12 +209,18 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
                 recursive_directive_count: recursive_directive_count(&m.directives),
                 recursive_args: first_recursive_args(&m.directives),
                 recursive_max_depth: first_recursive_max_depth(first_recursive_args(&m.directives).as_ref()),
+                retry_directive_count: retry_directive_count(&m.directives),
+                retry_args: first_retry_args(&m.directives),
+                timeout_directive_count: timeout_directive_count(&m.directives),
+                timeout_args: first_timeout_args(&m.directives),
                 pipelines: lower_pipelines(
                     &m.name,
                     &m.pipelines,
                     &executable_names,
                     first_recursive_max_depth(first_recursive_args(&m.directives).as_ref()),
-                ),
+                    &fragment_defs,
+                    has_core_default_directive(&m.directives),
+                )?,
             }),
             Definition::Subscription(s) => executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Subscription,
@@ -151,14 +232,20 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
                 recursive_directive_count: recursive_directive_count(&s.directives),
                 recursive_args: first_recursive_args(&s.directives),
                 recursive_max_depth: first_recursive_max_depth(first_recursive_args(&s.directives).as_ref()),
+                retry_directive_count: retry_directive_count(&s.directives),
+                retry_args: first_retry_args(&s.directives),
+                timeout_directive_count: timeout_directive_count(&s.directives),
+                timeout_args: first_timeout_args(&s.directives),
                 pipelines: lower_pipelines(
                     &s.name,
                     &s.pipelines,
                     &executable_names,
                     first_recursive_max_depth(first_recursive_args(&s.directives).as_ref()),
-                ),
+                    &fragment_defs,
+                    has_core_default_directive(&s.directives),
+                )?,
             }),
-            Definition::Fragment(f) => executable_defs.push(HirExecutable {
+            Definition::Iterator(f) => executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Fragment,
                 name: f.name.clone(),
                 input_type: Some(f.signature.input.clone()),
@@ -168,14 +255,20 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
                 recursive_directive_count: recursive_directive_count(&f.directives),
                 recursive_args: first_recursive_args(&f.directives),
                 recursive_max_depth: first_recursive_max_depth(first_recursive_args(&f.directives).as_ref()),
+                retry_directive_count: retry_directive_count(&f.directives),
+                retry_args: first_retry_args(&f.directives),
+                timeout_directive_count: timeout_directive_count(&f.directives),
+                timeout_args: first_timeout_args(&f.directives),
                 pipelines: lower_pipelines(
                     &f.name,
                     &f.pipelines,
                     &executable_names,
                     first_recursive_max_depth(first_recursive_args(&f.directives).as_ref()),
-                ),
+                    &fragment_defs,
+                    has_core_default_directive(&f.directives),
+                )?,
             }),
-            Definition::Struct(_) | Definition::Schema(_) | Definition::ModuleProposal(_) => {}
+            Definition::Fragment(_) | Definition::Struct(_) | Definition::Enum(_) | Definition::StateMachine(_) | Definition::Schema(_) | Definition::ModuleProposal(_) => {}
         }
     }
 
@@ -189,12 +282,14 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
     capabilities.sort();
     capabilities.dedup();
 
-    HirProgram {
+    Ok(HirProgram {
         imports,
         struct_defs,
+        enum_defs,
+        state_machines,
         executable_defs,
         capabilities,
-    }
+    })
 }
 
 fn lower_struct_def(struct_def: &StructDef) -> HirStructDef {
@@ -217,24 +312,98 @@ fn lower_pipelines(
     pipelines: &[Pipeline],
     executable_names: &HashSet<String>,
     recursive_max_depth: Option<u32>,
-) -> Vec<HirPipeline> {
+    fragment_defs: &HashMap<String, &FragmentDef>,
+    default_core_module: bool,
+) -> Result<Vec<HirPipeline>, GraphemeError> {
+    let mut expansion_stack = Vec::new();
     pipelines
         .iter()
-        .map(|p| HirPipeline {
-            steps: p
-                .steps
-                .iter()
-                .map(|step| {
-                    lower_step(
-                        step,
-                        executable_name,
-                        executable_names,
-                        recursive_max_depth,
-                    )
-                })
-                .collect(),
+        .map(|p| {
+            let expanded_steps = expand_fragment_steps(
+                p.steps.as_slice(),
+                executable_name,
+                &mut expansion_stack,
+                fragment_defs,
+            )?;
+
+            Ok(HirPipeline {
+                steps: expanded_steps
+                    .iter()
+                    .map(|step| {
+                        lower_step(
+                            step,
+                            executable_name,
+                            executable_names,
+                            recursive_max_depth,
+                            default_core_module,
+                        )
+                    })
+                    .collect(),
+            })
         })
         .collect()
+}
+
+fn expand_fragment_steps(
+    steps: &[PipelineStep],
+    owner_name: &str,
+    expansion_stack: &mut Vec<String>,
+    fragment_defs: &HashMap<String, &FragmentDef>,
+) -> Result<Vec<PipelineStep>, GraphemeError> {
+    let mut out = Vec::new();
+
+    for step in steps {
+        match step {
+            PipelineStep::Call(call) if fragment_defs.contains_key(&call.target) => {
+                return Err(GraphemeError::TypeError(format!(
+                    "definition '{}': fragment '{}' cannot be invoked via call; use a bare fragment step",
+                    owner_name, call.target
+                )));
+            }
+            PipelineStep::Field(field) => {
+                let Some(fragment_def) = fragment_defs.get(&field.name) else {
+                    out.push(step.clone());
+                    continue;
+                };
+
+                if field.module.is_some()
+                    || !field.args.is_empty()
+                    || !field.directives.is_empty()
+                    || field.selection.is_some()
+                {
+                    return Err(GraphemeError::TypeError(format!(
+                        "definition '{}': fragment '{}' must be invoked as a bare step with no args/directives/selection",
+                        owner_name, field.name
+                    )));
+                }
+
+                if expansion_stack.iter().any(|name| name == &field.name) {
+                    let mut cycle = expansion_stack.clone();
+                    cycle.push(field.name.clone());
+                    return Err(GraphemeError::TypeError(format!(
+                        "definition '{}': fragment expansion cycle detected: {}",
+                        owner_name,
+                        cycle.join(" -> ")
+                    )));
+                }
+
+                expansion_stack.push(field.name.clone());
+                for fragment_pipeline in &fragment_def.pipelines {
+                    let expanded = expand_fragment_steps(
+                        fragment_pipeline.steps.as_slice(),
+                        owner_name,
+                        expansion_stack,
+                        fragment_defs,
+                    )?;
+                    out.extend(expanded);
+                }
+                expansion_stack.pop();
+            }
+            _ => out.push(step.clone()),
+        }
+    }
+
+    Ok(out)
 }
 
 fn lower_step(
@@ -242,6 +411,7 @@ fn lower_step(
     executable_name: &str,
     executable_names: &HashSet<String>,
     recursive_max_depth: Option<u32>,
+    default_core_module: bool,
 ) -> HirStep {
     match step {
         PipelineStep::Field(field) => {
@@ -263,14 +433,22 @@ fn lower_step(
                 };
             }
 
-            let capability = match &field.module {
+            let resolved_module = if field.module.is_some() {
+                field.module.clone()
+            } else if default_core_module {
+                Some("core".to_string())
+            } else {
+                None
+            };
+
+            let capability = match &resolved_module {
                 Some(module) => Capability::from_module_op(module, &field.name),
                 None => Capability::from_bare_op(&field.name),
             };
 
             HirStep {
                 op: field.name.clone(),
-                module: field.module.clone(),
+                module: resolved_module,
                 arg_count: field.args.len(),
                 args: lower_args(&field.args),
                 has_selection: field.selection.is_some(),
@@ -346,6 +524,32 @@ fn first_recursive_max_depth(recursive_args: Option<&JsonValue>) -> Option<u32> 
         .and_then(|args| args.get("max_depth"))
         .and_then(|value| value.as_i64())
         .and_then(|value| if value >= 1 { Some(value as u32) } else { None })
+}
+
+fn retry_directive_count(directives: &[Directive]) -> usize {
+    directives.iter().filter(|d| d.name == "retry").count()
+}
+
+fn first_retry_args(directives: &[Directive]) -> Option<JsonValue> {
+    directives
+        .iter()
+        .find(|d| d.name == "retry")
+        .map(|d| lower_args(&d.args))
+}
+
+fn timeout_directive_count(directives: &[Directive]) -> usize {
+    directives.iter().filter(|d| d.name == "timeout").count()
+}
+
+fn first_timeout_args(directives: &[Directive]) -> Option<JsonValue> {
+    directives
+        .iter()
+        .find(|d| d.name == "timeout")
+        .map(|d| lower_args(&d.args))
+}
+
+fn has_core_default_directive(directives: &[Directive]) -> bool {
+    directives.iter().any(|d| d.name == "core_default")
 }
 
 fn maybe_inject_recursive_max_depth(

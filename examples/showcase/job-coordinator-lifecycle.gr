@@ -1,0 +1,67 @@
+import types Ops from "./types-ops-domain.gr"
+
+query JobCoordinatorLifecycle on Ops::JobState -> Ops::JobState {
+  Ops::JobState {
+    status: "queued",
+    priority: "high",
+    attempt: 0.0,
+    max_attempts: 8.0,
+    ready_at: 5.0,
+    failure_at: 2.0,
+    escalated: false,
+    timeline: "init"
+  }
+  |> RunCoordinator
+}
+
+iterator RunCoordinator on Ops::JobState -> Ops::JobState @loop(max: 16, merge: "replace") @retry(max: 3, backoff_ms: 50, on_fail: MarkTimeout) @timeout(ms: 20000, on_timeout: MarkTimeout) {
+  core.echo(message: "cycle:{$current.attempt}:{$current.status}")
+  |> if $current.status == "done" then return else CheckTimeout
+}
+
+iterator CheckTimeout on Ops::JobState -> Ops::JobState {
+  if $current.status == "timeout" then return else Tick
+}
+
+iterator Tick on Ops::JobState -> Ops::JobState {
+  core.inc_field(field: "attempt")
+  |> if $current.attempt >= $current.max_attempts then MarkTimeout else EvaluateSignal
+}
+
+iterator EvaluateSignal on Ops::JobState -> Ops::JobState {
+  if $current.attempt == $current.failure_at then HandleTransientFailure else MaybeComplete
+}
+
+iterator HandleTransientFailure on Ops::JobState -> Ops::JobState {
+  core.set_fields(fields: { status: "blocked", last_error: "upstream_429", timeline: "blocked" })
+  |> if $current.priority == "high" then EscalateIfNeeded else RetryQueued
+}
+
+iterator EscalateIfNeeded on Ops::JobState -> Ops::JobState {
+  if $current.escalated == true then RetryQueued else MarkEscalated
+}
+
+iterator MarkEscalated on Ops::JobState -> Ops::JobState {
+  core.set_fields(fields: { escalated: true, owner: "ops-oncall", timeline: "escalated" })
+  |> RetryQueued
+}
+
+iterator RetryQueued on Ops::JobState -> Ops::JobState {
+  core.set_fields(fields: { status: "running", timeline: "retry" })
+}
+
+iterator MaybeComplete on Ops::JobState -> Ops::JobState {
+  if $current.attempt >= $current.ready_at then MarkDone else KeepRunning
+}
+
+iterator KeepRunning on Ops::JobState -> Ops::JobState {
+  core.set_fields(fields: { status: "running", timeline: "poll" })
+}
+
+iterator MarkDone on Ops::JobState -> Ops::JobState {
+  core.set_fields(fields: { status: "done", result: "artifact://job/42", timeline: "complete" })
+}
+
+iterator MarkTimeout on Ops::JobState -> Ops::JobState {
+  core.set_fields(fields: { status: "timeout", timeline: "timeout" })
+}

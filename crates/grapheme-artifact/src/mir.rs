@@ -13,8 +13,25 @@ pub struct MirProgram {
 pub struct MirFunction {
     pub name: String,
     pub kind: MirFunctionKind,
+    #[serde(default)]
+    pub retry_config: Option<MirRetryConfig>,
+    #[serde(default)]
+    pub timeout_config: Option<MirTimeoutConfig>,
     pub loop_config: Option<MirLoopConfig>,
     pub blocks: Vec<MirBlock>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirRetryConfig {
+    pub max: u32,
+    pub backoff_ms: Option<u32>,
+    pub on_fail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirTimeoutConfig {
+    pub ms: u32,
+    pub on_timeout: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +102,28 @@ pub enum MirInst {
         then_target: String,
         else_target: Option<String>,
         max_depth: Option<u32>,
+    },
+    MatchCall {
+        field: String,
+        cases: Vec<MirMatchCase>,
+        default_target: MirMatchTarget,
+        max_depth: Option<u32>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirMatchCase {
+    pub eq: JsonValue,
+    pub then_target: MirMatchTarget,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MirMatchTarget {
+    Target(String),
+    Nested {
+        field: String,
+        cases: Vec<MirMatchCase>,
+        default_target: Box<MirMatchTarget>,
     },
 }
 

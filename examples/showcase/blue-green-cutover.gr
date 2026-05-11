@@ -1,0 +1,49 @@
+struct RolloutState {
+  status: String
+  service: String
+  error_rate: Float
+  error_threshold: Float
+  warm_checks: Float
+  traffic: Float
+  timeline?: String
+  notes?: String
+}
+
+query Q on RolloutState -> RolloutState {
+  RolloutState {
+    status: "planned",
+    service: "billing-api",
+    error_rate: 0.2,
+    error_threshold: 1.5,
+    warm_checks: 0.0,
+    traffic: 0.0
+  }
+  |> Run
+}
+
+iterator Run on RolloutState -> RolloutState @core_default @loop(max: 24, merge: "replace") {
+  echo(message: "bg:{$current.service}:{$current.status}:{$current.traffic}%")
+  |> match $current.status {
+    case stable, rolled_back => return
+    default => Rt
+  }
+}
+
+iterator Rt on RolloutState -> RolloutState {
+  match $current.status {
+    case planned => transition $current.status -> warming_green { warm_checks: 0.0, timeline: "warm" }
+    case warming_green => WarmGate
+    case shifting_traffic => transition $current.status -> monitoring { timeline: "watch" }
+    case monitoring => MonitorGate
+    case rollback => transition $current.status -> rolled_back { traffic: 0.0, timeline: "rb-done" }
+    default => set { timeline: "noop" }
+  }
+}
+
+iterator WarmGate on RolloutState -> RolloutState {
+  if $current.warm_checks >= 2.0 then transition $current.status -> shifting_traffic { traffic: 10.0, timeline: "cut-10" } else inc_field(field: "warm_checks") |> set { timeline: "warming" }
+}
+
+iterator MonitorGate on RolloutState -> RolloutState {
+  if $current.error_rate > $current.error_threshold then transition $current.status -> rollback { notes: "error-spike", timeline: "rb" } else transition $current.status -> stable { timeline: "done" }
+}

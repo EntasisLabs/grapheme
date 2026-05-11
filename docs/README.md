@@ -18,6 +18,8 @@ This documentation set reflects the current implementation of Grapheme in this r
 12. `docs/runtime/policy-profile-matrix.md`
 13. `docs/native-modules.md` (transform module signatures and chaining semantics)
 14. `docs/language-typed-records-v1.md`
+15. `docs/roadmaps/language-ergonomics-v2-draft.md`
+16. `docs/roadmaps/sprint-01-language-ergonomics.md`
 
 ## Tooling and Distribution
 
@@ -41,3 +43,6 @@ These documents are useful context but were written earlier in the project lifec
 - `docs/language-control-flow-v1.md`
 - `docs/language-control-flow-v1-implementation.md`
 - `docs/language-typed-records-v1.md`
+- `docs/roadmaps/language-ergonomics-v2-draft.md`
+- `docs/roadmaps/sprint-01-language-ergonomics.md`
+- `docs/language-contract.md` (iterator/fragment vNext contract proposal)
