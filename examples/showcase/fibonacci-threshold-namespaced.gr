@@ -1,4 +1,4 @@
-import types Domain from "./types-domain.aql"
+import types Domain from "./types-domain.gr"
 
 query FibonacciThresholdNamespaced on Domain::FibState -> Domain::FibState {
   Domain::FibState { a: 0.0, b: 1.0, i: 0.0, threshold: 144.0 }

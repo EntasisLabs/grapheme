@@ -62,14 +62,14 @@ Allow only `example.com` for HTTP:
 
 ```bash
 GRAPHEME_ALLOWED_HTTP_DOMAINS=example.com \
-  cargo run -- run examples/http-get.aql --native-modules
+  cargo run -- run examples/http-get.gr --native-modules
 ```
 
 Allow only one secret by name:
 
 ```bash
 GRAPHEME_ALLOWED_SECRETS=api_key \
-  cargo run -- run examples/secrets-sign.aql --native-modules
+  cargo run -- run examples/secrets-sign.gr --native-modules
 ```
 
 ## Current Limitations

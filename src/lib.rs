@@ -17,7 +17,7 @@ pub use compiler_api::{CompiledScript, Compiler, CompilerOptions};
 pub use parser::parse;
 pub use runtime::{RuntimeEngine, RuntimeOptions};
 pub use state::AgentState;
-pub use error::{AgentQLError, GraphemeError};
+pub use error::GraphemeError;
 
 pub fn compile(source: &str) -> Result<compiler::CompilationArtifact, GraphemeError> {
 	let ast = parse(source)?;

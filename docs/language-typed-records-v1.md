@@ -27,7 +27,7 @@ Typed records solve these together when paired with typed function signatures an
 
 ### 1) Record Declarations
 
-```aql
+```grapheme
 struct FibState {
   a: number
   b: number
@@ -48,7 +48,7 @@ Rules:
 
 ### 2) Typed Executable Signatures
 
-```aql
+```grapheme
 iterator FibUntilThreshold on FibState -> FibState @loop(max: 64, merge: "replace") {
   ...
 }
@@ -142,7 +142,7 @@ Current status:
 Proposed direction:
 
 1. Add type import syntax:
-  - `import types Domain from "./domain.aql"`
+  - `import types Domain from "./domain.gr"`
 2. Add namespaced type usage:
   - `query Run on Domain::FibState -> Domain::FibState { ... }`
 3. Keep local shorthand for same-file types:

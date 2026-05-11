@@ -98,6 +98,6 @@ Planned extensions:
 - emit trace stream from runtime
 
 4. Tooling
-- `grapheme compile file.aql --emit hir|mir|json`
+- `grapheme compile file.gr --emit hir|mir|json`
 - verifier diagnostics with source spans
 - golden tests for lowering + verification

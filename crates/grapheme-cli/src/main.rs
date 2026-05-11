@@ -1,11 +1,11 @@
 /// ─────────────────────────────────────────────────────────────
 ///  Grapheme  —  CLI
 ///  Usage:
-///    grapheme <file.aql>
-///    grapheme parse <file.aql>
-///    grapheme compile <file.aql> --emit ast|hir|mir|artifact
+///    grapheme <file.gr>
+///    grapheme parse <file.gr>
+///    grapheme compile <file.gr> --emit ast|hir|mir|artifact
 ///    grapheme plugins build [all|core|io ...]
-///    grapheme run <file.aql> [--bind module=path.wasm ...] [--json] [--native-modules]
+///    grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules]
 ///    grapheme modules
 /// ─────────────────────────────────────────────────────────────
 
@@ -126,7 +126,7 @@ fn run(args: Vec<String>) -> Result<(), CompilerError> {
         ));
     }
 
-    // Backwards-compatible mode: `grapheme file.aql` maps to parse.
+    // Backwards-compatible mode: `grapheme file.gr` maps to parse.
     if args.len() == 2
         && args[1] != "parse"
         && args[1] != "compile"
@@ -1203,11 +1203,11 @@ fn print_json<T: serde::Serialize>(value: &T) -> Result<(), CompilerError> {
 
 fn print_usage() {
     eprintln!("usage:");
-    eprintln!("  grapheme <file.aql>");
-    eprintln!("  grapheme parse <file.aql>");
-    eprintln!("  grapheme compile <file.aql> --emit ast|hir|mir|artifact");
+    eprintln!("  grapheme <file.gr>");
+    eprintln!("  grapheme parse <file.gr>");
+    eprintln!("  grapheme compile <file.gr> --emit ast|hir|mir|artifact");
     eprintln!("  grapheme plugins build [all|core|io ...]");
-    eprintln!("  grapheme run <file.aql> [--bind module=path.wasm ...] [--json] [--native-modules] [--stream-steps]");
+    eprintln!("  grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules] [--stream-steps]");
     eprintln!("               [--trace-profile lean|debug] [--trace-steps N]");
     eprintln!("               [--trace-projection minimal|full] [--trace-max-string-bytes N]");
     eprintln!("  grapheme modules");

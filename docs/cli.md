@@ -5,11 +5,11 @@ The CLI binary is `grapheme` (crate `crates/grapheme-cli`).
 ## Usage
 
 ```bash
-grapheme <file.aql>
-grapheme parse <file.aql>
-grapheme compile <file.aql> --emit ast|hir|mir|artifact
+grapheme <file.gr>
+grapheme parse <file.gr>
+grapheme compile <file.gr> --emit ast|hir|mir|artifact
 grapheme plugins build [all|core|docs|io|http|memory|tcp|smtp|secrets ...]
-grapheme run <file.aql> [--bind module=path.wasm ...] [--json] [--native-modules] [--stream-steps]
+grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules] [--stream-steps]
 grapheme modules
 ```
 
@@ -20,7 +20,7 @@ grapheme modules
 Parses source and prints AST JSON.
 
 ```bash
-cargo run -- parse examples/hello-world.aql
+cargo run -- parse examples/hello-world.gr
 ```
 
 ### `compile`
@@ -28,10 +28,10 @@ cargo run -- parse examples/hello-world.aql
 Compiles source and prints selected intermediate or final representation.
 
 ```bash
-cargo run -- compile examples/hello-world.aql --emit ast
-cargo run -- compile examples/hello-world.aql --emit hir
-cargo run -- compile examples/hello-world.aql --emit mir
-cargo run -- compile examples/hello-world.aql --emit artifact
+cargo run -- compile examples/hello-world.gr --emit ast
+cargo run -- compile examples/hello-world.gr --emit hir
+cargo run -- compile examples/hello-world.gr --emit mir
+cargo run -- compile examples/hello-world.gr --emit artifact
 ```
 
 ### `run`
@@ -41,7 +41,7 @@ Compiles and executes a program.
 Plain text output (best-effort extraction from final state):
 
 ```bash
-cargo run -- run examples/hello-world.aql
+cargo run -- run examples/hello-world.gr
 ```
 
 By default, plain mode prints actual emitted outputs (for example `core.echo` messages) without step trace prefixes.
@@ -49,25 +49,25 @@ By default, plain mode prints actual emitted outputs (for example `core.echo` me
 Opt-in step trace streaming with prefixes like `[iter 1 | depth 1 | echo]`:
 
 ```bash
-cargo run -- run examples/fibonacci-computed.aql --native-modules --stream-steps
+cargo run -- run examples/fibonacci-computed.gr --native-modules --stream-steps
 ```
 
 Structured JSON output:
 
 ```bash
-cargo run -- run examples/hello-world.aql --json
+cargo run -- run examples/hello-world.gr --json
 ```
 
 Manual module binding:
 
 ```bash
-cargo run -- run examples/http-get.aql --bind http=plugins/http-rs.wasm
+cargo run -- run examples/http-get.gr --bind http=plugins/http-rs.wasm
 ```
 
 Auto-build and auto-bind known modules:
 
 ```bash
-cargo run -- run examples/core-merge.aql --native-modules
+cargo run -- run examples/core-merge.gr --native-modules
 ```
 
 `--native-modules` auto-builds/auto-binds known Wasm plugins except `http`, `tcp`, and `smtp`, which are host-backed by default for real socket access in the current runtime.
@@ -102,5 +102,5 @@ Example:
 
 ```bash
 GRAPHEME_ALLOWED_SECRETS=api_key \
-  cargo run -- run examples/secrets-sign.aql --native-modules
+  cargo run -- run examples/secrets-sign.gr --native-modules
 ```

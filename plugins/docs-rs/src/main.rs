@@ -80,7 +80,7 @@ fn native_module_example(module: &str) -> Value {
                 "op": "get",
                 "args": { "url": "https://httpbin.org/get" }
             },
-            "example_aql": "import HTTP from \"grapheme/http\"\n\nquery HttpGetDemo {\n  HTTP.get(url: \"https://httpbin.org/get\") {\n    state { current }\n  }\n}"
+            "example_gr": "import HTTP from \"grapheme/http\"\n\nquery HttpGetDemo {\n  HTTP.get(url: \"https://httpbin.org/get\") {\n    state { current }\n  }\n}"
         }),
         "core" => json!({
             "module": "core",
@@ -88,7 +88,7 @@ fn native_module_example(module: &str) -> Value {
                 "op": "pick",
                 "args": { "fields": ["status", "url"] }
             },
-            "example_aql": "import Core from \"grapheme/core\"\n\nquery PickDemo {\n  Core.pick(fields: [\"status\", \"url\"]) {\n    state { current }\n  }\n}"
+            "example_gr": "import Core from \"grapheme/core\"\n\nquery PickDemo {\n  Core.pick(fields: [\"status\", \"url\"]) {\n    state { current }\n  }\n}"
         }),
         _ => json!({
             "module": module,

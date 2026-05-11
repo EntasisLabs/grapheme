@@ -19,7 +19,7 @@ The compiler preserves loop directives from AST -> HIR -> MIR.
 
 ```mermaid
 flowchart TD
-  A[Source aql with fragment loop directive] --> B[Parser and AST]
+  A[Source .gr with fragment loop directive] --> B[Parser and AST]
   B --> C[HIR lowering with loop args]
   C --> D[Verifier checks max and until]
   D --> E[MIR lowering to loop config]

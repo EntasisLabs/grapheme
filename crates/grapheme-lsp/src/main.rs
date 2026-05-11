@@ -1786,13 +1786,13 @@ fn load_workspace_documents(roots: &[Url]) -> HashMap<Url, String> {
             continue;
         };
 
-        collect_aql_files(&path, &mut docs);
+        collect_gr_files(&path, &mut docs);
     }
 
     docs
 }
 
-fn collect_aql_files(dir: &Path, out: &mut HashMap<Url, String>) {
+fn collect_gr_files(dir: &Path, out: &mut HashMap<Url, String>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
@@ -1803,11 +1803,11 @@ fn collect_aql_files(dir: &Path, out: &mut HashMap<Url, String>) {
             if should_skip_dir(&path) {
                 continue;
             }
-            collect_aql_files(&path, out);
+            collect_gr_files(&path, out);
             continue;
         }
 
-        if !is_aql_file(&path) {
+        if !is_grapheme_source_file(&path) {
             continue;
         }
 
@@ -1823,10 +1823,10 @@ fn collect_aql_files(dir: &Path, out: &mut HashMap<Url, String>) {
     }
 }
 
-fn is_aql_file(path: &Path) -> bool {
+fn is_grapheme_source_file(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("aql"))
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("gr"))
 }
 
 fn should_skip_dir(path: &PathBuf) -> bool {

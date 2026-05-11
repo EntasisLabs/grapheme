@@ -58,13 +58,13 @@ cargo build --manifest-path plugins/<name>-rs/Cargo.toml --release --target wasm
 5. Copy/bind the generated `.wasm` file:
 
 ```bash
-cargo run -- run examples/<some>.aql --bind <module>=plugins/<name>.wasm
+cargo run -- run examples/<some>.gr --bind <module>=plugins/<name>.wasm
 ```
 
 Or wire it in CLI plugin specs and use:
 
 ```bash
-cargo run -- run examples/<some>.aql --native-modules
+cargo run -- run examples/<some>.gr --native-modules
 ```
 
 Note: `--native-modules` currently auto-builds/auto-binds known Wasm plugins except host-preferred network modules (`http`, `tcp`, `smtp`) so those calls route through real host network adapters.
@@ -104,14 +104,14 @@ Return shapes:
 
 Examples:
 
-```aql
+```grapheme
 query ImplicitChain {
   http.get(url: "https://example.com")
   |> html.to_md()
 }
 ```
 
-```aql
+```grapheme
 query ExplicitChain {
   yaml.to_json(text: "payload: |\n  [1,2,3]\n")
   |> json.parse(text: $current.payload)
@@ -132,7 +132,7 @@ Supported ops:
 
 Example query:
 
-```aql
+```grapheme
 import Docs from "grapheme/docs"
 
 query NativeModuleDocsDemo {
@@ -145,7 +145,7 @@ query NativeModuleDocsDemo {
 Run it:
 
 ```bash
-cargo run -- run examples/docs-native-modules.aql --native-modules
+cargo run -- run examples/docs-native-modules.gr --native-modules
 ```
 
 ## Next Evolution (Planned)

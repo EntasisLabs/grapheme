@@ -9,7 +9,7 @@ sequenceDiagram
   participant Runtime as Grapheme Runtime
   participant Locus as STTP Store
 
-  Client->>Compiler: Submit .aql source and target entrypoint
+  Client->>Compiler: Submit .gr source and target entrypoint
   Compiler->>Compiler: Parse, lower, verify, capability checks
   Compiler->>Store: Publish artifact envelope and MIR payload
   Client->>Stasis: Enqueue execution job with artifact ref and input STTP id

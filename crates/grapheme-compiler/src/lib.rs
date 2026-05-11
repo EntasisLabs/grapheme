@@ -430,7 +430,7 @@ iterator Step on FibState -> FibState {
 		#[test]
 		fn supports_namespaced_types_with_import_types() {
 				let source = r#"
-import types Domain from "./domain.aql"
+import types Domain from "./domain.gr"
 
 query Run on Domain::FibState -> Domain::FibState {
 	core.echo(message: "ok")

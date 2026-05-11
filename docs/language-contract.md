@@ -1,12 +1,12 @@
 # Language Contract
 
-This document defines the current behavior contract for Grapheme AgentQL in this repository.
+This document defines the current behavior contract for Grapheme Grapheme Lang in this repository.
 
 Status: prototype contract for current implementation, not a final spec.
 
 ## Purpose
 
-AgentQL is a workflow-oriented DSL for capability calls over a shared AgentState.
+Grapheme Lang is a workflow-oriented DSL for capability calls over a shared AgentState.
 
 It is compiled and executed via this pipeline:
 

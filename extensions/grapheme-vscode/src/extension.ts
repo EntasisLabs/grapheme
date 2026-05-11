@@ -21,9 +21,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const clientOptions: LanguageClientOptions = {
-    documentSelector: [{ scheme: "file", language: "aql" }],
+    documentSelector: [{ scheme: "file", language: "grapheme" }],
     synchronize: {
-      fileEvents: vscode.workspace.createFileSystemWatcher("**/*.aql"),
+      fileEvents: vscode.workspace.createFileSystemWatcher("**/*.gr"),
     },
   };
 

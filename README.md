@@ -1,8 +1,8 @@
 # Grapheme
 
-Grapheme is a Rust-first compiler and runtime for AgentQL (`.aql`) programs.
+Grapheme is a Rust-first compiler and runtime for Grapheme Lang (`.gr`) programs.
 
-It compiles AgentQL source into verified MIR artifacts and executes capability calls through a governed runtime that supports both host-backed and Wasix-backed module execution.
+It compiles Grapheme Lang source into verified MIR artifacts and executes capability calls through a governed runtime that supports both host-backed and Wasix-backed module execution.
 
 Status: active prototype moving toward production hardening.
 
@@ -21,10 +21,10 @@ Status: active prototype moving toward production hardening.
 - `crates/grapheme-artifact`: artifact envelope + execution contracts.
 - `crates/grapheme-runtime`: runtime engine, module registry, policy guard, Wasix backend.
 - `crates/grapheme-cli`: `grapheme` CLI (parse, compile, run, modules, plugins build).
-- `crates/grapheme-lsp`: language server for `.aql`.
+- `crates/grapheme-lsp`: language server for `.gr`.
 - `plugins/*-rs`: Wasm module plugin implementations (built outside workspace members).
 - `extensions/grapheme-vscode`: VS Code extension that runs a prebuilt LSP binary.
-- `examples/`: runnable AgentQL examples.
+- `examples/`: runnable Grapheme Lang examples.
 - `scripts/`: release tooling for LSP and VSIX.
 
 ## Quick Start
@@ -43,15 +43,15 @@ rustup target add wasm32-wasip1
 ### 2) Build and run a simple program
 
 ```bash
-cargo run -- parse examples/hello-world.aql
-cargo run -- compile examples/hello-world.aql --emit artifact
-cargo run -- run examples/hello-world.aql
+cargo run -- parse examples/hello-world.gr
+cargo run -- compile examples/hello-world.gr --emit artifact
+cargo run -- run examples/hello-world.gr
 ```
 
 ### 3) Run with native Wasm modules
 
 ```bash
-cargo run -- run examples/core-merge.aql --native-modules
+cargo run -- run examples/core-merge.gr --native-modules
 ```
 
 ### 4) Discover runtime modules
@@ -73,7 +73,7 @@ Example:
 
 ```bash
 GRAPHEME_ALLOWED_HTTP_DOMAINS=example.com \
-  cargo run -- run examples/http-get.aql --native-modules
+  cargo run -- run examples/http-get.gr --native-modules
 ```
 
 Runtime tuning env vars:

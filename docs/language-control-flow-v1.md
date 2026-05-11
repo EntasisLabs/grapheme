@@ -1,6 +1,6 @@
 # Language Control Flow v1
 
-This document proposes a first version of loop and recursion semantics for AgentQL.
+This document proposes a first version of loop and recursion semantics for Grapheme Lang.
 
 Status: design proposal, not implemented yet.
 
@@ -28,7 +28,7 @@ The preferred user-facing syntax should be fluent chaining (similar to modern .N
 
 ### Fluent Chain (Preferred Ergonomic Form)
 
-```aql
+```grapheme
 query PollUntilReady {
   Flow.range(start: 0, count: 5)
     .as("$i")
@@ -51,7 +51,7 @@ Design intent:
 
 Repeat executes a pipeline body up to a fixed max iteration count.
 
-```aql
+```grapheme
 query PollUntilReady {
   repeat(max: 5, until: { field: "status", equals: "ready" }) {
     HTTP.get(url: "https://example.com/job/123") {
@@ -76,7 +76,7 @@ v1 should standardize loop-scoped variables using `$` identifiers.
 
 Proposed syntax extension:
 
-```aql
+```grapheme
 query PollWithVars {
   repeat(max: 5, as: "$i", until: { field: "status", equals: "ready" }) {
     Core.echo(message: "$i") {
@@ -88,7 +88,7 @@ query PollWithVars {
 
 For collection iteration (phase 1.5 or phase 2):
 
-```aql
+```grapheme
 query IterateItems {
   repeat(over: ["a", "b", "c"], as: "$item", index_as: "$i", max: 10) {
     Core.merge(left: { index: "$i" }, right: { value: "$item" }) {
@@ -124,7 +124,7 @@ Reserved runtime loop variables (always available inside a repeat body):
 
 Recursion is explicit through named executable invocation.
 
-```aql
+```grapheme
 iterator Step on Any {
   Core.echo() {
     state { current }
@@ -300,7 +300,7 @@ Proposed additions to pipeline trace entries:
 
 ## Example Set to Add with Implementation
 
-1. `examples/repeat-http-poll.aql`
-2. `examples/repeat-fixed-count.aql`
-3. `examples/call-fragment-depth-bounded.aql`
-4. `examples/recursion-depth-exceeded.aql` (expected failure)
+1. `examples/repeat-http-poll.gr`
+2. `examples/repeat-fixed-count.gr`
+3. `examples/call-fragment-depth-bounded.gr`
+4. `examples/recursion-depth-exceeded.gr` (expected failure)

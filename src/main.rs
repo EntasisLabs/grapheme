@@ -1,10 +1,10 @@
 /// ─────────────────────────────────────────────────────────────
 ///  Grapheme  —  CLI
 ///  Usage:
-///    grapheme <file.aql>
-///    grapheme parse <file.aql>
-///    grapheme compile <file.aql> --emit ast|hir|mir|artifact
-///    grapheme run <file.aql>
+///    grapheme <file.gr>
+///    grapheme parse <file.gr>
+///    grapheme compile <file.gr> --emit ast|hir|mir|artifact
+///    grapheme run <file.gr>
 /// ─────────────────────────────────────────────────────────────
 
 use grapheme::host::{CapabilityCall, CapabilityHost, HostCallError};
@@ -31,7 +31,7 @@ fn run(args: Vec<String>) -> Result<(), grapheme::GraphemeError> {
         ));
     }
 
-    // Backwards-compatible mode: `grapheme file.aql` maps to parse.
+    // Backwards-compatible mode: `grapheme file.gr` maps to parse.
     if args.len() == 2 && args[1] != "parse" && args[1] != "compile" && args[1] != "run" {
         return emit_parse(&args[1]);
     }
@@ -177,8 +177,8 @@ fn print_json<T: serde::Serialize>(value: &T) -> Result<(), grapheme::GraphemeEr
 
 fn print_usage() {
     eprintln!("usage:");
-    eprintln!("  grapheme <file.aql>");
-    eprintln!("  grapheme parse <file.aql>");
-    eprintln!("  grapheme compile <file.aql> --emit ast|hir|mir|artifact");
-    eprintln!("  grapheme run <file.aql>");
+    eprintln!("  grapheme <file.gr>");
+    eprintln!("  grapheme parse <file.gr>");
+    eprintln!("  grapheme compile <file.gr> --emit ast|hir|mir|artifact");
+    eprintln!("  grapheme run <file.gr>");
 }

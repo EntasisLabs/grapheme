@@ -4,7 +4,7 @@
 
 Grapheme is structured around a strict compile/execute split:
 
-1. Source (`.aql`) is parsed and lowered by the compiler.
+1. Source (`.gr`) is parsed and lowered by the compiler.
 2. The compiler emits MIR and an artifact envelope.
 3. The runtime validates artifact compatibility and integrity.
 4. Runtime executes MIR calls through module resolution and policy checks.
@@ -15,7 +15,7 @@ Grapheme is structured around a strict compile/execute split:
 - `grapheme-artifact`: artifact schema and execution result contracts.
 - `grapheme-runtime`: execution engine and governance layer.
 - `grapheme`: CLI wrapper over compiler/runtime.
-- `grapheme-lsp`: language server implementation for `.aql`.
+- `grapheme-lsp`: language server implementation for `.gr`.
 
 ## Runtime Execution Path
 

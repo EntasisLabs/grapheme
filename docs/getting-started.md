@@ -19,9 +19,9 @@ From the repo root:
 
 ```bash
 cargo check --workspace
-cargo run -- parse examples/hello-world.aql
-cargo run -- compile examples/hello-world.aql --emit mir
-cargo run -- run examples/hello-world.aql
+cargo run -- parse examples/hello-world.gr
+cargo run -- compile examples/hello-world.gr --emit mir
+cargo run -- run examples/hello-world.gr
 ```
 
 ## Running with Wasm Plugins
@@ -29,13 +29,13 @@ cargo run -- run examples/hello-world.aql
 Use native module mode to build and bind known plugins automatically:
 
 ```bash
-cargo run -- run examples/core-merge.aql --native-modules
+cargo run -- run examples/core-merge.gr --native-modules
 ```
 
 You can also bind manually:
 
 ```bash
-cargo run -- run examples/http-get.aql \
+cargo run -- run examples/http-get.gr \
   --bind http=plugins/http-rs.wasm
 ```
 
@@ -49,14 +49,14 @@ cargo run -- modules
 
 The `examples/` directory includes:
 
-- core operations (`core-merge.aql`, `core-filter.aql`, `core-validate-schema.aql`)
+- core operations (`core-merge.gr`, `core-filter.gr`, `core-validate-schema.gr`)
 - io/http/tcp/smtp/secrets demos
-- basic memory roundtrip demo (`memory-roundtrip.aql`)
+- basic memory roundtrip demo (`memory-roundtrip.gr`)
 
 ## Generate JSON Output for Automation
 
 ```bash
-cargo run -- run examples/core-merge.aql --native-modules --json
+cargo run -- run examples/core-merge.gr --native-modules --json
 ```
 
 ## Next Steps

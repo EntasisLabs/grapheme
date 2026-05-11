@@ -14,13 +14,13 @@ Define a stable contract for mapping Grapheme module operations to `.wasm` plugi
 CLI binding example:
 
 ```bash
-grapheme run examples/hello-world.aql --bind core=plugins/core.wasm
+grapheme run examples/hello-world.gr --bind core=plugins/core.wasm
 ```
 
 Current repository demo command:
 
 ```bash
-grapheme run examples/hello-world.aql --bind core=plugins/core-echo.wat
+grapheme run examples/hello-world.gr --bind core=plugins/core-echo.wat
 ```
 
 ## Module Binding

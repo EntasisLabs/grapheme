@@ -4,14 +4,14 @@ This guide covers local development and validation for `crates/grapheme-lsp`.
 
 ## What The LSP Currently Provides
 
-- parse diagnostics for `.aql` documents via `grapheme_compiler::parse`
+- parse diagnostics for `.gr` documents via `grapheme_compiler::parse`
 - full-document formatting (trim trailing spaces, normalize ending newline)
 - hover hints for transform ops (`html.to_md`, `json.parse`, `csv.to_list`, `yaml.to_json`)
 - completion for transform ops with typed return-shape details
 - go-to-definition for `query`/`iterator`/`mutation`/`subscription` references
 - document symbols for top-level executable definitions
 - snippet completions for key language constructs (`query`, `iterator`, `flow.branch`)
-- find references for symbols across open `.aql` documents
+- find references for symbols across open `.gr` documents
 - rename symbol support for top-level executable names and usages
 - signature help for transform calls while typing args
 
@@ -32,13 +32,13 @@ Completion supports:
 
 ## References, Rename, and Signature Help
 
-- References: resolves symbol usages across workspace `.aql` files (including unopened files under workspace roots).
-- Rename: applies coordinated text edits for symbol occurrences across workspace `.aql` files.
+- References: resolves symbol usages across workspace `.gr` files (including unopened files under workspace roots).
+- Rename: applies coordinated text edits for symbol occurrences across workspace `.gr` files.
 - Signature help: on `(` and `,` for transform calls, shows arg contract and return shape.
 
 Workspace indexing notes:
 
-- Indexed extensions: `.aql`
+- Indexed extensions: `.gr`
 - Root sources: LSP workspace folders (fallback: root URI)
 - Skipped directories: `.git`, `target`, `node_modules`, `.vscode`
 

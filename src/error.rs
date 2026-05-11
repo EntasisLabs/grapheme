@@ -39,5 +39,3 @@ pub enum GraphemeError {
     #[error("artifact integrity error: {0}")]
     ArtifactIntegrityError(String),
 }
-
-pub type AgentQLError = GraphemeError;

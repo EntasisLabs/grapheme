@@ -1,6 +1,6 @@
 # Grapheme VS Code Extension
 
-VS Code language support for AgentQL (`.aql`) powered by `grapheme-lsp`.
+VS Code language support for Grapheme Lang (`.gr`, legacy `.gr`) powered by `grapheme-lsp`.
 
 ## Runtime Model
 
@@ -16,19 +16,19 @@ Binary resolution order:
 
 - diagnostics from parser errors
 - document formatting via LSP
-- syntax grammar and language configuration for `.aql`
+- syntax grammar and language configuration for `.gr` and `.gr`
 - transform op hover hints with typed return-shape info
 - transform op completion hints (triggered by `.`) with return-shape details
 - go-to-definition for top-level executable references
 - document symbols for queries/iterators/mutations/subscriptions
 - snippet completions for common language constructs
-- find references for symbols across open `.aql` files
+- find references for symbols across open `.gr` and `.gr` files
 - rename symbol support for top-level executable references
 - signature help while typing transform operation arguments
 
 Notes:
 
-- references/rename/definition use workspace indexing for `.aql` files, including unopened files
+- references/rename/definition use workspace indexing for `.gr` and `.gr` files, including unopened files
 
 ## Settings
 

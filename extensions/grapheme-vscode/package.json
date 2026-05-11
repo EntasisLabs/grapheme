@@ -1,7 +1,7 @@
 {
   "name": "grapheme-vscode",
-  "displayName": "Grapheme",
-  "description": "Grapheme .aql language support powered by a prebuilt LSP binary",
+  "displayName": "Grapheme Lang",
+  "description": "Grapheme Lang (.gr) support powered by a prebuilt LSP binary",
   "version": "0.1.0",
   "publisher": "grapheme-dev",
   "license": "Apache-2.0",
@@ -27,28 +27,29 @@
     "Formatters"
   ],
   "activationEvents": [
-    "onLanguage:aql"
+    "onLanguage:grapheme"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "languages": [
       {
-        "id": "aql",
+        "id": "grapheme",
         "aliases": [
-          "Grapheme AQL",
-          "aql"
+          "Grapheme Lang",
+          "grapheme",
+          "gr"
         ],
         "extensions": [
-          ".aql"
+          ".gr"
         ],
         "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
       {
-        "language": "aql",
-        "scopeName": "source.aql",
-        "path": "./syntaxes/aql.tmGrammar.json"
+        "language": "grapheme",
+        "scopeName": "source.grapheme",
+        "path": "./syntaxes/gr.tmGrammar.json"
       }
     ],
     "configuration": {
