@@ -1,48 +1,48 @@
 # Grapheme Documentation
 
-This documentation set reflects the current implementation of Grapheme in this repository.
+This directory is the canonical documentation set for Grapheme.
 
 ## Start Here
 
 1. `docs/getting-started.md`
-2. `docs/architecture.md`
-3. `docs/language-contract.md`
+2. `docs/language-contract.md`
+3. `docs/architecture.md`
 4. `docs/cli.md`
-5. `docs/modules.md`
-6. `docs/runtime-policy.md`
+5. `docs/runtime-policy.md`
+6. `docs/modules.md`
 7. `docs/native-modules.md`
-8. `docs/runtime/runtime-state-flow.md`
-9. `docs/runtime/wit-contract-v1.5.md`
-10. `docs/runtime/loop-state-contract-v1.5.md`
-11. `docs/turing-completeness-roadmap.md`
-12. `docs/runtime/policy-profile-matrix.md`
-13. `docs/native-modules.md` (transform module signatures and chaining semantics)
-14. `docs/language-typed-records-v1.md`
-15. `docs/roadmaps/language-ergonomics-v2-draft.md`
-16. `docs/roadmaps/sprint-01-language-ergonomics.md`
 
-## Tooling and Distribution
+## Runtime Contracts
 
-- LSP quickstart: `docs/lsp/quickstart.md`
-- LSP + VSIX release guide: `docs/release/lsp-release.md`
-- VS Code extension details: `extensions/grapheme-vscode/README.md`
-- Transform cookbook examples: `examples/transform-cookbook/README.md`
-
-## Historical Design Notes
-
-These documents are useful context but were written earlier in the project lifecycle:
-
-- `docs/compiler-first-draft.md`
-- `docs/compiler-runtime-split.md`
-- `docs/grapheme-stasis-integration.md`
+- `docs/runtime/runtime-state-flow.md`
+- `docs/runtime/wit-contract-v1.5.md`
+- `docs/runtime/loop-state-contract-v1.5.md`
+- `docs/runtime/policy-profile-matrix.md`
 - `docs/runtime/module-capability-v1.md`
 - `docs/runtime/wasix-plugin-contract-v1.md`
 
-## Active Proposals
+## Language Evolution and Roadmaps
 
 - `docs/language-control-flow-v1.md`
 - `docs/language-control-flow-v1-implementation.md`
 - `docs/language-typed-records-v1.md`
+- `docs/turing-completeness-roadmap.md`
 - `docs/roadmaps/language-ergonomics-v2-draft.md`
 - `docs/roadmaps/sprint-01-language-ergonomics.md`
-- `docs/language-contract.md` (iterator/fragment vNext contract proposal)
+
+## Tooling and Distribution
+
+- LSP quickstart: `docs/lsp/quickstart.md`
+- LSP and VSIX release flow: `docs/release/lsp-release.md`
+- VS Code extension: `extensions/grapheme-vscode/README.md`
+- Examples index: `examples/README.md`
+- Showcase examples: `examples/showcase/README.md`
+- Transform cookbook: `examples/transform-cookbook/README.md`
+
+## Historical Notes
+
+The following documents provide historical architecture context and early design direction:
+
+- `docs/compiler-first-draft.md`
+- `docs/compiler-runtime-split.md`
+- `docs/grapheme-stasis-integration.md`

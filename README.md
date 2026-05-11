@@ -1,122 +1,110 @@
 # Grapheme
 
-Grapheme is a Rust-first compiler and runtime for Grapheme Lang (`.gr`) programs.
+Grapheme is an AI workflow language and runtime toolchain.
 
-It compiles Grapheme Lang source into verified MIR artifacts and executes capability calls through a governed runtime that supports both host-backed and Wasix-backed module execution.
+It compiles `.gr` programs into verified MIR artifacts and executes capability calls through a governed runtime with host-backed and Wasix-backed module paths.
 
-Status: active prototype moving toward production hardening.
+Status: production-hardening phase.
 
 ## Why Grapheme
 
-- Compiler/runtime split with clear trust boundaries.
-- Artifact integrity checks before execution.
-- Capability-aware execution and module registry.
-- Wasix path for sandboxed module execution.
-- LSP + VS Code extension for editor workflow.
-- Release scripts and CI for binary + VSIX distribution.
-
-## Repository Layout
-
-- `crates/grapheme-compiler`: parse + lower to AST/HIR/MIR.
-- `crates/grapheme-artifact`: artifact envelope + execution contracts.
-- `crates/grapheme-runtime`: runtime engine, module registry, policy guard, Wasix backend.
-- `crates/grapheme-cli`: `grapheme` CLI (parse, compile, run, modules, plugins build).
-- `crates/grapheme-lsp`: language server for `.gr`.
-- `plugins/*-rs`: Wasm module plugin implementations (built outside workspace members).
-- `extensions/grapheme-vscode`: VS Code extension that runs a prebuilt LSP binary.
-- `examples/`: runnable Grapheme Lang examples.
-- `scripts/`: release tooling for LSP and VSIX.
+- Language-first workflow modeling with explicit control flow.
+- Compiler/runtime boundary with artifact verification.
+- Capability-governed execution and runtime policy controls.
+- Strong ergonomics for compact automation code (`match`, `if`, `set`, `transition`, `@loop`, `@r`, `@t`).
+- Tooling stack included: CLI, LSP, and VS Code extension.
 
 ## Quick Start
 
-### 1) Prerequisites
+### Prerequisites
 
 - Rust stable + Cargo
-- `rustup` target for Wasm plugin builds:
+- `wasm32-wasip1` target
+- Node.js + npm (extension packaging and local extension work)
 
 ```bash
 rustup target add wasm32-wasip1
 ```
 
-- Node.js + npm (for VS Code extension packaging)
-
-### 2) Build and run a simple program
+### Common developer loop
 
 ```bash
+cargo check --workspace
 cargo run -- parse examples/hello-world.gr
 cargo run -- compile examples/hello-world.gr --emit artifact
 cargo run -- run examples/hello-world.gr
 ```
 
-### 3) Run with native Wasm modules
+### Run with native modules
 
 ```bash
 cargo run -- run examples/core-merge.gr --native-modules
 ```
 
-### 4) Discover runtime modules
+### Explore the new showcase set
 
 ```bash
-cargo run -- modules
+cargo run -- run examples/showcase/release-control-tower-compact.gr --native-modules
+cargo run -- run examples/showcase/blue-green-cutover.gr --native-modules
+cargo run -- run examples/showcase/feature-flag-progressive-rollout.gr --native-modules
 ```
+
+Optional machine-readable output:
+
+```bash
+cargo run -- run examples/showcase/feature-flag-progressive-rollout.gr --native-modules --json
+```
+
+## Repository Layout
+
+- `crates/grapheme-compiler`: parser + lowering (AST/HIR/MIR) + verifier integration.
+- `crates/grapheme-artifact`: artifact envelope and MIR contracts.
+- `crates/grapheme-runtime`: runtime engine, capability dispatch, policy enforcement, Wasix path.
+- `crates/grapheme-cli`: `grapheme` CLI (`parse`, `compile`, `run`, `modules`).
+- `crates/grapheme-lsp`: language server for `.gr` authoring.
+- `plugins/*-rs`: plugin implementations compiled to Wasm.
+- `extensions/grapheme-vscode`: VS Code extension wiring for LSP workflow.
+- `examples/`: runnable examples and showcase demos.
+- `docs/`: language, architecture, runtime policy, and release docs.
 
 ## Runtime Policy Controls
 
-Runtime policy guards can be scoped via environment variables:
+Allow-list environment variables:
 
 - `GRAPHEME_ALLOWED_HTTP_DOMAINS`
 - `GRAPHEME_ALLOWED_TCP_TARGETS`
 - `GRAPHEME_ALLOWED_SMTP_DOMAINS`
 - `GRAPHEME_ALLOWED_SECRETS`
 
-Example:
+Runtime tuning variables:
+
+- `GRAPHEME_WASIX_CACHE_MAX_MODULES` (default `8`)
+- `GRAPHEME_RUNTIME_TIMING` (`1` or `true` to emit timing summary)
+- `GRAPHEME_RUNTIME_MAX_STEPS` (`none` or `unbounded` to disable)
+- `GRAPHEME_RUNTIME_MAX_CALL_DEPTH` (`none` or `unbounded` to disable)
+
+Example policy scoping:
 
 ```bash
 GRAPHEME_ALLOWED_HTTP_DOMAINS=example.com \
   cargo run -- run examples/http-get.gr --native-modules
 ```
 
-Runtime tuning env vars:
-
-- `GRAPHEME_WASIX_CACHE_MAX_MODULES`: max compiled Wasm modules cached in runtime (default: `8`).
-- `GRAPHEME_RUNTIME_TIMING`: when set to `1` or `true`, print aggregated runtime timing summary.
-- `GRAPHEME_RUNTIME_MAX_STEPS`: runtime step budget (`none`/`unbounded` disables this bound).
-- `GRAPHEME_RUNTIME_MAX_CALL_DEPTH`: runtime call-depth budget (`none`/`unbounded` disables this bound).
-
-## Loop Benchmark and Step 4 Checks
-
-Run repeatable loop benchmark profiles:
-
-```bash
-bash scripts/benchmark-loop.sh
-```
-
-Run the full step-4 validation suite (tests + invalid fixture + benchmark):
-
-```bash
-bash scripts/step4-checks.sh
-```
-
 ## Documentation
 
-Start here for full docs:
+- Main index: `docs/README.md`
+- Getting started: `docs/getting-started.md`
+- Language contract: `docs/language-contract.md`
+- Showcase examples: `examples/showcase/README.md`
+- General examples index: `examples/README.md`
 
-- `docs/README.md`
-- `docs/language-contract.md`
-- `docs/native-modules.md`
-
-## LSP and VS Code
+## Tooling and Release
 
 - LSP quickstart: `docs/lsp/quickstart.md`
-- Extension guide: `extensions/grapheme-vscode/README.md`
-- Release flow: `docs/release/lsp-release.md`
-
-## Current Scope and Caveats
-
-- Core end-to-end flow is operational: parse -> compile -> artifact -> runtime -> output.
-- Wasix plugin execution works through stdin/stdout JSON bridging.
-- Network modules (`http`, `tcp`, `smtp`) are currently host-backed by default in CLI runtime for real service access.
-- Memory module persistence semantics are not finalized for long-lived cross-run storage.
+- VS Code extension: `extensions/grapheme-vscode/README.md`
+- LSP/VSIX release flow: `docs/release/lsp-release.md`
+- Loop benchmark: `scripts/benchmark-loop.sh`
+- Step-4 validation bundle: `scripts/step4-checks.sh`
 
 ## License
 
