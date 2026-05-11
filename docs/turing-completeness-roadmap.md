@@ -77,6 +77,7 @@ Current status:
 - Extended private policy matrix and one-command checker to cover bounded and unbounded profiles for both termination and deterministic budget failure.
 - Added first 2-counter Minsky-style transfer program: `examples/v1-minsky-transfer.aql` with bounded/unbounded profile checks.
 - Added second branching 2-counter Minsky pattern: `examples/v1-minsky-branching.aql` with bounded/unbounded profile checks.
+- Added native data-transformation modules for agent workflows: `html.to_md`, `json.parse`, `csv.to_list`, `yaml.to_json`.
 
 ## Conformance Gate
 

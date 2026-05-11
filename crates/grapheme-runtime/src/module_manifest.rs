@@ -49,6 +49,10 @@ pub struct ResourceLimits {
 pub fn core_v1_manifests() -> Vec<ModuleManifest> {
     vec![
         module_core(),
+        module_html(),
+        module_json(),
+        module_csv(),
+        module_yaml(),
         module_docs(),
         module_io(),
         module_http(),
@@ -59,6 +63,54 @@ pub fn core_v1_manifests() -> Vec<ModuleManifest> {
         module_secrets(),
         module_policy(),
     ]
+}
+
+fn module_html() -> ModuleManifest {
+    ModuleManifest {
+        module_id: "html".to_string(),
+        version: "1.0.0".to_string(),
+        abi: ModuleAbi::MirV1,
+        entrypoint: "html.main".to_string(),
+        exported_ops: vec![op("to_md", EffectKind::Pure)],
+        required_capabilities: vec!["html.transform".to_string()],
+        limits: limits_standard(),
+    }
+}
+
+fn module_json() -> ModuleManifest {
+    ModuleManifest {
+        module_id: "json".to_string(),
+        version: "1.0.0".to_string(),
+        abi: ModuleAbi::MirV1,
+        entrypoint: "json.main".to_string(),
+        exported_ops: vec![op("parse", EffectKind::Pure)],
+        required_capabilities: vec!["json.transform".to_string()],
+        limits: limits_standard(),
+    }
+}
+
+fn module_csv() -> ModuleManifest {
+    ModuleManifest {
+        module_id: "csv".to_string(),
+        version: "1.0.0".to_string(),
+        abi: ModuleAbi::MirV1,
+        entrypoint: "csv.main".to_string(),
+        exported_ops: vec![op("to_list", EffectKind::Pure)],
+        required_capabilities: vec!["csv.transform".to_string()],
+        limits: limits_standard(),
+    }
+}
+
+fn module_yaml() -> ModuleManifest {
+    ModuleManifest {
+        module_id: "yaml".to_string(),
+        version: "1.0.0".to_string(),
+        abi: ModuleAbi::MirV1,
+        entrypoint: "yaml.main".to_string(),
+        exported_ops: vec![op("to_json", EffectKind::Pure)],
+        required_capabilities: vec!["yaml.transform".to_string()],
+        limits: limits_standard(),
+    }
 }
 
 fn module_docs() -> ModuleManifest {

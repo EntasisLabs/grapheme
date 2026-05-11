@@ -439,6 +439,10 @@ impl CapabilityHost for CliHost {
                 Ok(host_tcp_receive(target, max_bytes))
             }
             ("smtp", "send_mail") => Ok(host_smtp_send_mail(&call.args)),
+            ("html", "to_md") => Ok(host_html_to_md(&call.args)),
+            ("json", "parse") => Ok(host_json_parse(&call.args)),
+            ("csv", "to_list") => Ok(host_csv_to_list(&call.args)),
+            ("yaml", "to_json") => Ok(host_yaml_to_json(&call.args)),
             _ => Ok(json!({
                 "module": call.module,
                 "op": call.op,
@@ -450,6 +454,123 @@ impl CapabilityHost for CliHost {
             })),
         }
     }
+}
+
+fn host_html_to_md(args: &JsonValue) -> JsonValue {
+    let html = arg_text(args, "html");
+    let markdown = html2md::parse_html(&html);
+    json!({ "text": markdown, "markdown": markdown })
+}
+
+fn host_json_parse(args: &JsonValue) -> JsonValue {
+    let text = arg_text(args, "text");
+    match serde_json::from_str::<JsonValue>(&text) {
+        Ok(value) => value,
+        Err(err) => json!({ "error": format!("json parse failed: {err}") }),
+    }
+}
+
+fn host_csv_to_list(args: &JsonValue) -> JsonValue {
+    let text = arg_text(args, "text");
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(true)
+        .from_reader(text.as_bytes());
+
+    let headers = match reader.headers() {
+        Ok(h) => h.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+        Err(err) => return json!({ "error": format!("csv header parse failed: {err}") }),
+    };
+
+    let mut rows = Vec::new();
+    for record in reader.records() {
+        let record = match record {
+            Ok(r) => r,
+            Err(err) => return json!({ "error": format!("csv row parse failed: {err}") }),
+        };
+
+        let mut obj = serde_json::Map::new();
+        for (idx, value) in record.iter().enumerate() {
+            let key = headers
+                .get(idx)
+                .cloned()
+                .unwrap_or_else(|| format!("col_{idx}"));
+            obj.insert(key, JsonValue::String(value.to_string()));
+        }
+        rows.push(JsonValue::Object(obj));
+    }
+
+    JsonValue::Array(rows)
+}
+
+fn host_yaml_to_json(args: &JsonValue) -> JsonValue {
+    let text = arg_text(args, "text");
+    match serde_yaml::from_str::<serde_yaml::Value>(&text) {
+        Ok(value) => match serde_json::to_value(value) {
+            Ok(json) => json,
+            Err(err) => json!({ "error": format!("yaml conversion failed: {err}") }),
+        },
+        Err(err) => json!({ "error": format!("yaml parse failed: {err}") }),
+    }
+}
+
+fn arg_text(args: &JsonValue, key: &str) -> String {
+    let raw = args
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(ToOwned::to_owned)
+        .or_else(|| args.get("__input").and_then(|v| extract_text_from_input(v, key)))
+        .unwrap_or_default();
+
+    decode_escaped_text(&raw)
+}
+
+fn extract_text_from_input(input: &JsonValue, preferred_key: &str) -> Option<String> {
+    if let Some(raw) = input.as_str() {
+        return Some(raw.to_string());
+    }
+
+    let map = input.as_object()?;
+    let mut probe_order = vec![preferred_key];
+    probe_order.extend(["text", "body", "content", "html", "markdown", "data"]);
+
+    for key in probe_order {
+        if let Some(raw) = map.get(key).and_then(|v| v.as_str()) {
+            return Some(raw.to_string());
+        }
+    }
+
+    if map.len() == 1 {
+        return map.values().next().and_then(|v| v.as_str()).map(ToOwned::to_owned);
+    }
+
+    None
+}
+
+fn decode_escaped_text(raw: &str) -> String {
+    let mut out = String::new();
+    let mut chars = raw.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some('t') => out.push('\t'),
+            Some('"') => out.push('"'),
+            Some('\\') => out.push('\\'),
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
+    }
+
+    out
 }
 
 fn host_http_request(method: &str, url: &str, body: Option<&JsonValue>) -> JsonValue {

@@ -16,12 +16,14 @@ This documentation set reflects the current implementation of Grapheme in this r
 10. `docs/runtime/loop-state-contract-v1.5.md`
 11. `docs/turing-completeness-roadmap.md`
 12. `docs/runtime/policy-profile-matrix.md`
+13. `docs/native-modules.md` (transform module signatures and chaining semantics)
 
 ## Tooling and Distribution
 
 - LSP quickstart: `docs/lsp/quickstart.md`
 - LSP + VSIX release guide: `docs/release/lsp-release.md`
 - VS Code extension details: `extensions/grapheme-vscode/README.md`
+- Transform cookbook examples: `examples/transform-cookbook/README.md`
 
 ## Historical Design Notes
 

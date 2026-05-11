@@ -133,6 +133,10 @@ const MEMORY_LOAD_ARGS: &[ArgSpec] = &[ArgSpec { name: "key", ty: ArgType::Strin
 
 const DOCS_GUIDE_ARGS: &[ArgSpec] = &[ArgSpec { name: "topic", ty: ArgType::String, required: false }];
 const DOCS_EXAMPLE_ARGS: &[ArgSpec] = &[ArgSpec { name: "module", ty: ArgType::String, required: false }];
+const HTML_TO_MD_ARGS: &[ArgSpec] = &[ArgSpec { name: "html", ty: ArgType::String, required: false }];
+const JSON_PARSE_ARGS: &[ArgSpec] = &[ArgSpec { name: "text", ty: ArgType::String, required: false }];
+const CSV_TO_LIST_ARGS: &[ArgSpec] = &[ArgSpec { name: "text", ty: ArgType::String, required: false }];
+const YAML_TO_JSON_ARGS: &[ArgSpec] = &[ArgSpec { name: "text", ty: ArgType::String, required: false }];
 
 const OP_SPECS: &[OpSpec] = &[
     OpSpec { module: "core", op: "echo", args: CORE_ECHO_ARGS },
@@ -167,6 +171,10 @@ const OP_SPECS: &[OpSpec] = &[
     OpSpec { module: "docs", op: "native_module_guide", args: DOCS_GUIDE_ARGS },
     OpSpec { module: "docs", op: "native_module_registry", args: &[] },
     OpSpec { module: "docs", op: "native_module_example", args: DOCS_EXAMPLE_ARGS },
+    OpSpec { module: "html", op: "to_md", args: HTML_TO_MD_ARGS },
+    OpSpec { module: "json", op: "parse", args: JSON_PARSE_ARGS },
+    OpSpec { module: "csv", op: "to_list", args: CSV_TO_LIST_ARGS },
+    OpSpec { module: "yaml", op: "to_json", args: YAML_TO_JSON_ARGS },
 ];
 
 pub fn verify_hir(hir: &HirProgram) -> Result<(), GraphemeError> {
@@ -691,7 +699,15 @@ fn parse_branch_target(value: Option<&JsonValue>) -> Option<String> {
 }
 
 fn is_variable_placeholder(value: &JsonValue) -> bool {
-    matches!(value, JsonValue::String(s) if s.starts_with('$'))
+    if matches!(value, JsonValue::String(s) if s.starts_with('$')) {
+        return true;
+    }
+
+    value
+        .as_object()
+        .and_then(|map| map.get("$var"))
+        .and_then(|v| v.as_str())
+        .is_some()
 }
 
 fn value_matches_arg_type(value: &JsonValue, expected: ArgType) -> bool {

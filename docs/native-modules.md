@@ -31,6 +31,13 @@ Current execution defaults:
 - Host-backed by default: `http`, `tcp`, `smtp`
 - Host-backed built-ins: `memory`
 
+Transform modules (host-backed):
+
+- `html.to_md(html?: string)`
+- `json.parse(text?: string)`
+- `csv.to_list(text?: string)`
+- `yaml.to_json(text?: string)`
+
 Inspect live manifests:
 
 ```bash
@@ -73,6 +80,45 @@ Examples of enforced checks:
 - unknown operation names for known modules
 
 This helps both humans and models avoid generating invalid operation calls.
+
+## Transform Chaining Semantics
+
+Transform ops support both explicit and implicit pipeline reuse.
+
+- explicit reuse: pass prior values with `$current.<field>` in args
+- implicit reuse: when the primary string arg is omitted, transform ops read from pipeline input in this order:
+  - preferred arg key (for example `text` or `html`)
+  - `text`
+  - `body`
+  - `content`
+  - `html`
+  - `markdown`
+  - `data`
+
+Return shapes:
+
+- `html.to_md` -> `{ text: string, markdown: string }`
+- `json.parse` -> `JsonValue`
+- `csv.to_list` -> `Array<Object<string, string>>`
+- `yaml.to_json` -> `JsonValue`
+
+Examples:
+
+```aql
+query ImplicitChain {
+  http.get(url: "https://example.com")
+  |> html.to_md()
+}
+```
+
+```aql
+query ExplicitChain {
+  yaml.to_json(text: "payload: |\n  [1,2,3]\n")
+  |> json.parse(text: $current.payload)
+}
+```
+
+See additional recipes in `examples/transform-cookbook/`.
 
 ## Native Docs Module
 

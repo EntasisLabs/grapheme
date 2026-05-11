@@ -1,0 +1,4 @@
+query HttpHtmlMarkdown {
+  http.get(url: "https://example.com")
+  |> html.to_md()
+}

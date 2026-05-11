@@ -1,0 +1,6 @@
+query TransformNativeTooling {
+  html.to_md(html: "<h1>Hello</h1><p>Agents</p>")
+  |> json.parse(text: "[1,2,3]")
+  |> csv.to_list(text: "name,age\nana,4\nben,9")
+  |> yaml.to_json(text: "service: grapheme\nfeatures:\n  - transform\n  - runtime")
+}
