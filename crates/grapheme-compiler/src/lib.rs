@@ -311,4 +311,152 @@ iterator Step on FibState -> FibState {
 
 				assert!(!query.blocks.is_empty());
 		}
+
+		#[test]
+		fn rejects_unknown_current_field_in_typed_scope() {
+				let source = r#"
+struct FibState {
+	 a: Float
+	 b: Float
+}
+
+query Run on FibState -> FibState {
+	Step
+}
+
+iterator Step on FibState -> FibState {
+	core.echo(message: $current.missing)
+}
+"#;
+
+				let err = compile(source).expect_err("compile should fail for unknown typed field");
+				let msg = err.to_string();
+				assert!(msg.contains("unknown field '$current.missing'"));
+		}
+
+		#[test]
+		fn rejects_unknown_named_type_in_signature() {
+				let source = r#"
+query Run on MissingType -> MissingType {
+	core.echo(message: "hi")
+}
+"#;
+
+				let err = compile(source).expect_err("compile should fail for unknown named type");
+				let msg = err.to_string();
+				assert!(msg.contains("references unknown type 'MissingType'"));
+		}
+
+		#[test]
+		fn rejects_missing_required_output_fields_in_typed_scope() {
+				let source = r#"
+struct FibState {
+	 a: Float
+	 b: Float
+}
+
+query Run on FibState -> FibState {
+	core.set_fields(fields: { a: 1.0 })
+}
+"#;
+
+				let err = compile(source).expect_err("compile should fail when required output fields are missing");
+				let msg = err.to_string();
+				assert!(msg.contains("missing required fields"));
+		}
+
+		#[test]
+		fn rejects_unknown_output_fields_in_typed_scope() {
+				let source = r#"
+struct FibState {
+	 a: Float
+	 b: Float
+}
+
+query Run on FibState -> FibState {
+	core.set_fields(fields: { a: 1.0, b: 2.0, rogue: 9.0 })
+}
+"#;
+
+				let err = compile(source).expect_err("compile should fail when setting undeclared output fields");
+				let msg = err.to_string();
+				assert!(msg.contains("is not declared on output type 'FibState'"));
+		}
+
+		#[test]
+		fn supports_struct_initializer_pipeline_step() {
+				let source = r#"
+struct FibState {
+	 a: Float
+	 b: Float
+	 i: Float
+	 threshold: Float
+}
+
+query Run on FibState -> FibState {
+	FibState { a: 0.0, b: 1.0, i: 0.0, threshold: 144.0 }
+	|> Step
+}
+
+iterator Step on FibState -> FibState {
+	core.echo(message: "tick")
+}
+"#;
+
+				let compilation = compile(source).expect("compile should support struct initializer step");
+				let run_fn = compilation
+						.mir
+						.functions
+						.iter()
+						.find(|f| f.name == "Run")
+						.expect("Run function present");
+
+				let first_inst = run_fn
+						.blocks
+						.first()
+						.and_then(|b| b.instructions.first())
+						.expect("Run has first instruction");
+
+				match first_inst {
+						grapheme_artifact::MirInst::Call { module, op, args, .. } => {
+								assert_eq!(module.as_deref(), Some("core"));
+								assert_eq!(op, "set_fields");
+								assert_eq!(args.get("fields").and_then(|f| f.get("a")), Some(&serde_json::json!(0.0)));
+						}
+						_ => panic!("expected call instruction"),
+				}
+		}
+
+		#[test]
+		fn supports_namespaced_types_with_import_types() {
+				let source = r#"
+import types Domain from "./domain.aql"
+
+query Run on Domain::FibState -> Domain::FibState {
+	core.echo(message: "ok")
+}
+"#;
+
+				let compilation = compile(source).expect("compile should accept namespaced imported types");
+				assert!(
+						compilation
+								.mir
+								.functions
+								.iter()
+								.any(|f| f.name == "Run")
+				);
+		}
+
+		#[test]
+		fn rejects_namespaced_type_without_types_import() {
+				let source = r#"
+query Run on Domain::FibState -> Domain::FibState {
+	core.echo(message: "ok")
+}
+"#;
+
+				let err = compile(source).expect_err("compile should fail without type namespace import");
+				let msg = err.to_string();
+				assert!(msg.contains("unknown type namespace 'Domain'"));
+		}
 }

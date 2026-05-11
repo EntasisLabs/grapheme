@@ -1,20 +1,11 @@
-struct FibState {
-  a: Float
-  b: Float
-  i: Float
-  threshold: Float
-  prev_a?: Float
-  prev_b?: Float
-  value?: Float
-  message?: String
-}
+import types Domain from "./types-domain.aql"
 
-query FibonacciThresholdTyped on FibState -> FibState {
-  FibState { a: 0.0, b: 1.0, i: 0.0, threshold: 144.0 }
+query FibonacciThresholdNamespaced on Domain::FibState -> Domain::FibState {
+  Domain::FibState { a: 0.0, b: 1.0, i: 0.0, threshold: 144.0 }
   |> FibUntilThreshold
 }
 
-iterator FibUntilThreshold on FibState -> FibState @loop(max: 64, merge: "replace") {
+iterator FibUntilThreshold on Domain::FibState -> Domain::FibState @loop(max: 64, merge: "replace") {
   core.echo(message: "fib:{$current.a}")
   |> flow.branch(
     when: { field: "a", gte: $current.threshold },
@@ -23,7 +14,7 @@ iterator FibUntilThreshold on FibState -> FibState @loop(max: 64, merge: "replac
   )
 }
 
-iterator AdvanceFib on FibState -> FibState {
+iterator AdvanceFib on Domain::FibState -> Domain::FibState {
   core.set_fields(fields: { prev_a: $current.a, prev_b: $current.b })
   |> core.add(a: $current.prev_a, b: $current.prev_b)
   |> core.set_fields(fields: { a: $current.prev_b, b: $current.value })

@@ -874,6 +874,37 @@ fn resolve_current_string_template(template: &str, current: &JsonValue) -> JsonV
     let mut i = 0usize;
 
     while i < bytes.len() {
+        if bytes[i] == b'{' && i + 1 < bytes.len() && template[i + 1..].starts_with("$current") {
+            let mut j = i + 1 + "$current".len();
+            let mut resolved = None;
+
+            if j < bytes.len() && bytes[j] == b'.' {
+                j += 1;
+                let path_start = j;
+                while j < bytes.len() && is_selector_char(bytes[j] as char) {
+                    j += 1;
+                }
+                if j < bytes.len() && bytes[j] == b'}' {
+                    let path = &template[path_start..j];
+                    resolved = Some(
+                        select_json_path(current, path)
+                            .map(json_value_to_inline_string)
+                            .unwrap_or_default(),
+                    );
+                    j += 1;
+                }
+            } else if j < bytes.len() && bytes[j] == b'}' {
+                resolved = Some(json_value_to_inline_string(current));
+                j += 1;
+            }
+
+            if let Some(text) = resolved {
+                out.push_str(&text);
+                i = j;
+                continue;
+            }
+        }
+
         if bytes[i] == b'$' && template[i..].starts_with("$current") {
             let mut j = i + "$current".len();
             if j < bytes.len() && bytes[j] == b'.' {
@@ -1060,6 +1091,30 @@ mod tests {
         assert_eq!(resolved.get("payload"), Some(&current));
         assert_eq!(resolved.get("id"), Some(&JsonValue::String("123".to_string())));
         assert_eq!(resolved.get("__input"), Some(&current));
+    }
+
+    #[test]
+    fn args_with_pipeline_input_interpolates_brace_current_templates() {
+        let args = json!({
+            "message": "fib:{$current.a}",
+            "status": "{$current.status}",
+            "snapshot": "{$current}"
+        });
+        let current = json!({"a": 21, "status": "ready"});
+
+        let resolved = args_with_pipeline_input(&args, &current);
+        assert_eq!(
+            resolved.get("message"),
+            Some(&JsonValue::String("fib:21".to_string()))
+        );
+        assert_eq!(
+            resolved.get("status"),
+            Some(&JsonValue::String("ready".to_string()))
+        );
+        assert_eq!(
+            resolved.get("snapshot"),
+            Some(&JsonValue::String("{\"a\":21,\"status\":\"ready\"}".to_string()))
+        );
     }
 
     fn execute_loop(

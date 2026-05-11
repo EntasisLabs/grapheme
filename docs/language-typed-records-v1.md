@@ -132,6 +132,33 @@ After branch predicates, record shape can narrow:
 2. Existing programs compile unchanged.
 3. Typed mode can be enabled file-by-file.
 
+## Struct Namespacing and Cross-File Reuse (next)
+
+Current status:
+
+1. Structs are file-local.
+2. Existing import declarations are module-oriented and do not yet import type declarations.
+
+Proposed direction:
+
+1. Add type import syntax:
+  - `import types Domain from "./domain.aql"`
+2. Add namespaced type usage:
+  - `query Run on Domain::FibState -> Domain::FibState { ... }`
+3. Keep local shorthand for same-file types:
+  - `on FibState -> FibState`
+
+Parsing and verifier notes:
+
+1. Extend type references to support `Namespace::TypeName`.
+2. Resolve imported type namespaces during HIR lowering.
+3. Emit clear diagnostics for unresolved namespace/type pairs.
+
+LSP notes:
+
+1. Completion after `Domain::` should suggest exported struct names from the imported file.
+2. Hover should resolve fully-qualified type names to field lists.
+
 ## Non-Goals for v1
 
 1. Generics on user-defined structs.

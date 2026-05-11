@@ -27,7 +27,7 @@ variable = ${ "$" ~ ident ~ ("." ~ ident)* }
 
 symbol_lit = { ident }
 
-type_name = @{ ident ~ ("!")?  }        // optional non-null bang
+qualified_ident = @{ ident ~ ("::" ~ ident)? }
 
 // ── Values ───────────────────────────────────────────────────
 
@@ -69,7 +69,7 @@ scalar_type = { "String" | "Int" | "Float" | "Bool" | "Any" | "Json" }
 
 list_type = { "[" ~ type_ref ~ "]" }
 
-type_ref = { (scalar_type | list_type | ident) ~ "!"? }
+type_ref = { (scalar_type | list_type | qualified_ident) ~ "!"? }
 
 field_def = { ident ~ ":" ~ type_ref ~ directive* }
 
@@ -109,8 +109,10 @@ module_proposal = {
 }
 
 // A registered (built-in or approved) module import
+import_kind = { "types" }
+
 import_decl = {
-    "import" ~ ident ~ "from" ~ string_lit
+    "import" ~ import_kind? ~ ident ~ "from" ~ string_lit
 }
 
 // ── Selection Sets ────────────────────────────────────────────
@@ -168,12 +170,18 @@ call_step = {
     ~ selection_set?
 }
 
+// Struct initializer step: TypeName { field: value, ... }
+struct_init_step = {
+    qualified_ident
+    ~ object_value
+}
+
 // The pipe operator |> chains steps left to right
 // Each step receives the AgentState from the previous
-pipe_step = { "|>" ~ (call_step | field_call) }
+pipe_step = { "|>" ~ (struct_init_step | call_step | field_call) }
 
 pipeline = {
-    (call_step | field_call) ~ pipe_step*
+    (struct_init_step | call_step | field_call) ~ pipe_step*
 }
 
 // ── Top-Level Definitions ─────────────────────────────────────

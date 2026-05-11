@@ -1,0 +1,10 @@
+struct FibState {
+  a: Float
+  b: Float
+  i: Float
+  threshold: Float
+  prev_a?: Float
+  prev_b?: Float
+  value?: Float
+  message?: String
+}

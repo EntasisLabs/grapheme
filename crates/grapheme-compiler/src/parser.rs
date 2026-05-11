@@ -66,9 +66,15 @@ fn parse_program(pair: Pair<Rule>) -> Result<Program, GraphemeError> {
 
 fn parse_import(pair: Pair<Rule>) -> Result<ImportDecl, GraphemeError> {
     let mut inner = pair.into_inner();
-    let alias = inner.next().unwrap().as_str().to_string();
+    let first = inner.next().unwrap();
+    let (kind, alias_pair) = if first.as_rule() == Rule::import_kind {
+        (ImportKind::Types, inner.next().unwrap())
+    } else {
+        (ImportKind::Module, first)
+    };
+    let alias = alias_pair.as_str().to_string();
     let path  = parse_string_lit(inner.next().unwrap());
-    Ok(ImportDecl { alias, path })
+    Ok(ImportDecl { kind, alias, path })
 }
 
 // ── Schema ────────────────────────────────────────────────────
@@ -140,7 +146,6 @@ fn parse_field_def(pair: Pair<Rule>) -> Result<FieldDef, GraphemeError> {
 fn parse_type_ref(pair: Pair<Rule>) -> Result<TypeRef, GraphemeError> {
     let text = pair.as_str();
     let non_null = text.ends_with('!');
-    let base = if non_null { &text[..text.len()-1] } else { text };
 
     let inner_pair = pair.into_inner().next().unwrap();
     match inner_pair.as_rule() {
@@ -160,7 +165,7 @@ fn parse_type_ref(pair: Pair<Rule>) -> Result<TypeRef, GraphemeError> {
             let inner_type = parse_type_ref(inner_pair.into_inner().next().unwrap())?;
             Ok(TypeRef::List(Box::new(inner_type), non_null))
         }
-        Rule::ident => Ok(TypeRef::Named(base.to_string(), non_null)),
+        Rule::qualified_ident => Ok(TypeRef::Named(inner_pair.as_str().to_string(), non_null)),
         r => Err(GraphemeError::UnexpectedRule(format!("{r:?}"))),
     }
 }
@@ -292,12 +297,14 @@ fn parse_pipeline(pair: Pair<Rule>) -> Result<Pipeline, GraphemeError> {
 
     for p in pair.into_inner() {
         match p.as_rule() {
+            Rule::struct_init_step => steps.push(PipelineStep::StructInit(parse_struct_init_step(p)?)),
             Rule::field_call => steps.push(PipelineStep::Field(parse_field_call(p)?)),
             Rule::call_step  => steps.push(PipelineStep::Call(parse_call_step(p)?)),
             Rule::pipe_step  => {
-                // pipe_step = { "|>" ~ (call_step | field_call) }
+                // pipe_step = { "|>" ~ (struct_init_step | call_step | field_call) }
                 let inner = p.into_inner().next().unwrap();
                 match inner.as_rule() {
+                    Rule::struct_init_step => steps.push(PipelineStep::StructInit(parse_struct_init_step(inner)?)),
                     Rule::field_call => steps.push(PipelineStep::Field(parse_field_call(inner)?)),
                     Rule::call_step => steps.push(PipelineStep::Call(parse_call_step(inner)?)),
                     r => return Err(GraphemeError::UnexpectedRule(format!("{r:?}"))),
@@ -308,6 +315,24 @@ fn parse_pipeline(pair: Pair<Rule>) -> Result<Pipeline, GraphemeError> {
     }
 
     Ok(Pipeline { steps })
+}
+
+fn parse_struct_init_step(pair: Pair<Rule>) -> Result<StructInitStep, GraphemeError> {
+    let mut inner = pair.into_inner();
+    let type_name = inner.next().unwrap().as_str().to_string();
+    let object = inner
+        .next()
+        .ok_or_else(|| GraphemeError::ParseError("struct initializer missing object body".to_string()))?;
+
+    let mut fields = Vec::new();
+    for field in object.into_inner() {
+        let mut fi = field.into_inner();
+        let key = fi.next().unwrap().as_str().to_string();
+        let value = parse_value(fi.next().unwrap())?;
+        fields.push((key, value));
+    }
+
+    Ok(StructInitStep { type_name, fields })
 }
 
 fn parse_call_step(pair: Pair<Rule>) -> Result<CallStep, GraphemeError> {

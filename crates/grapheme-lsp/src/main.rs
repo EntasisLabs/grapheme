@@ -70,6 +70,13 @@ struct DefinitionIndex {
     end_char: u32,
 }
 
+#[derive(Clone)]
+struct ExecutableSignatureIndex {
+    name: String,
+    input_type: String,
+    output_type: Option<String>,
+}
+
 impl Backend {
     fn new(client: Client) -> Self {
         Self {
@@ -129,6 +136,18 @@ impl LanguageServer for Backend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            work_done_progress_options: WorkDoneProgressOptions {
+                                work_done_progress: None,
+                            },
+                            legend: semantic_tokens_legend(),
+                            range: Some(false.into()),
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                        },
+                    ),
+                ),
                 document_formatting_provider: Some(OneOf::Left(true)),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
@@ -222,26 +241,68 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
 
-        let Some((module, op)) = op_at_position(line, position.character as usize) else {
-            return Ok(None);
-        };
+        if let Some((module, op)) = op_at_position(line, position.character as usize) {
+            if let Some(hint) = transform_hint(module, op) {
+                let markdown = format!(
+                    "**{}.{}**\n\n{}\n\n- arg: `{}` (string; defaults to pipeline input when omitted)\n- returns: `{}`",
+                    hint.module, hint.op, hint.summary, hint.arg_name, hint.return_shape
+                );
 
-        let Some(hint) = transform_hint(module, op) else {
-            return Ok(None);
-        };
+                return Ok(Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: markdown,
+                    }),
+                    range: None,
+                }));
+            }
+        }
 
-        let markdown = format!(
-            "**{}.{}**\n\n{}\n\n- arg: `{}` (string; defaults to pipeline input when omitted)\n- returns: `{}`",
-            hint.module, hint.op, hint.summary, hint.arg_name, hint.return_shape
-        );
+        if is_current_context(line, position.character as usize) {
+            if let Some((input_type, output_type)) = enclosing_executable_signature(&text, position.line as usize) {
+                let fields = resolve_fields_for_type_ref(&text, &uri, &input_type);
 
-        Ok(Some(Hover {
-            contents: HoverContents::Markup(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value: markdown,
-            }),
-            range: None,
-        }))
+                let mut markdown = format!("**$current**\n\n- input type: `{}`", input_type);
+                if let Some(output_type) = output_type {
+                    markdown.push_str(&format!("\n- output type: `{}`", output_type));
+                }
+
+                if !fields.is_empty() {
+                    markdown.push_str("\n\nKnown fields:\n");
+                    for field in fields {
+                        markdown.push_str(&format!("- `{}`\n", field));
+                    }
+                }
+
+                return Ok(Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: markdown,
+                    }),
+                    range: None,
+                }));
+            }
+        }
+
+        if let Some((namespace, type_name)) = namespaced_type_at_position(line, position.character as usize) {
+            let imported = resolve_imported_type_fields(&text, &uri, &namespace, &type_name);
+            if !imported.is_empty() {
+                let mut markdown = format!("**{}::{}**\n\nImported type fields:\n", namespace, type_name);
+                for field in imported {
+                    markdown.push_str(&format!("- `{}`\n", field));
+                }
+
+                return Ok(Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: markdown,
+                    }),
+                    range: None,
+                }));
+            }
+        }
+
+        Ok(None)
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
@@ -301,6 +362,38 @@ impl LanguageServer for Backend {
                 insert_text_format: Some(insert_format),
                 ..CompletionItem::default()
             });
+        }
+
+        if let Some(field_prefix) = current_field_prefix_at_position(line, position.character as usize) {
+            for field in typed_current_fields_at_line(&text, &uri, position.line as usize) {
+                if !field.starts_with(field_prefix) {
+                    continue;
+                }
+
+                items.push(CompletionItem {
+                    label: field.clone(),
+                    kind: Some(CompletionItemKind::FIELD),
+                    detail: Some("field on $current".to_string()),
+                    insert_text: Some(field),
+                    ..CompletionItem::default()
+                });
+            }
+        }
+
+        if let Some((namespace, type_prefix)) = namespace_type_prefix_at_position(line, position.character as usize) {
+            for type_name in resolve_imported_type_names(&text, &uri, namespace) {
+                if !type_name.starts_with(type_prefix) {
+                    continue;
+                }
+
+                items.push(CompletionItem {
+                    label: type_name.clone(),
+                    kind: Some(CompletionItemKind::CLASS),
+                    detail: Some(format!("type from {}", namespace)),
+                    insert_text: Some(type_name),
+                    ..CompletionItem::default()
+                });
+            }
         }
 
         if prefix.is_none() {
@@ -522,6 +615,35 @@ impl LanguageServer for Backend {
         };
 
         let Some((hint, active_parameter)) = active_transform_call_at(line, position.character as usize) else {
+            if let Some((target, active_parameter)) = active_user_call_at(line, position.character as usize) {
+                let signatures = parse_executable_signatures(&text);
+                if let Some(sig) = signatures.get(&target) {
+                    let output = sig
+                        .output_type
+                        .as_deref()
+                        .unwrap_or(&sig.input_type);
+
+                    let signature = SignatureInformation {
+                        label: format!("{}(input: {}) -> {}", sig.name, sig.input_type, output),
+                        documentation: Some(Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: "User-defined executable signature".to_string(),
+                        })),
+                        parameters: Some(vec![ParameterInformation {
+                            label: ParameterLabel::Simple(format!("input: {}", sig.input_type)),
+                            documentation: None,
+                        }]),
+                        active_parameter: Some(0),
+                    };
+
+                    return Ok(Some(SignatureHelp {
+                        signatures: vec![signature],
+                        active_signature: Some(0),
+                        active_parameter: Some(active_parameter),
+                    }));
+                }
+            }
+
             return Ok(None);
         };
 
@@ -546,6 +668,26 @@ impl LanguageServer for Backend {
             active_signature: Some(0),
             active_parameter: Some(active_parameter),
         }))
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = params.text_document.uri;
+        let text = {
+            let docs = self.documents.lock().await;
+            match docs.get(&uri) {
+                Some(content) => content.clone(),
+                None => return Ok(None),
+            }
+        };
+
+        let data = build_semantic_tokens(&text);
+        Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+            result_id: None,
+            data,
+        })))
     }
 }
 
@@ -869,6 +1011,749 @@ fn text_line(text: &str, line_number: usize) -> Option<&str> {
 
 fn line_len(line: &str) -> u32 {
     line.chars().count() as u32
+}
+
+fn current_field_prefix_at_position(line: &str, character: usize) -> Option<&str> {
+    if line.is_empty() {
+        return None;
+    }
+
+    let bytes = line.as_bytes();
+    let mut cursor = character.min(bytes.len());
+    if cursor > 0 && cursor == bytes.len() {
+        cursor -= 1;
+    }
+
+    let mut start = cursor;
+    while start > 0 && is_ident_char(bytes[start.saturating_sub(1)]) {
+        start -= 1;
+    }
+
+    let mut end = cursor;
+    while end < bytes.len() && is_ident_char(bytes[end]) {
+        end += 1;
+    }
+
+    let prefix = &line[start..end];
+    let before = &line[..start];
+    if !before.ends_with("$current.") {
+        return None;
+    }
+
+    Some(prefix)
+}
+
+fn namespace_type_prefix_at_position<'a>(line: &'a str, character: usize) -> Option<(&'a str, &'a str)> {
+    if line.is_empty() {
+        return None;
+    }
+
+    let bytes = line.as_bytes();
+    let mut cursor = character.min(bytes.len());
+    if cursor == bytes.len() && cursor > 0 {
+        cursor -= 1;
+    }
+
+    let mut start = cursor;
+    while start > 0 && (is_ident_char(bytes[start - 1]) || bytes[start - 1] == b':') {
+        start -= 1;
+    }
+
+    let mut end = cursor;
+    while end < bytes.len() && (is_ident_char(bytes[end]) || bytes[end] == b':') {
+        end += 1;
+    }
+
+    let token = &line[start..end];
+    let (namespace, type_prefix) = token.split_once("::")?;
+    if !is_ident(namespace) {
+        return None;
+    }
+    if !type_prefix.is_empty() && !is_ident(type_prefix) {
+        return None;
+    }
+    Some((namespace, type_prefix))
+}
+
+fn namespaced_type_at_position(line: &str, character: usize) -> Option<(String, String)> {
+    let (namespace, type_name) = namespace_type_prefix_at_position(line, character)?;
+    if type_name.is_empty() {
+        return None;
+    }
+    Some((namespace.to_string(), type_name.to_string()))
+}
+
+fn resolve_imported_type_names(text: &str, uri: &Url, namespace: &str) -> Vec<String> {
+    let imports = parse_type_imports(text);
+    let Some(path) = imports.get(namespace) else {
+        return Vec::new();
+    };
+
+    let Some(imported_text) = read_imported_file_text(uri, path) else {
+        return Vec::new();
+    };
+
+    parse_struct_names(&imported_text)
+}
+
+fn resolve_imported_type_fields(text: &str, uri: &Url, namespace: &str, type_name: &str) -> Vec<String> {
+    let imports = parse_type_imports(text);
+    let Some(path) = imports.get(namespace) else {
+        return Vec::new();
+    };
+
+    let Some(imported_text) = read_imported_file_text(uri, path) else {
+        return Vec::new();
+    };
+
+    parse_struct_fields(&imported_text)
+        .remove(type_name)
+        .unwrap_or_default()
+}
+
+fn parse_type_imports(text: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        let Some(rest) = trimmed.strip_prefix("import types ") else {
+            continue;
+        };
+
+        let Some((alias_part, path_part)) = rest.split_once(" from ") else {
+            continue;
+        };
+
+        let alias = alias_part.trim();
+        let path = path_part.trim().trim_matches('"');
+        if alias.is_empty() || path.is_empty() || !is_ident(alias) {
+            continue;
+        }
+
+        out.insert(alias.to_string(), path.to_string());
+    }
+    out
+}
+
+fn read_imported_file_text(current_uri: &Url, import_path: &str) -> Option<String> {
+    let current_file = current_uri.to_file_path().ok()?;
+    let parent = current_file.parent()?;
+    let candidate = parent.join(import_path);
+    fs::read_to_string(candidate).ok()
+}
+
+fn parse_struct_names(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            let rest = trimmed.strip_prefix("struct ")?;
+            let name = rest
+                .split(|c: char| c.is_ascii_whitespace() || c == '{')
+                .next()
+                .unwrap_or("")
+                .trim();
+            if is_ident(name) {
+                Some(name.to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn is_current_context(line: &str, character: usize) -> bool {
+    let clamped = character.min(line.len());
+    line[..clamped].contains("$current")
+}
+
+fn typed_current_fields_at_line(text: &str, uri: &Url, line_number: usize) -> Vec<String> {
+    let Some((type_name, _)) = enclosing_executable_signature(text, line_number) else {
+        return Vec::new();
+    };
+
+    resolve_fields_for_type_ref(text, uri, &type_name)
+}
+
+fn resolve_fields_for_type_ref(text: &str, uri: &Url, type_ref: &str) -> Vec<String> {
+    if let Some((namespace, type_name)) = type_ref.split_once("::") {
+        return resolve_imported_type_fields(text, uri, namespace, type_name);
+    }
+
+    let structs = parse_struct_fields(text);
+    structs.get(type_ref).cloned().unwrap_or_default()
+}
+
+fn parse_struct_fields(text: &str) -> HashMap<String, Vec<String>> {
+    let mut out = HashMap::new();
+    let mut current_struct: Option<String> = None;
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if current_struct.is_none() {
+            if let Some(rest) = trimmed.strip_prefix("struct ") {
+                let name = rest
+                    .split(|c: char| c.is_ascii_whitespace() || c == '{')
+                    .next()
+                    .unwrap_or("")
+                    .trim();
+                if !name.is_empty() {
+                    current_struct = Some(name.to_string());
+                    out.entry(name.to_string()).or_insert_with(Vec::new);
+                }
+            }
+            continue;
+        }
+
+        if trimmed.starts_with('}') {
+            current_struct = None;
+            continue;
+        }
+
+        let Some(struct_name) = current_struct.as_ref() else {
+            continue;
+        };
+
+        if let Some((left, _)) = trimmed.split_once(':') {
+            let field = left.trim().trim_end_matches('?').trim();
+            if is_ident(field) {
+                out.entry(struct_name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(field.to_string());
+            }
+        }
+    }
+
+    out
+}
+
+fn enclosing_executable_signature(text: &str, line_number: usize) -> Option<(String, Option<String>)> {
+    let mut current_signature: Option<String> = None;
+    let mut current_output: Option<String> = None;
+    let mut brace_depth: i32 = 0;
+
+    for (idx, line) in text.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if brace_depth == 0 {
+            let sig = parse_executable_input_and_output_type(trimmed);
+            current_signature = sig.as_ref().map(|(input, _)| input.clone());
+            current_output = sig.and_then(|(_, output)| output);
+        }
+
+        let opens = line.chars().filter(|c| *c == '{').count() as i32;
+        let closes = line.chars().filter(|c| *c == '}').count() as i32;
+        brace_depth += opens - closes;
+        if brace_depth < 0 {
+            brace_depth = 0;
+        }
+
+        if idx == line_number {
+            if let Some(input) = current_signature {
+                return Some((input, current_output));
+            }
+            return None;
+        }
+
+        if brace_depth == 0 {
+            current_signature = None;
+            current_output = None;
+        }
+    }
+
+    None
+}
+
+fn parse_executable_input_and_output_type(trimmed_line: &str) -> Option<(String, Option<String>)> {
+    let starts_with_executable = trimmed_line.starts_with("query ")
+        || trimmed_line.starts_with("mutation ")
+        || trimmed_line.starts_with("iterator ")
+        || trimmed_line.starts_with("subscription ");
+
+    if !starts_with_executable {
+        return None;
+    }
+
+    let on_index = trimmed_line.find(" on ")?;
+    let after_on = &trimmed_line[on_index + 4..];
+    let input = after_on
+        .split(|c: char| c.is_ascii_whitespace() || c == '-' || c == '{' || c == '@')
+        .next()
+        .unwrap_or("")
+        .trim();
+
+    if input.is_empty() || !is_type_ref(input) {
+        return None;
+    }
+
+    let output = if let Some((_, right)) = after_on.split_once("->") {
+        let output = right
+            .split(|c: char| c.is_ascii_whitespace() || c == '{' || c == '@')
+            .next()
+            .unwrap_or("")
+            .trim();
+        if output.is_empty() || !is_type_ref(output) {
+            None
+        } else {
+            Some(output.to_string())
+        }
+    } else {
+        None
+    };
+
+    Some((input.to_string(), output))
+}
+
+fn parse_executable_signatures(text: &str) -> HashMap<String, ExecutableSignatureIndex> {
+    let mut out = HashMap::new();
+
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        let Some((_, rest)) = executable_head(trimmed) else {
+            continue;
+        };
+
+        let name = rest
+            .split(|c: char| c.is_ascii_whitespace() || c == '(' || c == '{')
+            .next()
+            .unwrap_or("")
+            .trim();
+        if !is_ident(name) {
+            continue;
+        }
+
+        let Some((input_type, output_type)) = parse_executable_input_and_output_type(trimmed) else {
+            continue;
+        };
+
+        out.insert(
+            name.to_string(),
+            ExecutableSignatureIndex {
+                name: name.to_string(),
+                input_type,
+                output_type,
+            },
+        );
+    }
+
+    out
+}
+
+fn executable_head(trimmed_line: &str) -> Option<(&'static str, &str)> {
+    if let Some(rest) = trimmed_line.strip_prefix("query ") {
+        return Some(("query", rest));
+    }
+    if let Some(rest) = trimmed_line.strip_prefix("mutation ") {
+        return Some(("mutation", rest));
+    }
+    if let Some(rest) = trimmed_line.strip_prefix("iterator ") {
+        return Some(("iterator", rest));
+    }
+    if let Some(rest) = trimmed_line.strip_prefix("subscription ") {
+        return Some(("subscription", rest));
+    }
+    None
+}
+
+fn is_type_ref(value: &str) -> bool {
+    if value.contains("::") {
+        let mut parts = value.split("::");
+        let Some(ns) = parts.next() else {
+            return false;
+        };
+        let Some(name) = parts.next() else {
+            return false;
+        };
+        parts.next().is_none() && is_ident(ns) && is_ident(name)
+    } else {
+        is_ident(value)
+    }
+}
+
+const TOKEN_KEYWORD: u32 = 0;
+const TOKEN_FUNCTION: u32 = 1;
+const TOKEN_TYPE: u32 = 2;
+const TOKEN_NAMESPACE: u32 = 3;
+const TOKEN_VARIABLE: u32 = 4;
+const TOKEN_STRING: u32 = 5;
+const TOKEN_NUMBER: u32 = 6;
+const TOKEN_OPERATOR: u32 = 7;
+
+fn semantic_tokens_legend() -> SemanticTokensLegend {
+    SemanticTokensLegend {
+        token_types: vec![
+            SemanticTokenType::KEYWORD,
+            SemanticTokenType::FUNCTION,
+            SemanticTokenType::TYPE,
+            SemanticTokenType::NAMESPACE,
+            SemanticTokenType::VARIABLE,
+            SemanticTokenType::STRING,
+            SemanticTokenType::NUMBER,
+            SemanticTokenType::OPERATOR,
+        ],
+        token_modifiers: vec![],
+    }
+}
+
+struct SemanticTokenBuilder {
+    data: Vec<SemanticToken>,
+    prev_line: u32,
+    prev_start: u32,
+    has_prev: bool,
+}
+
+impl SemanticTokenBuilder {
+    fn new() -> Self {
+        Self {
+            data: Vec::new(),
+            prev_line: 0,
+            prev_start: 0,
+            has_prev: false,
+        }
+    }
+
+    fn push(&mut self, line: u32, start: u32, length: u32, token_type: u32) {
+        if length == 0 {
+            return;
+        }
+
+        let (delta_line, delta_start) = if !self.has_prev {
+            (line, start)
+        } else if line == self.prev_line {
+            (0, start.saturating_sub(self.prev_start))
+        } else {
+            (line.saturating_sub(self.prev_line), start)
+        };
+
+        self.data.push(SemanticToken {
+            delta_line,
+            delta_start,
+            length,
+            token_type,
+            token_modifiers_bitset: 0,
+        });
+
+        self.prev_line = line;
+        self.prev_start = start;
+        self.has_prev = true;
+    }
+
+    fn finish(self) -> Vec<SemanticToken> {
+        self.data
+    }
+}
+
+fn build_semantic_tokens(text: &str) -> Vec<SemanticToken> {
+    let mut builder = SemanticTokenBuilder::new();
+
+    for (line_idx, line) in text.lines().enumerate() {
+        add_line_semantic_tokens(line, line_idx as u32, &mut builder);
+    }
+
+    builder.finish()
+}
+
+fn add_line_semantic_tokens(line: &str, line_num: u32, out: &mut SemanticTokenBuilder) {
+    let line_no_comment = line.split("//").next().unwrap_or("");
+    if line_no_comment.trim().is_empty() {
+        return;
+    }
+
+    add_declaration_tokens(line_no_comment, line_num, out);
+    add_module_call_tokens(line_no_comment, line_num, out);
+    add_namespaced_type_tokens(line_no_comment, line_num, out);
+
+    let bytes = line_no_comment.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' => {
+                let start = i;
+                i += 1;
+                while i < bytes.len() {
+                    if bytes[i] == b'\\' {
+                        i = (i + 2).min(bytes.len());
+                        continue;
+                    }
+                    if bytes[i] == b'"' {
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
+                out.push(
+                    line_num,
+                    start as u32,
+                    (i.saturating_sub(start)) as u32,
+                    TOKEN_STRING,
+                );
+            }
+            b'$' => {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && (is_ident_char(bytes[i]) || bytes[i] == b'.') {
+                    i += 1;
+                }
+                out.push(
+                    line_num,
+                    start as u32,
+                    (i.saturating_sub(start)) as u32,
+                    TOKEN_VARIABLE,
+                );
+            }
+            b'|' if i + 1 < bytes.len() && bytes[i + 1] == b'>' => {
+                out.push(line_num, i as u32, 2, TOKEN_OPERATOR);
+                i += 2;
+            }
+            b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'>' => {
+                out.push(line_num, i as u32, 2, TOKEN_OPERATOR);
+                i += 2;
+            }
+            b':' => {
+                out.push(line_num, i as u32, 1, TOKEN_OPERATOR);
+                i += 1;
+            }
+            b'-' | b'0'..=b'9' => {
+                if let Some((len, starts_number)) = number_span(&bytes[i..]) {
+                    if starts_number {
+                        out.push(line_num, i as u32, len as u32, TOKEN_NUMBER);
+                        i += len;
+                    } else {
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            _ if is_ident_char(bytes[i]) => {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && is_ident_char(bytes[i]) {
+                    i += 1;
+                }
+                let ident = &line_no_comment[start..i];
+                if is_keyword(ident) {
+                    out.push(
+                        line_num,
+                        start as u32,
+                        (i - start) as u32,
+                        TOKEN_KEYWORD,
+                    );
+                } else if is_builtin_type(ident) {
+                    out.push(line_num, start as u32, (i - start) as u32, TOKEN_TYPE);
+                }
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+}
+
+fn add_declaration_tokens(line: &str, line_num: u32, out: &mut SemanticTokenBuilder) {
+    for head in ["query", "mutation", "iterator", "subscription"] {
+        if let Some((name_start, name_len)) = declaration_name_span(line, head) {
+            let kw_pos = line.find(head).unwrap_or(0) as u32;
+            out.push(line_num, kw_pos, head.len() as u32, TOKEN_KEYWORD);
+            out.push(line_num, name_start as u32, name_len as u32, TOKEN_FUNCTION);
+            return;
+        }
+    }
+
+    if let Some((name_start, name_len)) = declaration_name_span(line, "struct") {
+        let kw_pos = line.find("struct").unwrap_or(0) as u32;
+        out.push(line_num, kw_pos, 6, TOKEN_KEYWORD);
+        out.push(line_num, name_start as u32, name_len as u32, TOKEN_TYPE);
+    }
+}
+
+fn declaration_name_span(line: &str, head: &str) -> Option<(usize, usize)> {
+    let trimmed = line.trim_start();
+    if !trimmed.starts_with(head) {
+        return None;
+    }
+    let offset = line.len().saturating_sub(trimmed.len());
+    let mut i = head.len();
+    let bytes = trimmed.as_bytes();
+    while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    let start = i;
+    while i < bytes.len() && is_ident_char(bytes[i]) {
+        i += 1;
+    }
+    if i == start {
+        return None;
+    }
+    Some((offset + start, i - start))
+}
+
+fn add_module_call_tokens(line: &str, line_num: u32, out: &mut SemanticTokenBuilder) {
+    let bytes = line.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if !is_ident_char(bytes[i]) {
+            i += 1;
+            continue;
+        }
+
+        let ns_start = i;
+        while i < bytes.len() && is_ident_char(bytes[i]) {
+            i += 1;
+        }
+        if i >= bytes.len() || bytes[i] != b'.' {
+            continue;
+        }
+
+        let ns_len = i - ns_start;
+        i += 1;
+        let fn_start = i;
+        while i < bytes.len() && is_ident_char(bytes[i]) {
+            i += 1;
+        }
+        if fn_start == i {
+            continue;
+        }
+        let fn_len = i - fn_start;
+
+        let mut j = i;
+        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        if j < bytes.len() && bytes[j] == b'(' {
+            out.push(line_num, ns_start as u32, ns_len as u32, TOKEN_NAMESPACE);
+            out.push(line_num, fn_start as u32, fn_len as u32, TOKEN_FUNCTION);
+        }
+    }
+}
+
+fn add_namespaced_type_tokens(line: &str, line_num: u32, out: &mut SemanticTokenBuilder) {
+    let bytes = line.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if !is_ident_char(bytes[i]) {
+            i += 1;
+            continue;
+        }
+
+        let ns_start = i;
+        while i < bytes.len() && is_ident_char(bytes[i]) {
+            i += 1;
+        }
+        if i + 1 >= bytes.len() || bytes[i] != b':' || bytes[i + 1] != b':' {
+            continue;
+        }
+
+        let ns_len = i - ns_start;
+        i += 2;
+        let ty_start = i;
+        while i < bytes.len() && is_ident_char(bytes[i]) {
+            i += 1;
+        }
+        if ty_start == i {
+            continue;
+        }
+        let ty_len = i - ty_start;
+        out.push(line_num, ns_start as u32, ns_len as u32, TOKEN_NAMESPACE);
+        out.push(line_num, ty_start as u32, ty_len as u32, TOKEN_TYPE);
+    }
+}
+
+fn number_span(slice: &[u8]) -> Option<(usize, bool)> {
+    if slice.is_empty() {
+        return None;
+    }
+
+    let mut i = 0usize;
+    if slice[i] == b'-' {
+        i += 1;
+    }
+
+    let int_start = i;
+    while i < slice.len() && slice[i].is_ascii_digit() {
+        i += 1;
+    }
+
+    if i == int_start {
+        return Some((1, false));
+    }
+
+    if i < slice.len() && slice[i] == b'.' {
+        i += 1;
+        let frac_start = i;
+        while i < slice.len() && slice[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == frac_start {
+            return Some((frac_start, true));
+        }
+    }
+
+    Some((i, true))
+}
+
+fn is_keyword(value: &str) -> bool {
+    matches!(
+        value,
+        "import"
+            | "from"
+            | "query"
+            | "mutation"
+            | "iterator"
+            | "subscription"
+            | "fragment"
+            | "on"
+            | "schema"
+            | "type"
+            | "types"
+            | "struct"
+            | "module"
+            | "propose"
+            | "return"
+            | "then"
+            | "else"
+            | "when"
+            | "true"
+            | "false"
+            | "null"
+    )
+}
+
+fn is_builtin_type(value: &str) -> bool {
+    matches!(
+        value,
+        "String" | "Float" | "Int" | "Bool" | "Object" | "Any" | "Json" | "JsonValue"
+    )
+}
+
+fn active_user_call_at(line: &str, cursor: usize) -> Option<(String, u32)> {
+    if line.is_empty() {
+        return None;
+    }
+
+    let clamped = cursor.min(line.len());
+    let before = &line[..clamped];
+    let open_idx = before.rfind('(')?;
+
+    let call_head = before[..open_idx].trim_end();
+    let mut end = call_head.len();
+    while end > 0 && !is_ident_char(call_head.as_bytes()[end - 1]) {
+        end -= 1;
+    }
+    if end == 0 {
+        return None;
+    }
+
+    let mut start = end;
+    while start > 0 && is_ident_char(call_head.as_bytes()[start - 1]) {
+        start -= 1;
+    }
+
+    let token = &call_head[start..end];
+    if token.is_empty() || !is_ident(token) {
+        return None;
+    }
+
+    let args_so_far = &before[open_idx + 1..];
+    let active_parameter = args_so_far.chars().filter(|c| *c == ',').count() as u32;
+    Some((token.to_string(), active_parameter))
 }
 
 fn workspace_roots_from_initialize(params: &InitializeParams) -> Vec<Url> {

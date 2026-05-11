@@ -3,7 +3,14 @@
   "name": "Grapheme AQL",
   "patterns": [
     { "include": "#comments" },
+    { "include": "#imports" },
+    { "include": "#declarations" },
+    { "include": "#directives" },
+    { "include": "#moduleCalls" },
+    { "include": "#variables" },
     { "include": "#keywords" },
+    { "include": "#control" },
+    { "include": "#types" },
     { "include": "#strings" },
     { "include": "#numbers" },
     { "include": "#operators" }
@@ -18,15 +25,112 @@
         }
       ]
     },
+    "imports": {
+      "patterns": [
+        {
+          "name": "meta.import.aql",
+          "match": "\\bimport\\s+(types\\s+)?([A-Za-z_][A-Za-z0-9_]*)\\s+from\\s+(\"[^\"]+\")",
+          "captures": {
+            "0": { "name": "meta.import.aql" },
+            "1": { "name": "storage.modifier.aql" },
+            "2": { "name": "entity.name.namespace.aql" },
+            "3": { "name": "string.quoted.double.aql" }
+          }
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "name": "meta.definition.executable.aql",
+          "match": "\\b(query|mutation|iterator|subscription)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.executable.aql" },
+            "2": { "name": "entity.name.function.aql" }
+          }
+        },
+        {
+          "name": "meta.definition.struct.aql",
+          "match": "\\bstruct\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "0": { "name": "meta.definition.struct.aql" },
+            "1": { "name": "entity.name.type.aql" }
+          }
+        }
+      ]
+    },
+    "directives": {
+      "patterns": [
+        {
+          "name": "meta.annotation.aql",
+          "match": "@[A-Za-z_][A-Za-z0-9_]*",
+          "captures": {
+            "0": { "name": "entity.name.tag.aql" }
+          }
+        }
+      ]
+    },
+    "moduleCalls": {
+      "patterns": [
+        {
+          "name": "meta.function.module-call.aql",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\.([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "entity.name.namespace.aql" },
+            "2": { "name": "support.function.aql" }
+          }
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "name": "variable.language.aql",
+          "match": "\\$[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*"
+        }
+      ]
+    },
     "keywords": {
       "patterns": [
         {
           "name": "keyword.control.aql",
-          "match": "\\b(import|from|query|mutation|subscription|fragment|on|schema|type|propose|module)\\b"
+          "match": "\\b(import|from|query|mutation|iterator|subscription|fragment|on|schema|type|types|struct|propose|module)\\b"
         },
         {
           "name": "constant.language.aql",
           "match": "\\b(true|false|null)\\b"
+        }
+      ]
+    },
+    "control": {
+      "patterns": [
+        {
+          "name": "keyword.control.flow.aql",
+          "match": "\\b(return|then|else|when)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.builtin.aql",
+          "match": "\\b(String|Float|Int|Bool|Object|Any|Json|JsonValue)\\b"
+        },
+        {
+          "name": "entity.name.type.namespaced.aql",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)::([A-Za-z_][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": { "name": "entity.name.namespace.aql" },
+            "2": { "name": "entity.name.type.aql" }
+          }
+        },
+        {
+          "name": "entity.name.type.signature.aql",
+          "match": "\\bon\\s+([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)?)\\s*(?:->\\s*([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)?))?",
+          "captures": {
+            "1": { "name": "entity.name.type.aql" },
+            "2": { "name": "entity.name.type.aql" }
+          }
         }
       ]
     },
@@ -37,6 +141,10 @@
           "begin": "\"",
           "end": "\"",
           "patterns": [
+            {
+              "name": "meta.interpolation.aql",
+              "match": "\\{\\$[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*\\}"
+            },
             {
               "name": "constant.character.escape.aql",
               "match": "\\\\."
@@ -58,6 +166,14 @@
         {
           "name": "keyword.operator.pipeline.aql",
           "match": "\\|>"
+        },
+        {
+          "name": "keyword.operator.assignment.aql",
+          "match": ":"
+        },
+        {
+          "name": "keyword.operator.arrow.aql",
+          "match": "->"
         }
       ]
     }

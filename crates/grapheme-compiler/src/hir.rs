@@ -4,6 +4,7 @@ use grapheme_artifact::Capability;
 use std::collections::HashSet;
 
 use crate::ast::{Definition, Directive, OpKind, Pipeline, PipelineStep, Program, StructDef, TypeRef, Value};
+use crate::ast::ImportKind;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HirProgram {
@@ -28,6 +29,7 @@ pub struct HirStructField {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HirImport {
+    pub kind: ImportKind,
     pub alias: String,
     pub path: String,
 }
@@ -95,6 +97,7 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
         .imports
         .iter()
         .map(|i| HirImport {
+            kind: i.kind.clone(),
             alias: i.alias.clone(),
             path: i.path.clone(),
         })
@@ -289,6 +292,19 @@ fn lower_step(
                 args,
                 has_selection: call.selection.is_some(),
                 capability: Capability::from_module_op("call", &call.target),
+            }
+        }
+        PipelineStep::StructInit(init) => {
+            let fields_value = value_to_json(&Value::Object(init.fields.clone()));
+            let mut args = Map::new();
+            args.insert("fields".to_string(), fields_value);
+            HirStep {
+                op: "set_fields".to_string(),
+                module: Some("core".to_string()),
+                arg_count: 1,
+                args: JsonValue::Object(args),
+                has_selection: false,
+                capability: Capability::from_module_op("core", "set_fields"),
             }
         }
     }

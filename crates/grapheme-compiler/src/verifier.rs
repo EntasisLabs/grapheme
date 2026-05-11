@@ -1,9 +1,11 @@
 use crate::error::GraphemeError;
 use grapheme_artifact::{CapabilityPolicy, MirProgram};
 use serde_json::Value as JsonValue;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::hir::{HirExecutableKind, HirProgram, HirStep};
+use crate::ast::TypeRef;
+use crate::ast::ImportKind;
 
 #[derive(Debug, Clone, Copy)]
 enum ArgType {
@@ -205,6 +207,52 @@ pub fn verify_hir(hir: &HirProgram) -> Result<(), GraphemeError> {
         .map(|d| d.name.clone())
         .collect();
 
+    let struct_fields_by_name = hir
+        .struct_defs
+        .iter()
+        .map(|struct_def| {
+            (
+                struct_def.name.clone(),
+                struct_def
+                    .fields
+                    .iter()
+                    .map(|field| field.name.clone())
+                    .collect::<HashSet<_>>(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+
+    let required_struct_fields_by_name = hir
+        .struct_defs
+        .iter()
+        .map(|struct_def| {
+            (
+                struct_def.name.clone(),
+                struct_def
+                    .fields
+                    .iter()
+                    .filter(|field| !field.optional)
+                    .map(|field| field.name.clone())
+                    .collect::<HashSet<_>>(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+
+    let known_type_names = hir
+        .struct_defs
+        .iter()
+        .map(|struct_def| struct_def.name.clone())
+        .collect::<HashSet<_>>();
+
+    let imported_type_namespaces = hir
+        .imports
+        .iter()
+        .filter(|import| matches!(import.kind, ImportKind::Types))
+        .map(|import| import.alias.clone())
+        .collect::<HashSet<_>>();
+
+    verify_known_type_refs(hir, &known_type_names, &imported_type_namespaces)?;
+
     for def in &hir.executable_defs {
         if def.name.trim().is_empty() {
             return Err(GraphemeError::VerificationError(
@@ -238,7 +286,25 @@ pub fn verify_hir(hir: &HirProgram) -> Result<(), GraphemeError> {
                     def.recursive_directive_count > 0,
                 )?;
                 verify_flow_branch_step(&def.name, i, step_idx, step, &executable_names)?;
+                verify_typed_current_field_access(
+                    &def.name,
+                    i,
+                    step_idx,
+                    step,
+                    def.input_type.as_ref(),
+                    &struct_fields_by_name,
+                )?;
             }
+
+            verify_typed_output_field_population(
+                &def.name,
+                def.kind.clone(),
+                i,
+                pipeline.steps.as_slice(),
+                def.output_type.as_ref(),
+                &struct_fields_by_name,
+                &required_struct_fields_by_name,
+            )?;
         }
 
         verify_loop_directive(def)?;
@@ -246,6 +312,227 @@ pub fn verify_hir(hir: &HirProgram) -> Result<(), GraphemeError> {
     }
 
     Ok(())
+}
+
+fn verify_typed_output_field_population(
+    def_name: &str,
+    def_kind: HirExecutableKind,
+    pipeline_idx: usize,
+    steps: &[HirStep],
+    output_type: Option<&TypeRef>,
+    struct_fields_by_name: &HashMap<String, HashSet<String>>,
+    required_struct_fields_by_name: &HashMap<String, HashSet<String>>,
+) -> Result<(), GraphemeError> {
+    if !matches!(def_kind, HirExecutableKind::Query | HirExecutableKind::Mutation) {
+        return Ok(());
+    }
+
+    let Some(TypeRef::Named(output_type_name, _)) = output_type else {
+        return Ok(());
+    };
+
+    let Some(all_fields) = struct_fields_by_name.get(output_type_name) else {
+        return Ok(());
+    };
+    let Some(required_fields) = required_struct_fields_by_name.get(output_type_name) else {
+        return Ok(());
+    };
+
+    if required_fields.is_empty() {
+        return Ok(());
+    }
+
+    let mut provided_fields = HashSet::new();
+    let mut saw_literal_patch = false;
+    for step in steps {
+        let Some(module) = step.module.as_deref() else {
+            continue;
+        };
+
+        if !module.eq_ignore_ascii_case("core") {
+            continue;
+        }
+
+        let Some(args_obj) = step.args.as_object() else {
+            continue;
+        };
+
+        let literal_patch = match step.op.as_str() {
+            "merge" => args_obj.get("right").and_then(|v| v.as_object()),
+            "set_fields" => args_obj.get("fields").and_then(|v| v.as_object()),
+            _ => None,
+        };
+
+        let Some(literal_patch) = literal_patch else {
+            continue;
+        };
+
+        saw_literal_patch = true;
+
+        for key in literal_patch.keys() {
+            if !all_fields.contains(key) {
+                return Err(GraphemeError::TypeError(format!(
+                    "definition '{}', pipeline {}: field '{}' is not declared on output type '{}'",
+                    def_name, pipeline_idx, key, output_type_name
+                )));
+            }
+            provided_fields.insert(key.clone());
+        }
+    }
+
+    if !saw_literal_patch {
+        return Ok(());
+    }
+
+    let missing_required = required_fields
+        .iter()
+        .filter(|field| !provided_fields.contains(*field))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if !missing_required.is_empty() {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}: output type '{}' missing required fields in literal state patches: {}",
+            def_name,
+            pipeline_idx,
+            output_type_name,
+            missing_required.join(", ")
+        )));
+    }
+
+    Ok(())
+}
+
+fn verify_known_type_refs(
+    hir: &HirProgram,
+    known_type_names: &HashSet<String>,
+    imported_type_namespaces: &HashSet<String>,
+) -> Result<(), GraphemeError> {
+    for struct_def in &hir.struct_defs {
+        for field in &struct_def.fields {
+            verify_type_ref_known(
+                &field.type_ref,
+                known_type_names,
+                imported_type_namespaces,
+                &format!("struct '{}' field '{}'", struct_def.name, field.name),
+            )?;
+        }
+    }
+
+    for def in &hir.executable_defs {
+        if let Some(input_type) = def.input_type.as_ref() {
+            verify_type_ref_known(
+                input_type,
+                known_type_names,
+                imported_type_namespaces,
+                &format!("definition '{}' input type", def.name),
+            )?;
+        }
+
+        if let Some(output_type) = def.output_type.as_ref() {
+            verify_type_ref_known(
+                output_type,
+                known_type_names,
+                imported_type_namespaces,
+                &format!("definition '{}' output type", def.name),
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+fn verify_type_ref_known(
+    type_ref: &TypeRef,
+    known_type_names: &HashSet<String>,
+    imported_type_namespaces: &HashSet<String>,
+    context: &str,
+) -> Result<(), GraphemeError> {
+    match type_ref {
+        TypeRef::Named(name, _) => {
+            if let Some((namespace, _type_name)) = name.split_once("::") {
+                if imported_type_namespaces.contains(namespace) {
+                    return Ok(());
+                }
+
+                return Err(GraphemeError::TypeError(format!(
+                    "{} references unknown type namespace '{}'",
+                    context, namespace
+                )));
+            }
+
+            if !known_type_names.contains(name) {
+                return Err(GraphemeError::TypeError(format!(
+                    "{} references unknown type '{}'",
+                    context, name
+                )));
+            }
+        }
+        TypeRef::List(inner, _) => {
+            verify_type_ref_known(inner, known_type_names, imported_type_namespaces, context)?
+        }
+        TypeRef::Scalar(_, _) => {}
+    }
+
+    Ok(())
+}
+
+fn verify_typed_current_field_access(
+    def_name: &str,
+    pipeline_idx: usize,
+    step_idx: usize,
+    step: &HirStep,
+    input_type: Option<&TypeRef>,
+    struct_fields_by_name: &HashMap<String, HashSet<String>>,
+) -> Result<(), GraphemeError> {
+    let Some(TypeRef::Named(input_type_name, _)) = input_type else {
+        return Ok(());
+    };
+
+    let Some(known_fields) = struct_fields_by_name.get(input_type_name) else {
+        return Ok(());
+    };
+
+    let mut refs = Vec::new();
+    collect_current_field_refs(&step.args, &mut refs);
+
+    for current_ref in refs {
+        if let Some(field) = current_ref.strip_prefix("current.") {
+            if field.is_empty() {
+                continue;
+            }
+
+            let root_field = field.split('.').next().unwrap_or(field);
+            if !known_fields.contains(root_field) {
+                return Err(GraphemeError::TypeError(format!(
+                    "definition '{}', pipeline {}, step {}: unknown field '$current.{}' for input type '{}'",
+                    def_name, pipeline_idx, step_idx, root_field, input_type_name
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_current_field_refs(value: &JsonValue, out: &mut Vec<String>) {
+    match value {
+        JsonValue::Object(map) => {
+            if let Some(var_ref) = map.get("$var").and_then(|v| v.as_str()) {
+                out.push(var_ref.to_string());
+            }
+
+            for nested in map.values() {
+                collect_current_field_refs(nested, out);
+            }
+        }
+        JsonValue::Array(items) => {
+            for item in items {
+                collect_current_field_refs(item, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn verify_recursive_directive(def: &super::hir::HirExecutable) -> Result<(), GraphemeError> {

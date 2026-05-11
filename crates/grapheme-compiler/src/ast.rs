@@ -110,9 +110,16 @@ pub struct ModuleProposal {
     pub ops: Vec<OpDef>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ImportKind {
+    Module,
+    Types,
+}
+
 /// A resolved import: import Foo from "grapheme/foo"
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportDecl {
+    pub kind: ImportKind,
     pub alias: String,
     pub path: String,
 }
@@ -165,9 +172,16 @@ pub struct CallStep {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StructInitStep {
+    pub type_name: String,
+    pub fields: Vec<(String, Value)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PipelineStep {
     Field(FieldCall),
     Call(CallStep),
+    StructInit(StructInitStep),
 }
 
 /// A |>-chained sequence of executable steps.
