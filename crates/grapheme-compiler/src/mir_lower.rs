@@ -2,6 +2,7 @@ use grapheme_artifact::{
     MirBlock, MirFunction, MirFunctionKind, MirInst, MirLoopConfig, MirLoopMergeMode,
     MirLoopUntil, MirProgram, MirTerminator,
 };
+use grapheme_artifact::mir::MirCompareOp;
 use serde_json::Value as JsonValue;
 
 use crate::hir::{HirExecutableKind, HirProgram};
@@ -96,8 +97,7 @@ fn lower_flow_branch(step: &crate::hir::HirStep, recursive_max_depth: Option<u32
 
     let args = step.args.as_object()?;
     let when = args.get("when")?.as_object()?;
-    let field = when.get("field")?.as_str()?.to_string();
-    let eq = when.get("eq")?.clone();
+    let (field, cmp, value) = lower_flow_branch_when(when)?;
     let then_target = branch_target_from_value(args.get("then")?)?;
     let else_target = args
         .get("else")
@@ -111,11 +111,34 @@ fn lower_flow_branch(step: &crate::hir::HirStep, recursive_max_depth: Option<u32
 
     Some(MirInst::BranchCall {
         field,
-        eq,
+        cmp,
+        value,
         then_target,
         else_target,
         max_depth,
     })
+}
+
+fn lower_flow_branch_when(when: &serde_json::Map<String, JsonValue>) -> Option<(String, MirCompareOp, JsonValue)> {
+    let field = when.get("field")?.as_str()?.to_string();
+
+    if let Some(value) = when.get("eq") {
+        return Some((field, MirCompareOp::Eq, value.clone()));
+    }
+    if let Some(value) = when.get("gt") {
+        return Some((field, MirCompareOp::Gt, value.clone()));
+    }
+    if let Some(value) = when.get("gte") {
+        return Some((field, MirCompareOp::Gte, value.clone()));
+    }
+    if let Some(value) = when.get("lt") {
+        return Some((field, MirCompareOp::Lt, value.clone()));
+    }
+    if let Some(value) = when.get("lte") {
+        return Some((field, MirCompareOp::Lte, value.clone()));
+    }
+
+    None
 }
 
 fn branch_target_from_value(value: &JsonValue) -> Option<String> {

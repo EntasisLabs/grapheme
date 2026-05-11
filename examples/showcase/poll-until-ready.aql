@@ -1,0 +1,22 @@
+query PollUntilReady {
+  core.merge(left: {}, right: { status: "pending", attempt: 0.0, ready_at: 3.0 })
+  |> Poller
+}
+
+iterator Poller on Any @loop(max: 8, until: { field: "status", eq: "ready" }, merge: "replace") {
+  core.inc_field(field: "attempt")
+  |> flow.branch(
+    when: { field: "attempt", eq: 3.0 },
+    then: MarkReady,
+    else: KeepWaiting
+  )
+}
+
+iterator MarkReady on Any {
+  core.merge(left: $current, right: { status: "ready" })
+  |> core.echo(message: "ready-at:$current.attempt")
+}
+
+iterator KeepWaiting on Any {
+  core.echo(message: "waiting:$current.attempt")
+}

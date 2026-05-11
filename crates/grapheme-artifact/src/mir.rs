@@ -55,6 +55,17 @@ pub struct MirBlock {
     pub terminator: MirTerminator,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MirCompareOp {
+    #[default]
+    Eq,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MirInst {
     Call {
@@ -67,7 +78,10 @@ pub enum MirInst {
     },
     BranchCall {
         field: String,
-        eq: JsonValue,
+        #[serde(default)]
+        cmp: MirCompareOp,
+        #[serde(alias = "eq")]
+        value: JsonValue,
         then_target: String,
         else_target: Option<String>,
         max_depth: Option<u32>,

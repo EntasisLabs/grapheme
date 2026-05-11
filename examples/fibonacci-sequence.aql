@@ -1,0 +1,8 @@
+query FibonacciSequence {
+  core.merge(left: {}, right: { items: [0, 1, 1, 2, 3, 5, 8, 13, 21, 34] })
+  |> PrintFib
+}
+
+iterator PrintFib on Any @loop(each: "$current.items", merge: "none") {
+  core.echo(message: $current)
+}

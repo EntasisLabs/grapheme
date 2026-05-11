@@ -2,6 +2,7 @@ use grapheme_artifact::{
     ArtifactEnvelope, Capability, CapabilityPolicy, ExecutionOutcome, ExecutionResult, MirFunction,
     MirInst, MirLoopMergeMode, TraceSummary,
 };
+use grapheme_artifact::mir::MirCompareOp;
 use serde_json::{Map, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -463,7 +464,8 @@ impl RuntimeEngine {
                         }
                     MirInst::BranchCall {
                         field,
-                        eq,
+                        cmp,
+                        value,
                         then_target,
                         else_target,
                         max_depth,
@@ -475,8 +477,9 @@ impl RuntimeEngine {
                             call_target: None,
                         };
 
+                        let compare_to = resolve_current_templates(value, &state.current);
                         let branch_matches = select_json_path(&state.current, field)
-                            .map(|value| value == eq)
+                            .map(|current_value| branch_compare(current_value, cmp, &compare_to))
                             .unwrap_or(false);
 
                         let target = if branch_matches {
@@ -562,6 +565,30 @@ impl RuntimeEngine {
     }
 }
 
+fn branch_compare(current_value: &JsonValue, cmp: &MirCompareOp, compare_to: &JsonValue) -> bool {
+    match cmp {
+        MirCompareOp::Eq => current_value == compare_to,
+        MirCompareOp::Gt => compare_numbers(current_value, compare_to, |a, b| a > b),
+        MirCompareOp::Gte => compare_numbers(current_value, compare_to, |a, b| a >= b),
+        MirCompareOp::Lt => compare_numbers(current_value, compare_to, |a, b| a < b),
+        MirCompareOp::Lte => compare_numbers(current_value, compare_to, |a, b| a <= b),
+    }
+}
+
+fn compare_numbers(
+    current_value: &JsonValue,
+    compare_to: &JsonValue,
+    predicate: impl Fn(f64, f64) -> bool,
+) -> bool {
+    let Some(a) = current_value.as_f64() else {
+        return false;
+    };
+    let Some(b) = compare_to.as_f64() else {
+        return false;
+    };
+    predicate(a, b)
+}
+
 fn reduce_iteration_outputs(outputs: &[JsonValue]) -> JsonValue {
     if outputs.is_empty() {
         return JsonValue::Null;
@@ -600,7 +627,7 @@ fn reduce_iteration_outputs(outputs: &[JsonValue]) -> JsonValue {
 }
 
 fn emit_streamed_step_output(op: &str, context: &StepContext, output: &JsonValue) {
-    let Some(body) = printable_stream_body(output) else {
+    let Some(body) = printable_stream_body(op, output) else {
         return;
     };
 
@@ -616,10 +643,13 @@ fn emit_streamed_step_output(op: &str, context: &StepContext, output: &JsonValue
     println!("[{}] {}", prefix_parts.join(" | "), body);
 }
 
-fn printable_stream_body(value: &JsonValue) -> Option<String> {
-    if let Some(message) = value.get("message").and_then(|v| v.as_str()) {
-        return Some(message.to_string());
+fn printable_stream_body(op: &str, value: &JsonValue) -> Option<String> {
+    if op.eq_ignore_ascii_case("echo") {
+        if let Some(message) = value.get("message").and_then(|v| v.as_str()) {
+            return Some(message.to_string());
+        }
     }
+
     if let Some(text) = value.get("text").and_then(|v| v.as_str()) {
         return Some(text.to_string());
     }
@@ -630,11 +660,7 @@ fn printable_stream_body(value: &JsonValue) -> Option<String> {
         return Some(s.to_string());
     }
 
-    if value.is_null() {
-        return None;
-    }
-
-    serde_json::to_string(value).ok()
+    None
 }
 
 fn build_function_index(functions: &[MirFunction]) -> HashMap<String, usize> {

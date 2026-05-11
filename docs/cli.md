@@ -9,7 +9,7 @@ grapheme <file.aql>
 grapheme parse <file.aql>
 grapheme compile <file.aql> --emit ast|hir|mir|artifact
 grapheme plugins build [all|core|docs|io|http|memory|tcp|smtp|secrets ...]
-grapheme run <file.aql> [--bind module=path.wasm ...] [--json] [--native-modules]
+grapheme run <file.aql> [--bind module=path.wasm ...] [--json] [--native-modules] [--stream-steps]
 grapheme modules
 ```
 
@@ -42,6 +42,14 @@ Plain text output (best-effort extraction from final state):
 
 ```bash
 cargo run -- run examples/hello-world.aql
+```
+
+By default, plain mode prints actual emitted outputs (for example `core.echo` messages) without step trace prefixes.
+
+Opt-in step trace streaming with prefixes like `[iter 1 | depth 1 | echo]`:
+
+```bash
+cargo run -- run examples/fibonacci-computed.aql --native-modules --stream-steps
 ```
 
 Structured JSON output:

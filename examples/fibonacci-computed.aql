@@ -1,0 +1,11 @@
+query FibonacciComputed {
+  core.merge(left: {}, right: { a: 0.0, b: 1.0, i: 0.0, max: 10.0 })
+  |> FibIter
+}
+
+iterator FibIter on Any @loop(max: 10, merge: "replace") {
+  core.echo(message: "fib:$current.a")
+  |> core.add(a: $current.a, b: $current.b)
+  |> core.merge(left: $current, right: { a: $current.b, b: $current.value })
+  |> core.inc_field(field: "i")
+}

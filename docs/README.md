@@ -17,6 +17,7 @@ This documentation set reflects the current implementation of Grapheme in this r
 11. `docs/turing-completeness-roadmap.md`
 12. `docs/runtime/policy-profile-matrix.md`
 13. `docs/native-modules.md` (transform module signatures and chaining semantics)
+14. `docs/language-typed-records-v1.md`
 
 ## Tooling and Distribution
 
@@ -39,3 +40,4 @@ These documents are useful context but were written earlier in the project lifec
 
 - `docs/language-control-flow-v1.md`
 - `docs/language-control-flow-v1-implementation.md`
+- `docs/language-typed-records-v1.md`

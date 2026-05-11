@@ -1,0 +1,20 @@
+query FibonacciThresholdLoop {
+  core.merge(left: {}, right: { a: 0.0, b: 1.0, i: 0.0, threshold: 144.0 })
+  |> FibUntilThreshold
+}
+
+iterator FibUntilThreshold on Any @loop(max: 64, merge: "replace") {
+  core.echo(message: "fib:$current.a")
+  |> flow.branch(
+    when: { field: "a", gte: $current.threshold },
+    then: return,
+    else: AdvanceFib
+  )
+}
+
+iterator AdvanceFib on Any {
+  core.set_fields(fields: { prev_a: $current.a, prev_b: $current.b })
+  |> core.add(a: $current.prev_a, b: $current.prev_b)
+  |> core.set_fields(fields: { a: $current.prev_b, b: $current.value })
+  |> core.inc_field(field: "i")
+}

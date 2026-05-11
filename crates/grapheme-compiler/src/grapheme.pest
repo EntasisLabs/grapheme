@@ -73,6 +73,14 @@ type_ref = { (scalar_type | list_type | ident) ~ "!"? }
 
 field_def = { ident ~ ":" ~ type_ref ~ directive* }
 
+struct_field_def = { ident ~ "?"? ~ ":" ~ type_ref }
+
+struct_def = {
+    "struct" ~ ident ~ "{"
+    ~ struct_field_def+
+    ~ "}"
+}
+
 type_def = {
     "type" ~ ident ~ directive* ~ "{"
     ~ field_def+
@@ -175,28 +183,30 @@ variable_def = { "$" ~ ident ~ ":" ~ type_ref ~ ("=" ~ value)? }
 
 variable_defs = { "(" ~ (variable_def ~ ("," ~ variable_def)*)? ~ ")" }
 
+executable_signature = { "on" ~ type_ref ~ ("->" ~ type_ref)? }
+
 query_def = {
-    "query" ~ ident ~ variable_defs? ~ directive* ~ "{"
+    "query" ~ ident ~ variable_defs? ~ executable_signature? ~ directive* ~ "{"
     ~ pipeline+
     ~ "}"
 }
 
 mutation_def = {
-    "mutation" ~ ident ~ variable_defs? ~ directive* ~ "{"
+    "mutation" ~ ident ~ variable_defs? ~ executable_signature? ~ directive* ~ "{"
     ~ pipeline+
     ~ "}"
 }
 
 // Iterators: reusable named pipelines (like functions)
 fragment_def = {
-    "iterator" ~ ident ~ "on" ~ type_name ~ directive* ~ "{"
+    "iterator" ~ ident ~ executable_signature ~ directive* ~ "{"
     ~ pipeline+
     ~ "}"
 }
 
 // Subscription: event-driven / reactive loop
 subscription_def = {
-    "subscription" ~ ident ~ variable_defs? ~ directive* ~ "{"
+    "subscription" ~ ident ~ variable_defs? ~ executable_signature? ~ directive* ~ "{"
     ~ pipeline+
     ~ "}"
 }
@@ -208,6 +218,7 @@ definition = {
   | mutation_def
   | fragment_def
   | subscription_def
+    | struct_def
   | schema_def
   | module_proposal
 }

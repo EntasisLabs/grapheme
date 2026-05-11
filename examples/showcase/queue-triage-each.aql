@@ -1,0 +1,33 @@
+query QueueTriageEach {
+  core.merge(
+    left: {},
+    right: {
+      tasks: [
+        { id: "t-100", priority: "high" },
+        { id: "t-101", priority: "low" },
+        { id: "t-102", priority: "high" }
+      ]
+    }
+  )
+  |> Triage
+}
+
+iterator Triage on Any @loop(each: "$current.tasks", merge: "append") {
+  flow.branch(
+    when: { field: "priority", eq: "high" },
+    then: EscalateTask,
+    else: StandardTask
+  )
+}
+
+iterator EscalateTask on Any {
+  core.merge(left: $current, right: { queue: "expedite" })
+  |> core.echo(message: "expedite:$current.id")
+  |> core.pick(fields: ["id", "priority", "queue", "message"])
+}
+
+iterator StandardTask on Any {
+  core.merge(left: $current, right: { queue: "standard" })
+  |> core.echo(message: "standard:$current.id")
+  |> core.pick(fields: ["id", "priority", "queue", "message"])
+}

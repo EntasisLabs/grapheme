@@ -3,13 +3,27 @@ use serde_json::{Map, Value as JsonValue};
 use grapheme_artifact::Capability;
 use std::collections::HashSet;
 
-use crate::ast::{Definition, Directive, OpKind, Pipeline, PipelineStep, Program, Value};
+use crate::ast::{Definition, Directive, OpKind, Pipeline, PipelineStep, Program, StructDef, TypeRef, Value};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HirProgram {
     pub imports: Vec<HirImport>,
+    pub struct_defs: Vec<HirStructDef>,
     pub executable_defs: Vec<HirExecutable>,
     pub capabilities: Vec<Capability>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HirStructDef {
+    pub name: String,
+    pub fields: Vec<HirStructField>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HirStructField {
+    pub name: String,
+    pub type_ref: TypeRef,
+    pub optional: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +36,8 @@ pub struct HirImport {
 pub struct HirExecutable {
     pub kind: HirExecutableKind,
     pub name: String,
+    pub input_type: Option<TypeRef>,
+    pub output_type: Option<TypeRef>,
     pub loop_directive_count: usize,
     pub loop_args: Option<JsonValue>,
     pub recursive_directive_count: usize,
@@ -62,9 +78,18 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
             Definition::Mutation(m) => Some(m.name.clone()),
             Definition::Subscription(s) => Some(s.name.clone()),
             Definition::Fragment(f) => Some(f.name.clone()),
-            Definition::Schema(_) | Definition::ModuleProposal(_) => None,
+            Definition::Struct(_) | Definition::Schema(_) | Definition::ModuleProposal(_) => None,
         })
         .collect::<HashSet<_>>();
+
+    let struct_defs = program
+        .definitions
+        .iter()
+        .filter_map(|def| match def {
+            Definition::Struct(struct_def) => Some(lower_struct_def(struct_def)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
 
     let imports = program
         .imports
@@ -82,6 +107,8 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
             Definition::Query(q) => executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Query,
                 name: q.name.clone(),
+                input_type: q.signature.as_ref().map(|sig| sig.input.clone()),
+                output_type: q.signature.as_ref().and_then(|sig| sig.output.clone()),
                 loop_directive_count: loop_directive_count(&q.directives),
                 loop_args: first_loop_args(&q.directives),
                 recursive_directive_count: recursive_directive_count(&q.directives),
@@ -97,6 +124,8 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
             Definition::Mutation(m) => executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Mutation,
                 name: m.name.clone(),
+                input_type: m.signature.as_ref().map(|sig| sig.input.clone()),
+                output_type: m.signature.as_ref().and_then(|sig| sig.output.clone()),
                 loop_directive_count: loop_directive_count(&m.directives),
                 loop_args: first_loop_args(&m.directives),
                 recursive_directive_count: recursive_directive_count(&m.directives),
@@ -112,6 +141,8 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
             Definition::Subscription(s) => executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Subscription,
                 name: s.name.clone(),
+                input_type: s.signature.as_ref().map(|sig| sig.input.clone()),
+                output_type: s.signature.as_ref().and_then(|sig| sig.output.clone()),
                 loop_directive_count: loop_directive_count(&s.directives),
                 loop_args: first_loop_args(&s.directives),
                 recursive_directive_count: recursive_directive_count(&s.directives),
@@ -127,6 +158,8 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
             Definition::Fragment(f) => executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Fragment,
                 name: f.name.clone(),
+                input_type: Some(f.signature.input.clone()),
+                output_type: f.signature.output.clone(),
                 loop_directive_count: loop_directive_count(&f.directives),
                 loop_args: first_loop_args(&f.directives),
                 recursive_directive_count: recursive_directive_count(&f.directives),
@@ -139,7 +172,7 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
                     first_recursive_max_depth(first_recursive_args(&f.directives).as_ref()),
                 ),
             }),
-            Definition::Schema(_) | Definition::ModuleProposal(_) => {}
+            Definition::Struct(_) | Definition::Schema(_) | Definition::ModuleProposal(_) => {}
         }
     }
 
@@ -155,8 +188,24 @@ pub fn lower_from_ast(program: &Program) -> HirProgram {
 
     HirProgram {
         imports,
+        struct_defs,
         executable_defs,
         capabilities,
+    }
+}
+
+fn lower_struct_def(struct_def: &StructDef) -> HirStructDef {
+    HirStructDef {
+        name: struct_def.name.clone(),
+        fields: struct_def
+            .fields
+            .iter()
+            .map(|field| HirStructField {
+                name: field.name.clone(),
+                type_ref: field.type_ref.clone(),
+                optional: field.optional,
+            })
+            .collect(),
     }
 }
 

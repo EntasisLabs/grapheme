@@ -28,6 +28,7 @@ pub fn compile_to_artifact(source: &str, entrypoint: Option<&str>) -> Result<Art
 #[cfg(test)]
 mod tests {
 		use super::*;
+		use grapheme_artifact::mir::MirCompareOp;
 
 		#[test]
 		fn rejects_invalid_loop_merge_value() {
@@ -173,13 +174,15 @@ iterator Step on Any {
 				match first_inst {
 						grapheme_artifact::MirInst::BranchCall {
 								field,
-								eq,
+						cmp,
+						value,
 								then_target,
 								else_target,
 								..
 						} => {
 								assert_eq!(field, "status");
-								assert_eq!(eq, &serde_json::json!("done"));
+						assert_eq!(cmp, &MirCompareOp::Eq);
+						assert_eq!(value, &serde_json::json!("done"));
 								assert_eq!(then_target, "$return");
 								assert_eq!(else_target.as_deref(), Some("Step"));
 						}
@@ -228,5 +231,84 @@ iterator Step on Any {
 						}
 						_ => panic!("expected branch_call instruction"),
 				}
+		}
+
+		#[test]
+		fn flow_branch_gte_lowers_to_branch_call_instruction() {
+				let source = r#"
+query Run {
+	Step
+}
+
+iterator Step on Any {
+	flow.branch(
+		when: { field: "score", gte: 90.0 },
+		then: return,
+		else: Step
+	)
+}
+"#;
+
+				let compilation = compile(source).expect("compile should lower flow.branch gte");
+				let step_fn = compilation
+						.mir
+						.functions
+						.iter()
+						.find(|f| f.name == "Step")
+						.expect("Step function present");
+
+				let first_inst = step_fn
+						.blocks
+						.first()
+						.and_then(|b| b.instructions.first())
+						.expect("Step has first instruction");
+
+				match first_inst {
+						grapheme_artifact::MirInst::BranchCall {
+								field,
+								cmp,
+								value,
+								then_target,
+								else_target,
+								..
+						} => {
+								assert_eq!(field, "score");
+								assert_eq!(cmp, &MirCompareOp::Gte);
+								assert_eq!(value, &serde_json::json!(90.0));
+								assert_eq!(then_target, "$return");
+								assert_eq!(else_target.as_deref(), Some("Step"));
+						}
+						_ => panic!("expected branch_call instruction"),
+				}
+		}
+
+		#[test]
+		fn supports_struct_and_typed_executable_signatures() {
+				let source = r#"
+struct FibState {
+	 a: Float
+	 b: Float
+	 i: Float
+	 threshold?: Float
+}
+
+query Run on FibState -> FibState {
+	Step
+}
+
+iterator Step on FibState -> FibState {
+	core.echo(message: "tick")
+}
+"#;
+
+				let compilation = compile(source).expect("compile should support typed signatures and struct defs");
+				let query = compilation
+						.mir
+						.functions
+						.iter()
+						.find(|f| f.name == "Run")
+						.expect("query function present");
+
+				assert!(!query.blocks.is_empty());
 		}
 }

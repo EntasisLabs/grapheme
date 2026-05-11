@@ -11,7 +11,6 @@
 
 use grapheme_artifact::{ExecutionResult, MirInst};
 use grapheme_compiler::{Compiler, CompilerError, CompilerOptions};
-use grapheme_runtime::state::StepResult;
 use grapheme_runtime::{
     CapabilityCall, CapabilityHost, HostCallError, PolicyGuard, RuntimeEngine,
     TracePolicy, TraceProjection,
@@ -37,6 +36,7 @@ struct RunOptions {
     bindings: Vec<(String, PathBuf)>,
     output_mode: RunOutputMode,
     native_modules: bool,
+    stream_steps: bool,
     trace_profile: TraceProfile,
     trace_steps: Option<usize>,
     trace_projection: Option<TraceProjection>,
@@ -835,7 +835,8 @@ fn run_program(
     let mut options = grapheme_runtime::RuntimeOptions::default();
     options.policy_guard = policy_guard_from_env();
     options.trace_policy = trace_policy;
-    options.stream_step_output = run_options.output_mode == RunOutputMode::Plain;
+    options.stream_step_output =
+        run_options.output_mode == RunOutputMode::Plain && run_options.stream_steps;
     let (is_set, max_steps) = parse_optional_usize_env("GRAPHEME_RUNTIME_MAX_STEPS")
         .map_err(|e| CompilerError::RuntimeError(e.to_string()))?;
     if is_set {
@@ -864,14 +865,24 @@ fn run_program(
             print_json(&out)
         }
         RunOutputMode::Plain => {
-            let streamed_any = state
+            if run_options.stream_steps {
+                return Ok(());
+            }
+
+            let mut printed_any = false;
+            for step in state
                 .pipeline
                 .iter()
                 .filter(|step| step.ok)
-                .filter(|step| !step.op.starts_with("call."))
-                .any(|step| printable_line_from_step(step).is_some());
+                .filter(|step| is_echo_step(&step.op))
+            {
+                if let Some(line) = printable_line_from_json(&step.output) {
+                    println!("{line}");
+                    printed_any = true;
+                }
+            }
 
-            if streamed_any {
+            if printed_any {
                 return Ok(());
             }
 
@@ -900,20 +911,8 @@ fn run_program(
     }
 }
 
-fn printable_line_from_step(step: &StepResult) -> Option<String> {
-    let body = printable_line_from_json(&step.output)
-        .or_else(|| step.iteration_index.and_then(|_| serde_json::to_string(&step.output).ok()))?;
-
-    let mut prefix_parts = Vec::new();
-    if let Some(iteration_index) = step.iteration_index {
-        prefix_parts.push(format!("iter {}", iteration_index + 1));
-    }
-    if step.call_depth > 0 {
-        prefix_parts.push(format!("depth {}", step.call_depth));
-    }
-    prefix_parts.push(step.op.clone());
-
-    Some(format!("[{}] {}", prefix_parts.join(" | "), body))
+fn is_echo_step(op: &str) -> bool {
+    op.eq_ignore_ascii_case("echo") || op.eq_ignore_ascii_case("core.echo")
 }
 
 fn printable_line_from_json(value: &JsonValue) -> Option<String> {
@@ -977,6 +976,7 @@ fn parse_run_args(
     let mut bindings = Vec::new();
     let mut output_mode = RunOutputMode::Plain;
     let mut native_modules = false;
+    let mut stream_steps = false;
     let mut trace_profile = TraceProfile::Lean;
     let mut trace_steps: Option<usize> = None;
     let mut trace_projection: Option<TraceProjection> = None;
@@ -1009,6 +1009,10 @@ fn parse_run_args(
             }
             "--native-modules" => {
                 native_modules = true;
+                i += 1;
+            }
+            "--stream-steps" => {
+                stream_steps = true;
                 i += 1;
             }
             "--trace-profile" => {
@@ -1069,6 +1073,7 @@ fn parse_run_args(
             bindings,
             output_mode,
             native_modules,
+            stream_steps,
             trace_profile,
             trace_steps,
             trace_projection,
@@ -1202,7 +1207,7 @@ fn print_usage() {
     eprintln!("  grapheme parse <file.aql>");
     eprintln!("  grapheme compile <file.aql> --emit ast|hir|mir|artifact");
     eprintln!("  grapheme plugins build [all|core|io ...]");
-    eprintln!("  grapheme run <file.aql> [--bind module=path.wasm ...] [--json] [--native-modules]");
+    eprintln!("  grapheme run <file.aql> [--bind module=path.wasm ...] [--json] [--native-modules] [--stream-steps]");
     eprintln!("               [--trace-profile lean|debug] [--trace-steps N]");
     eprintln!("               [--trace-projection minimal|full] [--trace-max-string-bytes N]");
     eprintln!("  grapheme modules");

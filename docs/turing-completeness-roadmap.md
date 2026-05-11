@@ -92,3 +92,14 @@ Current private baseline matrix:
 
 - `docs/runtime/policy-profile-matrix.md`
 - `scripts/policy-profile-checks.sh`
+
+### Sprint 5 (typed programming ergonomics)
+
+1. Add first-class typed record declarations (`struct`).
+2. Add typed executable signatures (`on InputType -> OutputType`).
+3. Add verifier checks for field existence and call arg compatibility.
+4. Add LSP inferred-shape hover and field completion in typed scopes.
+
+Design draft:
+
+- `docs/language-typed-records-v1.md`

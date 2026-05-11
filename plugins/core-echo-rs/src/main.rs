@@ -30,6 +30,13 @@ fn op_echo(args: &Value) -> Value {
     } else {
         String::new()
     };
+
+    if let Some(input_obj) = args.get("__input").and_then(|v| v.as_object()) {
+        let mut out = input_obj.clone();
+        out.insert("message".to_string(), json!(message));
+        return Value::Object(out);
+    }
+
     json!({ "message": message })
 }
 
@@ -158,45 +165,67 @@ fn arg_number(args: &Value, key: &str) -> Option<f64> {
 fn op_add(args: &Value) -> Value {
     let a = arg_number(args, "a").unwrap_or(0.0);
     let b = arg_number(args, "b").unwrap_or(0.0);
-    json!({ "value": a + b })
+    with_value_from_input(args, a + b)
 }
 
 fn op_sub(args: &Value) -> Value {
     let a = arg_number(args, "a").unwrap_or(0.0);
     let b = arg_number(args, "b").unwrap_or(0.0);
-    json!({ "value": a - b })
+    with_value_from_input(args, a - b)
 }
 
 fn op_inc(args: &Value) -> Value {
     let value = arg_number(args, "value")
         .or_else(|| args.get("__input").and_then(|v| v.as_f64()))
         .unwrap_or(0.0);
-    json!({ "value": value + 1.0 })
+    with_value_from_input(args, value + 1.0)
 }
 
 fn op_dec(args: &Value) -> Value {
     let value = arg_number(args, "value")
         .or_else(|| args.get("__input").and_then(|v| v.as_f64()))
         .unwrap_or(0.0);
-    json!({ "value": value - 1.0 })
+    with_value_from_input(args, value - 1.0)
+}
+
+fn with_value_from_input(args: &Value, value: f64) -> Value {
+    if let Some(input_obj) = args.get("__input").and_then(|v| v.as_object()) {
+        let mut out = input_obj.clone();
+        out.insert("value".to_string(), json!(value));
+        return Value::Object(out);
+    }
+
+    json!({ "value": value })
 }
 
 fn op_eq(args: &Value) -> Value {
     let a = args.get("a").cloned().unwrap_or(Value::Null);
     let b = args.get("b").cloned().unwrap_or(Value::Null);
-    json!({ "result": a == b })
+    with_result_from_input(args, a == b)
 }
 
 fn op_lt(args: &Value) -> Value {
     let a = arg_number(args, "a").unwrap_or(0.0);
     let b = arg_number(args, "b").unwrap_or(0.0);
-    json!({ "result": a < b })
+    with_result_from_input(args, a < b)
 }
 
 fn op_gt(args: &Value) -> Value {
     let a = arg_number(args, "a").unwrap_or(0.0);
     let b = arg_number(args, "b").unwrap_or(0.0);
-    json!({ "result": a > b })
+    with_result_from_input(args, a > b)
+}
+
+fn op_gte(args: &Value) -> Value {
+    let a = arg_number(args, "a").unwrap_or(0.0);
+    let b = arg_number(args, "b").unwrap_or(0.0);
+    with_result_from_input(args, a >= b)
+}
+
+fn op_lte(args: &Value) -> Value {
+    let a = arg_number(args, "a").unwrap_or(0.0);
+    let b = arg_number(args, "b").unwrap_or(0.0);
+    with_result_from_input(args, a <= b)
 }
 
 fn object_input(args: &Value) -> Map<String, Value> {
@@ -232,6 +261,29 @@ fn op_dec_field(args: &Value) -> Value {
     Value::Object(out)
 }
 
+fn op_set_fields(args: &Value) -> Value {
+    let mut out = object_input(args);
+    let Some(fields) = args.get("fields").and_then(|v| v.as_object()) else {
+        return Value::Object(out);
+    };
+
+    for (key, value) in fields {
+        out.insert(key.clone(), value.clone());
+    }
+
+    Value::Object(out)
+}
+
+fn with_result_from_input(args: &Value, result: bool) -> Value {
+    if let Some(input_obj) = args.get("__input").and_then(|v| v.as_object()) {
+        let mut out = input_obj.clone();
+        out.insert("result".to_string(), json!(result));
+        return Value::Object(out);
+    }
+
+    json!({ "result": result })
+}
+
 fn main() {
     let mut input = String::new();
     if io::stdin().read_to_string(&mut input).is_err() {
@@ -261,8 +313,11 @@ fn main() {
         "eq" => op_eq(&request.args),
         "lt" => op_lt(&request.args),
         "gt" => op_gt(&request.args),
+        "gte" => op_gte(&request.args),
+        "lte" => op_lte(&request.args),
         "inc_field" => op_inc_field(&request.args),
         "dec_field" => op_dec_field(&request.args),
+        "set_fields" => op_set_fields(&request.args),
         other => json!({ "error": format!("unsupported core op: {other}") }),
     };
 

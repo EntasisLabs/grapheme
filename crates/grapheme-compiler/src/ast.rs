@@ -67,6 +67,25 @@ pub struct SchemaDef {
     pub types: Vec<TypeDef>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StructFieldDef {
+    pub name: String,
+    pub type_ref: TypeRef,
+    pub optional: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StructDef {
+    pub name: String,
+    pub fields: Vec<StructFieldDef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutableSignature {
+    pub input: TypeRef,
+    pub output: Option<TypeRef>,
+}
+
 // ── Module System ─────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,6 +191,7 @@ pub struct VariableDef {
 pub struct QueryDef {
     pub name: String,
     pub variables: Vec<VariableDef>,
+    pub signature: Option<ExecutableSignature>,
     pub directives: Vec<Directive>,
     pub pipelines: Vec<Pipeline>,
 }
@@ -180,6 +200,7 @@ pub struct QueryDef {
 pub struct MutationDef {
     pub name: String,
     pub variables: Vec<VariableDef>,
+    pub signature: Option<ExecutableSignature>,
     pub directives: Vec<Directive>,
     pub pipelines: Vec<Pipeline>,
 }
@@ -188,7 +209,7 @@ pub struct MutationDef {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FragmentDef {
     pub name: String,
-    pub on_type: String,
+    pub signature: ExecutableSignature,
     pub directives: Vec<Directive>,
     pub pipelines: Vec<Pipeline>,
 }
@@ -198,6 +219,7 @@ pub struct FragmentDef {
 pub struct SubscriptionDef {
     pub name: String,
     pub variables: Vec<VariableDef>,
+    pub signature: Option<ExecutableSignature>,
     pub directives: Vec<Directive>,
     pub pipelines: Vec<Pipeline>,
 }
@@ -210,6 +232,7 @@ pub enum Definition {
     Mutation(MutationDef),
     Fragment(FragmentDef),
     Subscription(SubscriptionDef),
+    Struct(StructDef),
     Schema(SchemaDef),
     ModuleProposal(ModuleProposal),
 }

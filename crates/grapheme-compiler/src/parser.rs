@@ -48,6 +48,7 @@ fn parse_program(pair: Pair<Rule>) -> Result<Program, GraphemeError> {
                     Rule::mutation_def     => definitions.push(Definition::Mutation(parse_mutation(def)?)),
                     Rule::fragment_def     => definitions.push(Definition::Fragment(parse_fragment(def)?)),
                     Rule::subscription_def => definitions.push(Definition::Subscription(parse_subscription(def)?)),
+                    Rule::struct_def       => definitions.push(Definition::Struct(parse_struct_def(def)?)),
                     Rule::schema_def       => definitions.push(Definition::Schema(parse_schema(def)?)),
                     Rule::module_proposal  => definitions.push(Definition::ModuleProposal(parse_module_proposal(def)?)),
                     r => return Err(GraphemeError::UnexpectedRule(format!("{r:?}"))),
@@ -78,6 +79,31 @@ fn parse_schema(pair: Pair<Rule>) -> Result<SchemaDef, GraphemeError> {
         .map(parse_type_def)
         .collect::<Result<_, _>>()?;
     Ok(SchemaDef { types })
+}
+
+fn parse_struct_def(pair: Pair<Rule>) -> Result<StructDef, GraphemeError> {
+    let mut inner = pair.into_inner();
+    let name = inner.next().unwrap().as_str().to_string();
+    let mut fields = Vec::new();
+
+    for p in inner {
+        if p.as_rule() != Rule::struct_field_def {
+            continue;
+        }
+
+        let field_source = p.as_str();
+        let optional = field_source.contains("?:");
+        let mut fi = p.into_inner();
+        let field_name = fi.next().unwrap().as_str().to_string();
+        let type_ref = parse_type_ref(fi.next().unwrap())?;
+        fields.push(StructFieldDef {
+            name: field_name,
+            type_ref,
+            optional,
+        });
+    }
+
+    Ok(StructDef { name, fields })
 }
 
 fn parse_type_def(pair: Pair<Rule>) -> Result<TypeDef, GraphemeError> {
@@ -187,37 +213,40 @@ fn parse_op_def(pair: Pair<Rule>) -> Result<OpDef, GraphemeError> {
 fn parse_query(pair: Pair<Rule>) -> Result<QueryDef, GraphemeError> {
     let mut inner = pair.into_inner();
     let name      = inner.next().unwrap().as_str().to_string();
-    let (variables, directives, pipelines) = parse_operation_body(inner)?;
-    Ok(QueryDef { name, variables, directives, pipelines })
+    let (variables, signature, directives, pipelines) = parse_operation_body(inner)?;
+    Ok(QueryDef { name, variables, signature, directives, pipelines })
 }
 
 fn parse_mutation(pair: Pair<Rule>) -> Result<MutationDef, GraphemeError> {
     let mut inner = pair.into_inner();
     let name      = inner.next().unwrap().as_str().to_string();
-    let (variables, directives, pipelines) = parse_operation_body(inner)?;
-    Ok(MutationDef { name, variables, directives, pipelines })
+    let (variables, signature, directives, pipelines) = parse_operation_body(inner)?;
+    Ok(MutationDef { name, variables, signature, directives, pipelines })
 }
 
 fn parse_fragment(pair: Pair<Rule>) -> Result<FragmentDef, GraphemeError> {
     let mut inner   = pair.into_inner();
     let name        = inner.next().unwrap().as_str().to_string();
-    let on_type     = inner.next().unwrap().as_str().to_string();
-    let (_, directives, pipelines) = parse_operation_body(inner)?;
-    Ok(FragmentDef { name, on_type, directives, pipelines })
+    let (_, signature, directives, pipelines) = parse_operation_body(inner)?;
+    let signature = signature.ok_or_else(|| {
+        GraphemeError::ParseError(format!("iterator '{}' is missing required signature", name))
+    })?;
+    Ok(FragmentDef { name, signature, directives, pipelines })
 }
 
 fn parse_subscription(pair: Pair<Rule>) -> Result<SubscriptionDef, GraphemeError> {
     let mut inner = pair.into_inner();
     let name      = inner.next().unwrap().as_str().to_string();
-    let (variables, directives, pipelines) = parse_operation_body(inner)?;
-    Ok(SubscriptionDef { name, variables, directives, pipelines })
+    let (variables, signature, directives, pipelines) = parse_operation_body(inner)?;
+    Ok(SubscriptionDef { name, variables, signature, directives, pipelines })
 }
 
 /// Shared body parser for query/mutation/subscription
 fn parse_operation_body<'a>(
     inner: impl Iterator<Item = Pair<'a, Rule>>,
-) -> Result<(Vec<VariableDef>, Vec<Directive>, Vec<Pipeline>), GraphemeError> {
+) -> Result<(Vec<VariableDef>, Option<ExecutableSignature>, Vec<Directive>, Vec<Pipeline>), GraphemeError> {
     let mut variables  = vec![];
+    let mut signature = None;
     let mut directives = vec![];
     let mut pipelines  = vec![];
 
@@ -228,13 +257,23 @@ fn parse_operation_body<'a>(
                     variables.push(parse_variable_def(vd)?);
                 }
             }
+            Rule::executable_signature => {
+                signature = Some(parse_executable_signature(p)?);
+            }
             Rule::directive  => directives.push(parse_directive(p)?),
             Rule::pipeline   => pipelines.push(parse_pipeline(p)?),
             _ => {}
         }
     }
 
-    Ok((variables, directives, pipelines))
+    Ok((variables, signature, directives, pipelines))
+}
+
+fn parse_executable_signature(pair: Pair<Rule>) -> Result<ExecutableSignature, GraphemeError> {
+    let mut inner = pair.into_inner();
+    let input = parse_type_ref(inner.next().unwrap())?;
+    let output = inner.next().map(parse_type_ref).transpose()?;
+    Ok(ExecutableSignature { input, output })
 }
 
 fn parse_variable_def(pair: Pair<Rule>) -> Result<VariableDef, GraphemeError> {

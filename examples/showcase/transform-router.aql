@@ -1,0 +1,21 @@
+query TransformRouter {
+  yaml.to_json(text: "method: POST\npayload: |\n  [42,43]\n")
+  |> RouteWebhook
+}
+
+iterator RouteWebhook on Any {
+  flow.branch(
+    when: { field: "method", eq: "POST" },
+    then: HandlePost,
+    else: RejectWebhook
+  )
+}
+
+iterator HandlePost on Any {
+  json.parse(text: $current.payload)
+  |> core.echo()
+}
+
+iterator RejectWebhook on Any {
+  core.echo(message: "ignored")
+}

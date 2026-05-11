@@ -77,12 +77,24 @@ const CORE_GT_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "a", ty: ArgType::Any, required: true },
     ArgSpec { name: "b", ty: ArgType::Any, required: true },
 ];
+const CORE_GTE_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "a", ty: ArgType::Any, required: true },
+    ArgSpec { name: "b", ty: ArgType::Any, required: true },
+];
+const CORE_LTE_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "a", ty: ArgType::Any, required: true },
+    ArgSpec { name: "b", ty: ArgType::Any, required: true },
+];
 const CORE_INC_FIELD_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "field", ty: ArgType::String, required: true },
     ArgSpec { name: "input", ty: ArgType::Object, required: false },
 ];
 const CORE_DEC_FIELD_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "field", ty: ArgType::String, required: true },
+    ArgSpec { name: "input", ty: ArgType::Object, required: false },
+];
+const CORE_SET_FIELDS_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "fields", ty: ArgType::Object, required: true },
     ArgSpec { name: "input", ty: ArgType::Object, required: false },
 ];
 
@@ -152,8 +164,11 @@ const OP_SPECS: &[OpSpec] = &[
     OpSpec { module: "core", op: "eq", args: CORE_EQ_ARGS },
     OpSpec { module: "core", op: "lt", args: CORE_LT_ARGS },
     OpSpec { module: "core", op: "gt", args: CORE_GT_ARGS },
+    OpSpec { module: "core", op: "gte", args: CORE_GTE_ARGS },
+    OpSpec { module: "core", op: "lte", args: CORE_LTE_ARGS },
     OpSpec { module: "core", op: "inc_field", args: CORE_INC_FIELD_ARGS },
     OpSpec { module: "core", op: "dec_field", args: CORE_DEC_FIELD_ARGS },
+    OpSpec { module: "core", op: "set_fields", args: CORE_SET_FIELDS_ARGS },
     OpSpec { module: "io", op: "read_text", args: IO_READ_TEXT_ARGS },
     OpSpec { module: "io", op: "write_text", args: IO_WRITE_TEXT_ARGS },
     OpSpec { module: "io", op: "list_dir", args: IO_LIST_DIR_ARGS },
@@ -616,10 +631,27 @@ fn verify_flow_branch_step(
         )));
     }
 
-    if !when.contains_key("eq") {
+    let comparator_keys = ["eq", "gt", "gte", "lt", "lte"];
+    let provided = comparator_keys
+        .iter()
+        .filter_map(|key| when.get(*key).map(|value| (*key, value)))
+        .collect::<Vec<_>>();
+
+    if provided.len() != 1 {
         return Err(GraphemeError::TypeError(format!(
-            "definition '{}', pipeline {}, step {}: flow.branch when.eq is required",
+            "definition '{}', pipeline {}, step {}: flow.branch when requires exactly one comparator: eq|gt|gte|lt|lte",
             def_name, pipeline_idx, step_idx
+        )));
+    }
+
+    let (cmp_key, cmp_value) = provided[0];
+    if matches!(cmp_key, "gt" | "gte" | "lt" | "lte")
+        && !is_variable_placeholder(cmp_value)
+        && !cmp_value.is_number()
+    {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: flow.branch when.{} must be a number or variable reference",
+            def_name, pipeline_idx, step_idx, cmp_key
         )));
     }
 
