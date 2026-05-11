@@ -47,9 +47,8 @@ See `examples/showcase/README.md` for scenario details and live-demo toggle idea
 
 These are kept for compatibility checks, regression fixtures, and earlier design exploration.
 
-- `v1-*.gr` files: parser/verifier/runtime fixtures and policy edge cases.
-- `type-error-http-url.gr`: negative type-check fixture.
-- `hello.gr`: early exploratory draft, not part of the curated runnable path.
+- `fixtures/v1-*.gr` files: parser/verifier/runtime fixtures and policy edge cases.
+- `fixtures/type-error-http-url.gr`: negative type-check fixture.
 
 ## Run Commands
 

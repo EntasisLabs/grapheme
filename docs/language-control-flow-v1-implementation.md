@@ -17,9 +17,9 @@ Implemented:
 
 Examples:
 
-1. `examples/v1-loop-merge-append.gr`
-2. `examples/v1-loop-merge-reduce.gr`
-3. `examples/v1-loop-merge-none.gr`
+1. `examples/fixtures/v1-loop-merge-append.gr`
+2. `examples/fixtures/v1-loop-merge-reduce.gr`
+3. `examples/fixtures/v1-loop-merge-none.gr`
 
 ## V1 Frozen Scope
 
@@ -210,10 +210,10 @@ Acceptance:
 
 Files to add:
 
-1. `examples/v1-loop-fragment-poll.gr`
-2. `examples/v1-nested-loop-jobs.gr`
-3. `examples/v1-recursive-step.gr`
-4. `examples/v1-recursive-depth-error.gr`
+1. `examples/fixtures/v1-loop-fragment-poll.gr`
+2. `examples/fixtures/v1-nested-loop-jobs.gr`
+3. `examples/fixtures/v1-recursive-step.gr`
+4. `examples/fixtures/v1-recursive-depth-error.gr`
 
 Acceptance:
 

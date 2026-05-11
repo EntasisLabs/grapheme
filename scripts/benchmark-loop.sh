@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-EXAMPLE="examples/v1-loop-max-fixed.gr"
+EXAMPLE="examples/fixtures/v1-loop-max-fixed.gr"
 TIMING_MODE="${GRAPHEME_BENCH_TIMING:-0}"
 
 run_case() {

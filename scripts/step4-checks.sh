@@ -8,7 +8,7 @@ echo "[1/4] Runtime conformance tests"
 cargo test -p grapheme-runtime
 
 echo "[2/4] Compiler negative fixture (invalid merge)"
-if cargo run -- compile examples/v1-loop-invalid-merge-value.gr --emit mir >/tmp/grapheme-invalid-merge.out 2>/tmp/grapheme-invalid-merge.err; then
+if cargo run -- compile examples/fixtures/v1-loop-invalid-merge-value.gr --emit mir >/tmp/grapheme-invalid-merge.out 2>/tmp/grapheme-invalid-merge.err; then
   echo "expected invalid merge fixture to fail, but compile succeeded" >&2
   exit 1
 fi
