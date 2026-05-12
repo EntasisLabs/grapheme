@@ -244,6 +244,14 @@ impl RuntimeEngine {
         max_call_depth: usize,
     ) -> Result<Option<ExecutionResult>, GraphemeError> {
         let function = &functions[function_idx];
+        let intent_goal = function
+            .intent_config
+            .as_ref()
+            .and_then(|cfg| cfg.goal.clone());
+        let intent_risk = function
+            .intent_config
+            .as_ref()
+            .and_then(|cfg| cfg.risk.clone());
         let retry_max_attempts = function
             .retry_config
             .as_ref()
@@ -284,6 +292,8 @@ impl RuntimeEngine {
                             call_depth,
                             iteration_index: None,
                             call_target: None,
+                            intent_goal: intent_goal.clone(),
+                            intent_risk: intent_risk.clone(),
                         };
                         return self.invoke_target(
                             functions,
@@ -324,6 +334,14 @@ impl RuntimeEngine {
     ) -> Result<Option<ExecutionResult>, GraphemeError> {
         let function = &functions[function_idx];
         let function_name = function.name.clone();
+        let intent_goal = function
+            .intent_config
+            .as_ref()
+            .and_then(|cfg| cfg.goal.clone());
+        let intent_risk = function
+            .intent_config
+            .as_ref()
+            .and_then(|cfg| cfg.risk.clone());
         let mut loop_frame = LoopFrame::new(function, state);
         let timeout_started = Instant::now();
 
@@ -337,6 +355,8 @@ impl RuntimeEngine {
                         call_depth,
                         iteration_index,
                         call_target: None,
+                        intent_goal: intent_goal.clone(),
+                        intent_risk: intent_risk.clone(),
                     };
 
                     if let Some(timeout_cfg) = function.timeout_config.as_ref() {
@@ -384,6 +404,8 @@ impl RuntimeEngine {
                                 call_depth,
                                 iteration_index,
                                 call_target: None,
+                                intent_goal: intent_goal.clone(),
+                                intent_risk: intent_risk.clone(),
                             };
 
                             if !self.options.capability_policy.is_allowed(capability) {
@@ -542,6 +564,8 @@ impl RuntimeEngine {
                                 call_depth,
                                 iteration_index,
                                 call_target: None,
+                                intent_goal: intent_goal.clone(),
+                                intent_risk: intent_risk.clone(),
                             };
 
                             let compare_to = resolve_current_templates(value, &state.current);
@@ -593,6 +617,8 @@ impl RuntimeEngine {
                                 call_depth,
                                 iteration_index,
                                 call_target: None,
+                                intent_goal: intent_goal.clone(),
+                                intent_risk: intent_risk.clone(),
                             };
 
                             let compare_value = select_json_path(&state.current, field);
@@ -821,6 +847,12 @@ fn emit_streamed_step_output(op: &str, context: &StepContext, output: &JsonValue
     }
     if context.call_depth > 0 {
         prefix_parts.push(format!("depth {}", context.call_depth));
+    }
+    if let Some(risk) = context.intent_risk.as_deref() {
+        prefix_parts.push(format!("risk {}", risk));
+    }
+    if let Some(goal) = context.intent_goal.as_deref() {
+        prefix_parts.push(format!("goal {}", goal));
     }
     prefix_parts.push(op.to_string());
 
@@ -1144,7 +1176,7 @@ mod tests {
     use super::*;
     use grapheme_artifact::{
         build_artifact_from_mir, Capability, MirBlock, MirFunction, MirFunctionKind, MirInst,
-        MirLoopConfig, MirLoopMergeMode, MirProgram, MirTerminator,
+        MirIntentConfig, MirLoopConfig, MirLoopMergeMode, MirProgram, MirTerminator,
     };
     use serde_json::{json, Map, Value as JsonValue};
 
@@ -1244,6 +1276,56 @@ mod tests {
     }
 
     #[test]
+    fn trace_includes_intent_metadata_when_present() {
+        let capability = Capability::from_module_op("core", "echo");
+        let instruction = MirInst::Call {
+            module: Some("core".to_string()),
+            op: "echo".to_string(),
+            capability: capability.clone(),
+            arg_count: 0,
+            args: JsonValue::Object(Map::new()),
+            stores_state: true,
+        };
+
+        let function = MirFunction {
+            name: "Main".to_string(),
+            kind: MirFunctionKind::Fragment,
+            retry_config: None,
+            timeout_config: None,
+            intent_config: Some(MirIntentConfig {
+                goal: Some("validate canary before 50% rollout".to_string()),
+                risk: Some("high".to_string()),
+            }),
+            loop_config: None,
+            blocks: vec![MirBlock {
+                id: 0,
+                instructions: vec![instruction],
+                terminator: MirTerminator::ReturnState,
+            }],
+        };
+
+        let mir = MirProgram {
+            functions: vec![function],
+            capabilities: vec![capability],
+        };
+
+        let artifact = build_artifact_from_mir(&mir, Some("Main")).expect("artifact builds");
+        let runtime = RuntimeEngine::new(RuntimeOptions::default());
+        let mut host = TestHost {
+            mode: HostMode::StepIndexNumber,
+        };
+
+        let (state, result) = runtime
+            .execute_artifact(&artifact, &mut host)
+            .expect("runtime execution succeeds");
+
+        assert!(matches!(result.outcome, ExecutionOutcome::Succeeded));
+        let step = state.pipeline.first().expect("trace has at least one step");
+        assert_eq!(step.intent_goal.as_deref(), Some("validate canary before 50% rollout"));
+        assert_eq!(step.intent_risk.as_deref(), Some("high"));
+    }
+
+    #[test]
     fn loop_each_selector_reads_array_from_current_path() {
         let snapshot = json!({
             "jobs": [
@@ -1338,6 +1420,7 @@ mod tests {
             kind: MirFunctionKind::Fragment,
             retry_config: None,
             timeout_config: None,
+            intent_config: None,
             loop_config: Some(MirLoopConfig {
                 max: Some(max),
                 each: None,

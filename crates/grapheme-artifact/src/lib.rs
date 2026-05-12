@@ -7,5 +7,6 @@ pub use capability::{Capability, CapabilityPolicy};
 pub use mir::{
 	MirBlock, MirFunction, MirFunctionKind, MirInst, MirLoopConfig, MirLoopMergeMode,
 	MirLoopUntil, MirMatchCase, MirMatchTarget, MirProgram, MirRetryConfig,
+	MirIntentConfig,
 	MirTerminator, MirTimeoutConfig,
 };

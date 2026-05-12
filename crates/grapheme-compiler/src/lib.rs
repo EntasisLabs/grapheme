@@ -83,6 +83,63 @@ iterator PollJob on Any {
 		}
 
 		#[test]
+		fn supports_node_keyword_as_iterator_alias() {
+				let source = r#"
+query UseNodeSugar {
+	PollJob
+}
+
+node PollJob on Any {
+	core.echo(message: "tick")
+}
+"#;
+
+				let compilation = compile(source).expect("compile should accept node keyword alias");
+				let query = compilation
+						.mir
+						.functions
+						.iter()
+						.find(|f| f.name == "UseNodeSugar")
+						.expect("query function present");
+
+				let first_inst = query
+						.blocks
+						.first()
+						.and_then(|b| b.instructions.first())
+						.expect("query has first instruction");
+
+				match first_inst {
+						grapheme_artifact::MirInst::Call { module, op, .. } => {
+								assert_eq!(module.as_deref(), Some("call"));
+								assert_eq!(op, "PollJob");
+						}
+						_ => panic!("expected call instruction"),
+				}
+		}
+
+		#[test]
+		fn supports_intent_attribute_syntax_and_lowers_to_mir() {
+				let source = r#"
+#[intent(goal = "validate canary before 50% rollout", risk = high)]
+query CanaryCheck {
+	core.echo(message: "ok")
+}
+"#;
+
+				let compilation = compile(source).expect("compile should accept intent attribute syntax");
+				let query = compilation
+						.mir
+						.functions
+						.iter()
+						.find(|f| f.name == "CanaryCheck")
+						.expect("query function present");
+
+				let intent = query.intent_config.as_ref().expect("intent metadata present");
+				assert_eq!(intent.goal.as_deref(), Some("validate canary before 50% rollout"));
+				assert_eq!(intent.risk.as_deref(), Some("high"));
+		}
+
+		#[test]
 		fn supports_fragment_definition_in_phase_a_without_emitting_mir_function() {
 				let source = r#"
 query Run {
@@ -1412,6 +1469,60 @@ iterator Fallback on Any {
 								.iter()
 								.any(|f| f.name == "Worker")
 				);
+		}
+
+		#[test]
+		fn supports_resilient_directive_sugar_on_iterator() {
+				let source = r#"
+query Run {
+	Worker
+}
+
+iterator Worker on Any @resilient {
+	loop: { max: 8, merge: "replace" },
+	retry: { max: 3, backoff_ms: 100, on_fail: Fallback },
+	timeout: { ms: 5000, on_timeout: Fallback }
+} {
+	core.echo(message: "tick")
+}
+
+iterator Fallback on Any {
+	core.echo(message: "fallback")
+}
+"#;
+
+				let compilation = compile(source).expect("compile should accept @resilient sugar");
+				let worker_fn = compilation
+						.mir
+						.functions
+						.iter()
+						.find(|f| f.name == "Worker")
+						.expect("Worker function present");
+
+				assert!(worker_fn.loop_config.is_some());
+				assert!(worker_fn.retry_config.is_some());
+				assert!(worker_fn.timeout_config.is_some());
+		}
+
+		#[test]
+		fn rejects_resilient_with_explicit_retry_directive() {
+				let source = r#"
+query Run {
+	Worker
+}
+
+iterator Worker on Any @resilient { retry: { max: 2, on_fail: Fallback } } @retry(max: 2, on_fail: Fallback) {
+	core.echo(message: "tick")
+}
+
+iterator Fallback on Any {
+	core.echo(message: "fallback")
+}
+"#;
+
+				let err = compile(source).expect_err("compile should reject resilient/directive conflict");
+				let msg = err.to_string();
+				assert!(msg.contains("@resilient cannot be combined with @loop/@retry/@timeout"));
 		}
 
 		#[test]

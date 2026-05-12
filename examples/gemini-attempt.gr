@@ -1,0 +1,31 @@
+struct ModState {
+  input: String
+  is_flagged: Bool
+  reason?: String
+  confidence: Float
+}
+
+query ContentFilter on ModState -> ModState {
+  ModState { input: "User message here", is_flagged: false, confidence: 0.0 }
+  |> AnalyzeSafety
+}
+
+iterator AnalyzeSafety on ModState -> ModState {
+  // Hypothetical: an AI-native 'llm' module within Grapheme
+  llm.classify(
+    prompt: "Is this text toxic?", 
+    text: $current.input,
+    labels: ["toxic", "safe"]
+  )
+  |> core.set_fields(fields: { reason: $current.label, confidence: $current.score })
+  |> flow.branch(
+    when: { field: "confidence", gte: 0.8 },
+    then: FlagContent,
+    else: return
+  )
+}
+
+iterator FlagContent on ModState -> ModState {
+  core.set_fields(fields: { is_flagged: true })
+  |> core.echo(message: "ALERT: Content flagged for {$current.reason}")
+}

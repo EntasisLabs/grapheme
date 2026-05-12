@@ -1,0 +1,10 @@
+query Q on Any {
+  core.group_by(
+    items: [
+      { service: "api", env: "prod", score: 91 },
+      { service: "api", env: "canary", score: 84 },
+      { service: "web", env: "prod", score: 95 }
+    ],
+    field: "service"
+  )
+}

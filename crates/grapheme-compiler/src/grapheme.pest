@@ -63,7 +63,7 @@ type_arg_list = { "(" ~ (type_named_arg ~ ("," ~ type_named_arg)*)? ~ ")" }
 
 // ── Directives  (@ annotations on any node) ──────────────────
 
-directive = { "@" ~ ident ~ arg_list? }
+directive = { "@" ~ ident ~ (arg_list | object_value)? }
 
 // ── Type System ───────────────────────────────────────────────
 
@@ -300,6 +300,13 @@ iterator_def = {
     ~ "}"
 }
 
+// Node alias: semantic equivalent of iterator
+node_def = {
+    "node" ~ ident ~ executable_signature ~ directive* ~ "{"
+    ~ pipeline+
+    ~ "}"
+}
+
 // Fragments: reusable inline pipelines (non-executable in Phase A)
 fragment_def = {
     "fragment" ~ ident ~ executable_signature ~ directive* ~ "{"
@@ -320,6 +327,7 @@ definition = {
     query_def
   | mutation_def
     | iterator_def
+        | node_def
     | fragment_def
   | subscription_def
     | struct_def

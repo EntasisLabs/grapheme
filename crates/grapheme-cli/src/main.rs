@@ -6,7 +6,7 @@
 ///    grapheme compile <file.gr> --emit ast|hir|mir|artifact
 ///    grapheme plugins build [all|core|io ...]
 ///    grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules]
-///    grapheme modules
+///    grapheme modules [search <query> | info <module> | types <module> | examples <module>]
 /// ─────────────────────────────────────────────────────────────
 
 use grapheme_artifact::{ExecutionResult, MirInst};
@@ -25,6 +25,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::process::{self, Command};
 use std::time::Duration;
+use websearch::{providers::DuckDuckGoProvider, web_search, SearchOptions};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RunOutputMode {
@@ -159,7 +160,7 @@ fn run(args: Vec<String>) -> Result<(), CompilerError> {
             let (file_path, run_options) = parse_run_args(&args[2..])?;
             run_program(&file_path, run_options)
         }
-        "modules" => emit_modules(),
+        "modules" => emit_modules_cmd(&args[2..]),
         _ => {
             print_usage();
             Err(CompilerError::RuntimeError(format!(
@@ -357,6 +358,144 @@ fn emit_modules() -> Result<(), CompilerError> {
     print_json(&manifests)
 }
 
+fn emit_modules_cmd(args: &[String]) -> Result<(), CompilerError> {
+    if args.is_empty() {
+        return emit_modules();
+    }
+
+    match args[0].as_str() {
+        "search" => {
+            if args.len() != 2 {
+                return Err(CompilerError::RuntimeError(
+                    "modules search requires a query".to_string(),
+                ));
+            }
+            emit_modules_search(&args[1])
+        }
+        "info" => {
+            if args.len() != 2 {
+                return Err(CompilerError::RuntimeError(
+                    "modules info requires a module id".to_string(),
+                ));
+            }
+            emit_modules_info(&args[1])
+        }
+        "types" => {
+            if args.len() != 2 {
+                return Err(CompilerError::RuntimeError(
+                    "modules types requires a module id".to_string(),
+                ));
+            }
+            emit_modules_types(&args[1])
+        }
+        "examples" => {
+            if args.len() != 2 {
+                return Err(CompilerError::RuntimeError(
+                    "modules examples requires a module id".to_string(),
+                ));
+            }
+            emit_modules_examples(&args[1])
+        }
+        other => Err(CompilerError::RuntimeError(format!(
+            "unknown modules subcommand '{}'; expected search|info|types|examples",
+            other
+        ))),
+    }
+}
+
+fn emit_modules_search(query: &str) -> Result<(), CompilerError> {
+    let q = query.to_lowercase();
+    let matches = grapheme_runtime::core_v1_manifests()
+        .into_iter()
+        .filter(|m| {
+            m.module_id.to_lowercase().contains(&q)
+                || m.exported_ops
+                    .iter()
+                    .any(|op| op.op.to_lowercase().contains(&q))
+        })
+        .map(|m| m.module_id)
+        .collect::<Vec<_>>();
+
+    print_json(&matches)
+}
+
+fn find_manifest(module: &str) -> Result<grapheme_runtime::ModuleManifest, CompilerError> {
+    grapheme_runtime::core_v1_manifests()
+        .into_iter()
+        .find(|m| m.module_id.eq_ignore_ascii_case(module))
+        .ok_or_else(|| CompilerError::RuntimeError(format!("unknown module '{}'", module)))
+}
+
+fn emit_modules_info(module: &str) -> Result<(), CompilerError> {
+    let manifest = find_manifest(module)?;
+    print_json(&manifest)
+}
+
+fn emit_modules_types(module: &str) -> Result<(), CompilerError> {
+    let manifest = find_manifest(module)?;
+    let types = manifest
+        .exported_ops
+        .iter()
+        .map(|op| {
+            json!({
+                "op": op.op,
+                "input_schema_ref": op.input_schema_ref,
+                "output_schema_ref": op.output_schema_ref,
+                "effect": op.effect,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    print_json(&json!({
+        "module_id": manifest.module_id,
+        "types": types,
+    }))
+}
+
+fn emit_modules_examples(module: &str) -> Result<(), CompilerError> {
+    let module_id = module.to_lowercase();
+    let examples: &[&str] = match module_id.as_str() {
+        "http" => &["examples/http-get.gr"],
+        "websearch" => &[
+            "examples/websearch-basic.gr",
+            "examples/websearch-materials.gr",
+            "examples/websearch-report.gr",
+        ],
+        "tcp" => &["examples/tcp-connect.gr"],
+        "smtp" => &["examples/smtp-send.gr"],
+        "io" => &["examples/io-list.gr"],
+        "memory" => &["examples/memory-roundtrip.gr"],
+        "secrets" => &["examples/secrets-handle.gr", "examples/secrets-sign.gr"],
+        "json" | "csv" | "yaml" | "html" => &[
+            "examples/request-transform-output.gr",
+            "examples/transform-cookbook/yaml-json-parse-field.gr",
+            "examples/transform-cookbook/csv-to-json-envelope.gr",
+            "examples/transform-cookbook/http-html-markdown.gr",
+        ],
+        "core" => &[
+            "examples/core-merge.gr",
+            "examples/core-filter.gr",
+            "examples/transform-cookbook/core-string-ops.gr",
+            "examples/transform-cookbook/core-list-ops.gr",
+            "examples/transform-cookbook/core-reduce-modes.gr",
+            "examples/transform-cookbook/core-path-ops.gr",
+        ],
+        _ => &[],
+    };
+
+    if examples.is_empty() {
+        return Err(CompilerError::RuntimeError(format!(
+            "no curated examples are registered for module '{}'",
+            module
+        )));
+    }
+
+    print_json(&json!({
+        "module_id": module_id,
+        "examples": examples,
+    }))
+}
+
 #[derive(Serialize)]
 struct CliRunOutput {
     artifact_id: String,
@@ -385,6 +524,24 @@ impl CapabilityHost for CliHost {
                     .to_string();
                 Ok(json!({ "message": message }))
             }
+            ("core", "map") => Ok(host_core_map(&call.args)),
+            ("core", "filter") => Ok(host_core_filter(&call.args)),
+            ("core", "find") => Ok(host_core_find(&call.args)),
+            ("core", "reduce") => Ok(host_core_reduce(&call.args)),
+            ("core", "group_by") => Ok(host_core_group_by(&call.args)),
+            ("core", "merge") => Ok(host_core_merge(&call.args)),
+            ("core", "pick") => Ok(host_core_pick(&call.args)),
+            ("core", "validate_schema") => Ok(host_core_validate_schema(&call.args)),
+            ("core", "split") => Ok(host_core_split(&call.args)),
+            ("core", "join") => Ok(host_core_join(&call.args)),
+            ("core", "replace") => Ok(host_core_replace(&call.args)),
+            ("core", "trim") => Ok(host_core_trim(&call.args)),
+            ("core", "lower") => Ok(host_core_lower(&call.args)),
+            ("core", "upper") => Ok(host_core_upper(&call.args)),
+            ("core", "contains") => Ok(host_core_contains(&call.args)),
+            ("core", "get_path") => Ok(host_core_get_path(&call.args)),
+            ("core", "set_path") => Ok(host_core_set_path(&call.args)),
+            ("core", "has_path") => Ok(host_core_has_path(&call.args)),
             ("http", "get") => {
                 let url = call
                     .args
@@ -393,6 +550,9 @@ impl CapabilityHost for CliHost {
                     .unwrap_or("");
                 Ok(host_http_request("GET", url, None))
             }
+            ("websearch", "search") => Ok(host_websearch_search(&call.args)),
+            ("websearch", "research_materials") => Ok(host_websearch_research_materials(&call.args)),
+            ("websearch", "research_report") => Ok(host_websearch_research_report(&call.args)),
             ("http", "post") => {
                 let url = call
                     .args
@@ -440,6 +600,7 @@ impl CapabilityHost for CliHost {
             }
             ("smtp", "send_mail") => Ok(host_smtp_send_mail(&call.args)),
             ("html", "to_md") => Ok(host_html_to_md(&call.args)),
+            ("html", "clean_text") => Ok(host_html_clean_text(&call.args)),
             ("json", "parse") => Ok(host_json_parse(&call.args)),
             ("csv", "to_list") => Ok(host_csv_to_list(&call.args)),
             ("yaml", "to_json") => Ok(host_yaml_to_json(&call.args)),
@@ -458,8 +619,449 @@ impl CapabilityHost for CliHost {
 
 fn host_html_to_md(args: &JsonValue) -> JsonValue {
     let html = arg_text(args, "html");
-    let markdown = html2md::parse_html(&html);
-    json!({ "text": markdown, "markdown": markdown })
+    let options = match parse_html_to_md_options(args) {
+        Ok(options) => options,
+        Err(err) => {
+            return json!({
+                "error": err,
+                "text": "",
+                "markdown": "",
+            });
+        }
+    };
+
+    match html_to_markdown_rs::convert(&html, options.clone()) {
+        Ok(result) => {
+            let markdown = result.content.as_deref().unwrap_or_default().to_string();
+            let result_json = serde_json::to_value(&result).unwrap_or(JsonValue::Null);
+            json!({
+                "text": markdown.clone(),
+                "markdown": markdown,
+                "result": result_json,
+                "used_options": options,
+            })
+        }
+        Err(err) => json!({
+            "error": format!("html to markdown conversion failed: {err}"),
+            "text": "",
+            "markdown": "",
+        }),
+    }
+}
+
+fn parse_html_to_md_options(args: &JsonValue) -> Result<Option<html_to_markdown_rs::ConversionOptions>, String> {
+    let Some(raw) = args.get("options") else {
+        return Ok(None);
+    };
+
+    if !raw.is_object() {
+        return Err("html.to_md options must be an object".to_string());
+    }
+
+    serde_json::from_value::<html_to_markdown_rs::ConversionOptions>(raw.clone())
+        .map(Some)
+        .map_err(|err| format!("invalid html.to_md options: {err}"))
+}
+
+fn host_html_clean_text(args: &JsonValue) -> JsonValue {
+    let raw = arg_text(args, "text");
+    let cleaned = clean_page_text(&raw, arg_u64(args, "max_chars").map(|v| v as usize));
+    json!({
+        "text": cleaned,
+        "length": cleaned.chars().count(),
+    })
+}
+
+fn host_core_map(args: &JsonValue) -> JsonValue {
+    let items = core_items(args);
+    let Some(field) = args.get("field").and_then(|v| v.as_str()) else {
+        return JsonValue::Array(items);
+    };
+
+    JsonValue::Array(
+        items
+            .into_iter()
+            .map(|item| item.get(field).cloned().unwrap_or(JsonValue::Null))
+            .collect(),
+    )
+}
+
+fn host_core_filter(args: &JsonValue) -> JsonValue {
+    let items = core_items(args);
+    let Some(field) = args.get("field").and_then(|v| v.as_str()) else {
+        return JsonValue::Array(items);
+    };
+    let equals = args.get("equals").cloned().unwrap_or(JsonValue::Null);
+
+    JsonValue::Array(
+        items
+            .into_iter()
+            .filter(|item| item.get(field).map(|v| v == &equals).unwrap_or(false))
+            .collect(),
+    )
+}
+
+fn host_core_find(args: &JsonValue) -> JsonValue {
+    let items = core_items(args);
+    let Some(field) = args.get("field").and_then(|v| v.as_str()) else {
+        return JsonValue::Null;
+    };
+    let equals = args.get("equals").cloned().unwrap_or(JsonValue::Null);
+
+    items
+        .into_iter()
+        .find(|item| item.get(field).map(|v| v == &equals).unwrap_or(false))
+        .unwrap_or(JsonValue::Null)
+}
+
+fn host_core_reduce(args: &JsonValue) -> JsonValue {
+    let items = core_items(args);
+    let mode = args.get("mode").and_then(|v| v.as_str()).unwrap_or("last");
+
+    match mode {
+        "sum" => {
+            let sum = items
+                .iter()
+                .filter_map(|v| v.as_f64())
+                .fold(0.0, |acc, n| acc + n);
+            json!(sum)
+        }
+        "min" => items
+            .iter()
+            .filter_map(|v| v.as_f64())
+            .reduce(f64::min)
+            .map(|v| json!(v))
+            .unwrap_or(JsonValue::Null),
+        "max" => items
+            .iter()
+            .filter_map(|v| v.as_f64())
+            .reduce(f64::max)
+            .map(|v| json!(v))
+            .unwrap_or(JsonValue::Null),
+        "avg" => {
+            let nums = items.iter().filter_map(|v| v.as_f64()).collect::<Vec<_>>();
+            if nums.is_empty() {
+                JsonValue::Null
+            } else {
+                json!(nums.iter().sum::<f64>() / nums.len() as f64)
+            }
+        }
+        "concat" => {
+            let initial = args
+                .get("initial")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let joined = items
+                .iter()
+                .map(core_scalar_to_key)
+                .collect::<Vec<_>>()
+                .join("");
+            json!(format!("{initial}{joined}"))
+        }
+        "count" => json!(items.len()),
+        "first" => items.first().cloned().unwrap_or(JsonValue::Null),
+        "last" => items.last().cloned().unwrap_or(JsonValue::Null),
+        _ => json!({
+            "error": format!("unsupported reduce mode '{mode}'"),
+            "supported_modes": ["sum", "min", "max", "avg", "concat", "count", "first", "last"]
+        }),
+    }
+}
+
+fn host_core_group_by(args: &JsonValue) -> JsonValue {
+    let items = core_items(args);
+    let Some(field) = args.get("field").and_then(|v| v.as_str()) else {
+        return JsonValue::Object(serde_json::Map::new());
+    };
+
+    let mut grouped = serde_json::Map::new();
+    for item in items {
+        let key = item
+            .get(field)
+            .map(core_scalar_to_key)
+            .unwrap_or_else(|| "null".to_string());
+
+        let entry = grouped
+            .entry(key)
+            .or_insert_with(|| JsonValue::Array(Vec::new()));
+        if let Some(values) = entry.as_array_mut() {
+            values.push(item);
+        }
+    }
+
+    JsonValue::Object(grouped)
+}
+
+fn host_core_merge(args: &JsonValue) -> JsonValue {
+    let left = args
+        .get("left")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .or_else(|| {
+            args.get("__input")
+                .and_then(|v| v.as_object())
+                .cloned()
+        })
+        .unwrap_or_default();
+
+    let right = args
+        .get("right")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut merged = left;
+    for (k, v) in right {
+        merged.insert(k, v);
+    }
+
+    JsonValue::Object(merged)
+}
+
+fn host_core_pick(args: &JsonValue) -> JsonValue {
+    let input = args
+        .get("input")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .or_else(|| {
+            args.get("__input")
+                .and_then(|v| v.as_object())
+                .cloned()
+        })
+        .unwrap_or_default();
+
+    let fields = args
+        .get("fields")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut picked = serde_json::Map::new();
+    for field in fields.iter().filter_map(|v| v.as_str()) {
+        if let Some(value) = input.get(field) {
+            picked.insert(field.to_string(), value.clone());
+        }
+    }
+    JsonValue::Object(picked)
+}
+
+fn host_core_validate_schema(args: &JsonValue) -> JsonValue {
+    let required = args
+        .get("required")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let data = args
+        .get("data")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_default();
+
+    let missing = required
+        .iter()
+        .filter_map(|v| v.as_str())
+        .filter(|name| !data.contains_key(*name))
+        .map(|s| JsonValue::String(s.to_string()))
+        .collect::<Vec<_>>();
+
+    json!({
+        "ok": missing.is_empty(),
+        "missing": missing,
+    })
+}
+
+fn host_core_split(args: &JsonValue) -> JsonValue {
+    let text = arg_text(args, "text");
+    let sep = args.get("sep").and_then(|v| v.as_str()).unwrap_or(",");
+
+    JsonValue::Array(
+        text.split(sep)
+            .map(|s| JsonValue::String(s.to_string()))
+            .collect(),
+    )
+}
+
+fn host_core_join(args: &JsonValue) -> JsonValue {
+    let sep = args.get("sep").and_then(|v| v.as_str()).unwrap_or(",");
+    let items = core_items(args);
+    let joined = items
+        .iter()
+        .map(core_scalar_to_key)
+        .collect::<Vec<_>>()
+        .join(sep);
+    json!({ "text": joined })
+}
+
+fn host_core_replace(args: &JsonValue) -> JsonValue {
+    let text = arg_text(args, "text");
+    let from = args.get("from").and_then(|v| v.as_str()).unwrap_or("");
+    let to = args.get("to").and_then(|v| v.as_str()).unwrap_or("");
+    json!({ "text": text.replace(from, to) })
+}
+
+fn host_core_trim(args: &JsonValue) -> JsonValue {
+    let text = arg_text(args, "text");
+    json!({ "text": text.trim() })
+}
+
+fn host_core_lower(args: &JsonValue) -> JsonValue {
+    let text = arg_text(args, "text");
+    json!({ "text": text.to_lowercase() })
+}
+
+fn host_core_upper(args: &JsonValue) -> JsonValue {
+    let text = arg_text(args, "text");
+    json!({ "text": text.to_uppercase() })
+}
+
+fn host_core_contains(args: &JsonValue) -> JsonValue {
+    let haystack = args
+        .get("haystack")
+        .cloned()
+        .or_else(|| args.get("__input").cloned())
+        .unwrap_or(JsonValue::Null);
+    let needle = args.get("needle").cloned().unwrap_or(JsonValue::Null);
+
+    let contains = match &haystack {
+        JsonValue::String(s) => needle
+            .as_str()
+            .map(|n| s.contains(n))
+            .unwrap_or(false),
+        JsonValue::Array(items) => items.iter().any(|item| item == &needle),
+        JsonValue::Object(map) => needle
+            .as_str()
+            .map(|k| map.contains_key(k))
+            .unwrap_or(false),
+        _ => false,
+    };
+
+    json!({ "contains": contains })
+}
+
+fn host_core_get_path(args: &JsonValue) -> JsonValue {
+    let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+    let input = args
+        .get("input")
+        .cloned()
+        .or_else(|| args.get("__input").cloned())
+        .unwrap_or(JsonValue::Null);
+
+    json_get_path_value(&input, path).unwrap_or(JsonValue::Null)
+}
+
+fn host_core_set_path(args: &JsonValue) -> JsonValue {
+    let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+    let value = args.get("value").cloned().unwrap_or(JsonValue::Null);
+    let input = args
+        .get("input")
+        .cloned()
+        .or_else(|| args.get("__input").cloned())
+        .unwrap_or_else(|| JsonValue::Object(serde_json::Map::new()));
+
+    json_set_path_value(&input, path, value)
+}
+
+fn host_core_has_path(args: &JsonValue) -> JsonValue {
+    let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+    let input = args
+        .get("input")
+        .cloned()
+        .or_else(|| args.get("__input").cloned())
+        .unwrap_or(JsonValue::Null);
+
+    json!({ "has_path": json_get_path_value(&input, path).is_some() })
+}
+
+fn core_items(args: &JsonValue) -> Vec<JsonValue> {
+    args.get("items")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .or_else(|| {
+            args.get("__input")
+                .and_then(|v| v.as_array())
+                .cloned()
+        })
+        .unwrap_or_default()
+}
+
+fn core_scalar_to_key(value: &JsonValue) -> String {
+    match value {
+        JsonValue::String(s) => s.clone(),
+        JsonValue::Number(n) => n.to_string(),
+        JsonValue::Bool(b) => b.to_string(),
+        JsonValue::Null => "null".to_string(),
+        _ => serde_json::to_string(value).unwrap_or_else(|_| "<value>".to_string()),
+    }
+}
+
+fn json_get_path_value(input: &JsonValue, path: &str) -> Option<JsonValue> {
+    let segments = path
+        .split('.')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>();
+    if segments.is_empty() {
+        return Some(input.clone());
+    }
+
+    let mut current = input;
+    for segment in segments {
+        current = match current {
+            JsonValue::Object(map) => map.get(segment)?,
+            JsonValue::Array(items) => {
+                let idx = segment.parse::<usize>().ok()?;
+                items.get(idx)?
+            }
+            _ => return None,
+        };
+    }
+
+    Some(current.clone())
+}
+
+fn json_set_path_value(input: &JsonValue, path: &str, value: JsonValue) -> JsonValue {
+    let segments = path
+        .split('.')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>();
+    if segments.is_empty() {
+        return input.clone();
+    }
+
+    let mut output = if input.is_object() {
+        input.clone()
+    } else {
+        JsonValue::Object(serde_json::Map::new())
+    };
+
+    set_path_recursive(&mut output, &segments, value);
+    output
+}
+
+fn set_path_recursive(node: &mut JsonValue, segments: &[&str], value: JsonValue) {
+    if segments.is_empty() {
+        return;
+    }
+
+    if segments.len() == 1 {
+        if !node.is_object() {
+            *node = JsonValue::Object(serde_json::Map::new());
+        }
+        if let Some(map) = node.as_object_mut() {
+            map.insert(segments[0].to_string(), value);
+        }
+        return;
+    }
+
+    if !node.is_object() {
+        *node = JsonValue::Object(serde_json::Map::new());
+    }
+
+    if let Some(map) = node.as_object_mut() {
+        let child = map
+            .entry(segments[0].to_string())
+            .or_insert_with(|| JsonValue::Object(serde_json::Map::new()));
+        set_path_recursive(child, &segments[1..], value);
+    }
 }
 
 fn host_json_parse(args: &JsonValue) -> JsonValue {
@@ -522,6 +1124,23 @@ fn arg_text(args: &JsonValue, key: &str) -> String {
         .unwrap_or_default();
 
     decode_escaped_text(&raw)
+}
+
+fn arg_u64(args: &JsonValue, key: &str) -> Option<u64> {
+    args.get(key)
+        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok())))
+}
+
+fn arg_bool(args: &JsonValue, key: &str) -> Option<bool> {
+    args.get(key).and_then(|v| {
+        v.as_bool().or_else(|| {
+            v.as_str().and_then(|s| match s.trim().to_ascii_lowercase().as_str() {
+                "true" | "1" | "yes" | "on" => Some(true),
+                "false" | "0" | "no" | "off" => Some(false),
+                _ => None,
+            })
+        })
+    })
 }
 
 fn extract_text_from_input(input: &JsonValue, preferred_key: &str) -> Option<String> {
@@ -612,6 +1231,560 @@ fn host_http_request(method: &str, url: &str, body: Option<&JsonValue>) -> JsonV
         "status_line": status_line,
         "body": response_body,
     })
+}
+
+fn host_websearch_search(args: &JsonValue) -> JsonValue {
+    let query = arg_text(args, "query");
+    if query.trim().is_empty() {
+        return json!({ "error": "missing required arg: query" });
+    }
+
+    let provider = args
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("duckduckgo")
+        .to_lowercase();
+
+    if provider != "duckduckgo" {
+        return json!({
+            "error": format!("unsupported websearch provider '{}'; currently supported: duckduckgo", provider)
+        });
+    }
+
+    let max_results = args
+        .get("max_results")
+        .and_then(|v| v.as_u64())
+        .map(|v| v.min(20) as u32);
+
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(err) => {
+            return json!({ "error": format!("websearch runtime init failed: {err}") });
+        }
+    };
+
+    let search_result = runtime.block_on(async {
+        let provider = DuckDuckGoProvider::new();
+        web_search(SearchOptions {
+            query: query.clone(),
+            max_results,
+            provider: Box::new(provider),
+            ..Default::default()
+        })
+        .await
+    });
+
+    match search_result {
+        Ok(results) => json!({
+            "query": query,
+            "provider": provider,
+            "count": results.len(),
+            "results": results,
+        }),
+        Err(err) => json!({
+            "query": query,
+            "provider": provider,
+            "error": err.to_string(),
+            "results": [],
+        }),
+    }
+}
+
+fn host_websearch_research_report(args: &JsonValue) -> JsonValue {
+    let materials = host_websearch_research_materials(args);
+    if materials.get("error").is_some() {
+        return materials;
+    }
+
+    let query = materials
+        .get("query")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let provider = materials
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("duckduckgo")
+        .to_string();
+
+    let report_chars = arg_u64(args, "report_chars")
+        .map(|n| n as usize)
+        .unwrap_or(2500);
+
+    let sources = materials
+        .get("sources")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut findings = Vec::new();
+    let mut executive_points = Vec::new();
+
+    for source in &sources {
+        let title = source
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("(untitled)")
+            .to_string();
+        let snippet = source
+            .get("snippet")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let highlights = source
+            .get("highlights")
+            .and_then(|v| v.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_else(|| {
+                if snippet.trim().is_empty() {
+                    Vec::new()
+                } else {
+                    vec![normalize_report_line(&snippet)]
+                }
+            });
+
+        let key_point = highlights
+            .first()
+            .cloned()
+            .unwrap_or_else(|| snippet.clone());
+
+        if !key_point.is_empty() {
+            findings.push(format!("- {}: {}", title, key_point));
+            executive_points.push(key_point.clone());
+        }
+    }
+
+    let mut report_lines = vec![
+        format!("Research report: {}", query),
+        format!("Provider: {}", provider),
+        format!("Sources analyzed: {}", sources.len()),
+        "".to_string(),
+        "Executive summary".to_string(),
+    ];
+
+    if executive_points.is_empty() {
+        report_lines.push("- No strong findings extracted from fetched pages.".to_string());
+    } else {
+        for point in executive_points.into_iter().take(5) {
+            report_lines.push(format!("- {}", point));
+        }
+    }
+
+    report_lines.extend([
+        "".to_string(),
+        "Findings".to_string(),
+    ]);
+
+    if findings.is_empty() {
+        report_lines.push("- No strong findings extracted from fetched pages.".to_string());
+    } else {
+        report_lines.extend(findings.into_iter());
+    }
+
+    report_lines.push("".to_string());
+    report_lines.push("Source details".to_string());
+    for source in &sources {
+        let title = source
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("(untitled)");
+        let url = source.get("url").and_then(|v| v.as_str()).unwrap_or("");
+        let status = source.get("status").and_then(|v| v.as_u64());
+
+        report_lines.push(format!("- {}", title));
+        if !url.is_empty() {
+            report_lines.push(format!("  url: {}", url));
+        }
+        if let Some(code) = status {
+            report_lines.push(format!("  status: {}", code));
+        }
+
+        if let Some(highlights) = source.get("highlights").and_then(|v| v.as_array()) {
+            for h in highlights.iter().take(3).filter_map(|v| v.as_str()) {
+                report_lines.push(format!("  - {}", h));
+            }
+        }
+    }
+
+    report_lines.push("".to_string());
+    report_lines.push("Sources".to_string());
+    for source in &sources {
+        let title = source
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("(untitled)");
+        let url = source.get("url").and_then(|v| v.as_str()).unwrap_or("");
+        if !url.is_empty() {
+            report_lines.push(format!("- {} ({})", title, url));
+        }
+    }
+
+    let report_text = report_lines.join("\n");
+    let summary = if report_text.chars().count() > report_chars {
+        report_text.chars().take(report_chars).collect::<String>()
+    } else {
+        report_text.clone()
+    };
+
+    json!({
+        "query": query,
+        "provider": provider,
+        "count": sources.len(),
+        "sources": sources,
+        "report": summary,
+        "materials": materials,
+    })
+}
+
+fn host_websearch_research_materials(args: &JsonValue) -> JsonValue {
+    let search = host_websearch_search(args);
+    if search.get("error").is_some() {
+        return search;
+    }
+
+    let query = search
+        .get("query")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let provider = search
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("duckduckgo")
+        .to_string();
+    let per_source_chars = arg_u64(args, "per_source_chars")
+        .map(|n| n as usize)
+        .unwrap_or(5000);
+    let include_http_body = arg_bool(args, "include_http_body").unwrap_or(false);
+    let md_options = args.get("md_options").cloned();
+
+    let results = search
+        .get("results")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut sources = Vec::new();
+
+    for (idx, source) in results.into_iter().enumerate() {
+        let title = source
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("(untitled)")
+            .to_string();
+        let url = source
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let snippet = source
+            .get("snippet")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        if url.is_empty() {
+            let snippet_clean = normalize_report_line(&snippet);
+            let highlights = if snippet_clean.is_empty() {
+                Vec::<String>::new()
+            } else {
+                vec![snippet_clean]
+            };
+
+            sources.push(json!({
+                "source_id": format!("s{}", idx + 1),
+                "title": title,
+                "url": url,
+                "snippet": snippet,
+                "status": null,
+                "ok": false,
+                "fetch_error": "missing url",
+                "conversion_error": null,
+                "content_origin": "snippet_fallback",
+                "content": highlights.first().cloned().unwrap_or_default(),
+                "http": null,
+                "markdown": "",
+                "clean_text": "",
+                "highlights": highlights,
+                "citation": format!("[s{}] {}", idx + 1, title),
+            }));
+            continue;
+        }
+
+        let http = host_http_request("GET", &url, None);
+        let status = http.get("status").and_then(|v| v.as_u64());
+        let body = http
+            .get("body")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let fetch_error = http
+            .get("error")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let mut md_args = json!({ "html": body });
+        if let Some(options) = md_options.clone() {
+            md_args["options"] = options;
+        }
+
+        let md_result = host_html_to_md(&md_args);
+        let markdown = md_result
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let cleaned = clean_page_text(&markdown, Some(per_source_chars));
+        let conversion_error = md_result
+            .get("error")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let has_fetched_content = !cleaned.trim().is_empty() || !markdown.trim().is_empty();
+        let can_use_fetched_content = fetch_error.is_none() && conversion_error.is_none() && has_fetched_content;
+
+        let snippet_clean = normalize_report_line(&snippet);
+        let content_origin = if can_use_fetched_content {
+            "fetched_page"
+        } else {
+            "snippet_fallback"
+        };
+
+        let content = if can_use_fetched_content {
+            if !cleaned.trim().is_empty() {
+                cleaned.clone()
+            } else {
+                markdown.clone()
+            }
+        } else {
+            snippet_clean.clone()
+        };
+
+        let highlights = if can_use_fetched_content {
+            extract_source_highlights(&content, &snippet, 5, false)
+        } else if snippet_clean.is_empty() {
+            Vec::new()
+        } else {
+            vec![snippet_clean]
+        };
+
+        let mut source_obj = serde_json::Map::new();
+        source_obj.insert("source_id".to_string(), json!(format!("s{}", idx + 1)));
+        source_obj.insert("title".to_string(), json!(title));
+        source_obj.insert("url".to_string(), json!(url));
+        source_obj.insert("snippet".to_string(), json!(snippet));
+        source_obj.insert("status".to_string(), json!(status));
+        source_obj.insert("ok".to_string(), json!(fetch_error.is_none()));
+        source_obj.insert("fetch_error".to_string(), json!(fetch_error));
+        source_obj.insert("conversion_error".to_string(), json!(conversion_error));
+        source_obj.insert("content_origin".to_string(), json!(content_origin));
+        source_obj.insert("content".to_string(), json!(content));
+        source_obj.insert("markdown".to_string(), json!(markdown));
+        source_obj.insert("clean_text".to_string(), json!(cleaned));
+        source_obj.insert("highlights".to_string(), json!(highlights));
+        source_obj.insert(
+            "citation".to_string(),
+            json!(format!("[s{}] {}", idx + 1, source_obj.get("title").and_then(|v| v.as_str()).unwrap_or("(untitled)"))),
+        );
+
+        if include_http_body {
+            source_obj.insert("http".to_string(), http);
+        } else {
+            source_obj.insert(
+                "http".to_string(),
+                json!({
+                    "status": status,
+                    "url": source_obj.get("url").cloned().unwrap_or(JsonValue::Null),
+                    "status_line": source_obj
+                        .get("status")
+                        .and_then(|s| s.as_u64())
+                        .map(|code| format!("HTTP {}", code))
+                        .unwrap_or_else(|| "HTTP".to_string()),
+                }),
+            );
+        }
+
+        if let Some(result_payload) = md_result.get("result").cloned() {
+            source_obj.insert("md_result".to_string(), result_payload);
+        }
+
+        sources.push(JsonValue::Object(source_obj));
+    }
+
+    json!({
+        "query": query,
+        "provider": provider,
+        "count": sources.len(),
+        "sources": sources,
+    })
+}
+
+fn extract_source_highlights(text: &str, snippet: &str, max_points: usize, allow_snippet_fallback: bool) -> Vec<String> {
+    let mut points = Vec::new();
+
+    for line in text.lines().map(str::trim) {
+        if line.len() < 35 || line.len() > 220 {
+            continue;
+        }
+        if is_weak_fact_line(line) {
+            continue;
+        }
+
+        let normalized = normalize_report_line(line);
+        if normalized.is_empty() {
+            continue;
+        }
+
+        if !points.iter().any(|existing: &String| existing.eq_ignore_ascii_case(&normalized)) {
+            points.push(normalized);
+        }
+
+        if points.len() >= max_points {
+            break;
+        }
+    }
+
+    if allow_snippet_fallback && points.is_empty() && !snippet.trim().is_empty() {
+        let normalized_snippet = normalize_report_line(snippet.trim());
+        if !normalized_snippet.is_empty() {
+            points.push(normalized_snippet);
+        }
+    }
+
+    points
+}
+
+fn normalize_report_line(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut in_tag = false;
+
+    for ch in line.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(ch),
+            _ => {}
+        }
+    }
+
+    out = out
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&nbsp;", " ");
+
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn is_weak_fact_line(line: &str) -> bool {
+    let lower = line.to_lowercase();
+    lower.starts_with("canonical:")
+    || lower.starts_with("meta-")
+    || lower.starts_with("og:")
+    || lower.starts_with("twitter:")
+        || lower.starts_with("keywords:")
+        || lower.starts_with("description:")
+        || lower.starts_with("author:")
+        || lower.starts_with("published")
+        || lower.starts_with("updated")
+        || lower.starts_with("share this")
+    || lower.contains("application/ld+json")
+    || lower.contains("schema.org")
+        || lower.contains("cookie")
+        || lower.contains("privacy")
+        || lower.contains("terms")
+    || lower.contains("robots")
+    || lower.contains("viewport")
+    || lower.contains("favicon")
+    || lower.contains(": http://")
+    || lower.contains(": https://")
+}
+
+fn clean_page_text(raw: &str, max_chars: Option<usize>) -> String {
+    let mut lines = Vec::new();
+    let mut in_code = false;
+
+    for original in raw.lines() {
+        let line = original.trim();
+
+        if line.starts_with("```") {
+            in_code = !in_code;
+            continue;
+        }
+        if in_code || line.is_empty() {
+            continue;
+        }
+
+        let mut candidate = line.to_string();
+        for marker in [
+            " const ",
+            " window.",
+            " document.",
+            " function ",
+            " @media ",
+            " input[type=",
+            " { font-family",
+            "::-webkit",
+            " appearance:",
+            " let ",
+            " var ",
+        ] {
+            if let Some(idx) = candidate.find(marker) {
+                if idx > 20 {
+                    candidate.truncate(idx);
+                } else {
+                    candidate.clear();
+                }
+                break;
+            }
+        }
+
+        let candidate = candidate.trim();
+        if candidate.is_empty() {
+            continue;
+        }
+
+        let lower = candidate.to_lowercase();
+        let noisy = lower.starts_with("skip to")
+            || lower.contains("cookie")
+            || lower.contains("privacy policy")
+            || lower.contains("terms of service")
+            || lower.starts_with("open menu")
+            || lower.contains("keyboard shortcuts")
+            || lower.starts_with("sign in")
+            || lower.starts_with("sign up")
+            || lower.starts_with("footer")
+            || lower.starts_with("copyright")
+            || candidate.starts_with("window.")
+            || candidate.starts_with("document.")
+            || candidate.starts_with("function ")
+            || candidate.starts_with("const ")
+            || candidate.starts_with("let ")
+            || candidate.starts_with("var ")
+            || candidate.starts_with("@media");
+
+        if noisy {
+            continue;
+        }
+
+        lines.push(candidate.to_string());
+    }
+
+    let cleaned = lines.join("\n");
+    match max_chars {
+        Some(limit) if cleaned.chars().count() > limit => cleaned.chars().take(limit).collect(),
+        _ => cleaned,
+    }
 }
 
 fn host_tcp_connect(target: &str) -> JsonValue {
@@ -869,6 +2042,14 @@ fn run_program(
                 return Ok(());
             }
 
+            let current_lines = collect_printable_lines_from_json(&state.current);
+            if !current_lines.is_empty() {
+                for line in current_lines {
+                    println!("{line}");
+                }
+                return Ok(());
+            }
+
             let mut printed_any = false;
             for step in state
                 .pipeline
@@ -926,6 +2107,33 @@ fn printable_line_from_json(value: &JsonValue) -> Option<String> {
         return Some(stdout.to_string());
     }
     value.as_str().map(|s| s.to_string())
+}
+
+fn collect_printable_lines_from_json(value: &JsonValue) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_printable_lines_into(value, &mut out);
+    out
+}
+
+fn collect_printable_lines_into(value: &JsonValue, out: &mut Vec<String>) {
+    if let Some(line) = printable_line_from_json(value) {
+        out.push(line);
+        return;
+    }
+
+    match value {
+        JsonValue::Array(items) => {
+            for item in items {
+                collect_printable_lines_into(item, out);
+            }
+        }
+        JsonValue::Object(map) => {
+            if let Some(pipeline) = map.get("pipeline") {
+                collect_printable_lines_into(pipeline, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn policy_guard_from_env() -> PolicyGuard {
@@ -1211,4 +2419,163 @@ fn print_usage() {
     eprintln!("               [--trace-profile lean|debug] [--trace-steps N]");
     eprintln!("               [--trace-projection minimal|full] [--trace-max-string-bytes N]");
     eprintln!("  grapheme modules");
+    eprintln!("  grapheme modules search <query>");
+    eprintln!("  grapheme modules info <module>");
+    eprintln!("  grapheme modules types <module>");
+    eprintln!("  grapheme modules examples <module>");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn core_reduce_avg_computes_expected_value() {
+        let out = host_core_reduce(&json!({
+            "items": [3, 8, 2, 5],
+            "mode": "avg"
+        }));
+        assert_eq!(out, json!(4.5));
+    }
+
+    #[test]
+    fn core_reduce_concat_respects_initial_prefix() {
+        let out = host_core_reduce(&json!({
+            "items": ["-a", "-b"],
+            "mode": "concat",
+            "initial": "seed"
+        }));
+        assert_eq!(out, json!("seed-a-b"));
+    }
+
+    #[test]
+    fn core_reduce_unknown_mode_returns_error_payload() {
+        let out = host_core_reduce(&json!({
+            "items": [1, 2],
+            "mode": "mystery"
+        }));
+        assert!(out.get("error").and_then(|v| v.as_str()).is_some());
+    }
+
+    #[test]
+    fn core_set_and_get_path_round_trip_nested_value() {
+        let set_out = host_core_set_path(&json!({
+            "input": {"rollout": {"stage": "canary"}},
+            "path": "rollout.owner",
+            "value": "platform"
+        }));
+
+        let get_out = host_core_get_path(&json!({
+            "input": set_out,
+            "path": "rollout.owner"
+        }));
+
+        assert_eq!(get_out, json!("platform"));
+    }
+
+    #[test]
+    fn core_has_path_detects_presence_and_absence() {
+        let present = host_core_has_path(&json!({
+            "input": {"a": {"b": 1}},
+            "path": "a.b"
+        }));
+        let missing = host_core_has_path(&json!({
+            "input": {"a": {"b": 1}},
+            "path": "a.c"
+        }));
+
+        assert_eq!(present.get("has_path"), Some(&json!(true)));
+        assert_eq!(missing.get("has_path"), Some(&json!(false)));
+    }
+
+    #[test]
+    fn websearch_rejects_unsupported_provider() {
+        let out = host_websearch_search(&json!({
+            "query": "rust",
+            "provider": "google"
+        }));
+        assert!(out.get("error").and_then(|v| v.as_str()).is_some());
+    }
+
+    #[test]
+    fn html_clean_text_filters_script_noise() {
+        let out = host_html_clean_text(&json!({
+            "text": "const x = 1;\nKeyboard shortcuts\nReal content line"
+        }));
+        let text = out.get("text").and_then(|v| v.as_str()).unwrap_or("");
+        assert!(text.contains("Real content line"));
+        assert!(!text.contains("Keyboard shortcuts"));
+        assert!(!text.contains("const x = 1"));
+    }
+
+    #[test]
+    fn research_report_requires_query() {
+        let out = host_websearch_research_report(&json!({}));
+        assert!(out.get("error").and_then(|v| v.as_str()).is_some());
+    }
+
+    #[test]
+    fn html_to_md_options_enable_document_structure() {
+        let out = host_html_to_md(&json!({
+            "html": "<h1>Title</h1><p>Hello</p>",
+            "options": {
+                "include_document_structure": true,
+                "extract_metadata": true,
+                "output_format": "markdown"
+            }
+        }));
+
+        assert!(out.get("error").is_none());
+        assert!(out.get("result").is_some());
+        assert_eq!(
+            out.get("used_options")
+                .and_then(|v| v.get("include_document_structure"))
+                .and_then(|v| v.as_bool()),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn html_to_md_rejects_non_object_options() {
+        let out = host_html_to_md(&json!({
+            "html": "<p>hello</p>",
+            "options": "strict"
+        }));
+        assert!(out.get("error").and_then(|v| v.as_str()).is_some());
+    }
+
+    #[test]
+    fn extract_highlights_skips_canonical_metadata_lines() {
+        let text = "canonical: https://example.com/article\nEggs are versatile and can be boiled, poached, or scrambled in under 10 minutes.\nkeywords: egg, cooking";
+        let highlights = extract_source_highlights(text, "fallback snippet", 3, true);
+        assert!(!highlights.is_empty());
+        assert!(highlights[0].contains("Eggs are versatile"));
+        assert!(!highlights[0].to_lowercase().starts_with("canonical:"));
+    }
+
+    #[test]
+    fn normalize_report_line_removes_html_markup() {
+        let line = "Learn <b>how</b> to cook <em>eggs</em> &amp; serve warm.";
+        let normalized = normalize_report_line(line);
+        assert_eq!(normalized, "Learn how to cook eggs & serve warm.");
+    }
+
+    #[test]
+    fn extract_highlights_normalizes_snippet_fallback_markup() {
+        let highlights = extract_source_highlights("", "Learn <b>how</b> to cook eggs", 3, true);
+        assert_eq!(highlights, vec!["Learn how to cook eggs"]);
+    }
+
+    #[test]
+    fn extract_highlights_no_snippet_fallback_when_disabled() {
+        let highlights = extract_source_highlights("", "fallback snippet", 3, false);
+        assert!(highlights.is_empty());
+    }
+
+    #[test]
+    fn research_materials_requires_query() {
+        let out = host_websearch_research_materials(&json!({}));
+        assert!(out.get("error").and_then(|v| v.as_str()).is_some());
+    }
 }

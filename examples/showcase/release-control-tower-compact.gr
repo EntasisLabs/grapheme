@@ -14,7 +14,11 @@ query Q on Release::DeployState -> Release::DeployState {
   |> Run
 }
 
-iterator Run on Release::DeployState -> Release::DeployState @core_default @loop(max: 32, merge: "replace") @r(max: 2, backoff_ms: 25, on_fail: Rx) @t(ms: 25000, on_timeout: Tx) {
+iterator Run on Release::DeployState -> Release::DeployState @core_default @resilient {
+  loop: { max: 32, merge: "replace" },
+  retry: { max: 2, backoff_ms: 25, on_fail: Rx },
+  timeout: { ms: 25000, on_timeout: Tx }
+} {
   echo(message: "{$current.service}:{$current.status}:{$current.attempt}")
   |> if $current.status == "stabilized" then return else Rt
 }

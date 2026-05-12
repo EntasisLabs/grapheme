@@ -1,0 +1,16 @@
+query Research on Any {
+  websearch.research_report(
+    query: "How to cook an egg?",
+    max_results: 3,
+    per_source_chars: 1500,
+    report_chars: 8800,
+    md_options: {
+      output_format: "markdown",
+      include_document_structure: true,
+      extract_metadata: true,
+      strip_tags: ["script", "style", "nav", "footer", "aside"],
+      exclude_selectors: [".cookie-banner", "#cookie", ".advertisement"]
+    }
+  )
+  |> core.echo(message: $current.report)
+}

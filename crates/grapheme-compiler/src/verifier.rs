@@ -41,6 +41,20 @@ const CORE_FILTER_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "field", ty: ArgType::String, required: true },
     ArgSpec { name: "equals", ty: ArgType::Any, required: true },
 ];
+const CORE_FIND_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "items", ty: ArgType::Array, required: false },
+    ArgSpec { name: "field", ty: ArgType::String, required: true },
+    ArgSpec { name: "equals", ty: ArgType::Any, required: true },
+];
+const CORE_REDUCE_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "items", ty: ArgType::Array, required: false },
+    ArgSpec { name: "mode", ty: ArgType::String, required: true },
+    ArgSpec { name: "initial", ty: ArgType::Any, required: false },
+];
+const CORE_GROUP_BY_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "items", ty: ArgType::Array, required: false },
+    ArgSpec { name: "field", ty: ArgType::String, required: true },
+];
 const CORE_MERGE_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "left", ty: ArgType::Object, required: false },
     ArgSpec { name: "right", ty: ArgType::Object, required: false },
@@ -99,6 +113,45 @@ const CORE_SET_FIELDS_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "fields", ty: ArgType::Object, required: true },
     ArgSpec { name: "input", ty: ArgType::Object, required: false },
 ];
+const CORE_SPLIT_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "text", ty: ArgType::String, required: false },
+    ArgSpec { name: "sep", ty: ArgType::String, required: false },
+];
+const CORE_JOIN_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "items", ty: ArgType::Array, required: false },
+    ArgSpec { name: "sep", ty: ArgType::String, required: false },
+];
+const CORE_REPLACE_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "text", ty: ArgType::String, required: false },
+    ArgSpec { name: "from", ty: ArgType::String, required: true },
+    ArgSpec { name: "to", ty: ArgType::String, required: false },
+];
+const CORE_TRIM_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "text", ty: ArgType::String, required: false },
+];
+const CORE_LOWER_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "text", ty: ArgType::String, required: false },
+];
+const CORE_UPPER_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "text", ty: ArgType::String, required: false },
+];
+const CORE_CONTAINS_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "haystack", ty: ArgType::Any, required: false },
+    ArgSpec { name: "needle", ty: ArgType::Any, required: true },
+];
+const CORE_GET_PATH_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "path", ty: ArgType::String, required: true },
+    ArgSpec { name: "input", ty: ArgType::Any, required: false },
+];
+const CORE_SET_PATH_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "path", ty: ArgType::String, required: true },
+    ArgSpec { name: "value", ty: ArgType::Any, required: true },
+    ArgSpec { name: "input", ty: ArgType::Object, required: false },
+];
+const CORE_HAS_PATH_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "path", ty: ArgType::String, required: true },
+    ArgSpec { name: "input", ty: ArgType::Any, required: false },
+];
 
 const IO_READ_TEXT_ARGS: &[ArgSpec] = &[ArgSpec { name: "path", ty: ArgType::String, required: true }];
 const IO_WRITE_TEXT_ARGS: &[ArgSpec] = &[
@@ -111,6 +164,27 @@ const HTTP_GET_ARGS: &[ArgSpec] = &[ArgSpec { name: "url", ty: ArgType::String, 
 const HTTP_POST_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "url", ty: ArgType::String, required: true },
     ArgSpec { name: "body", ty: ArgType::Any, required: false },
+];
+const WEBSEARCH_SEARCH_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "query", ty: ArgType::String, required: true },
+    ArgSpec { name: "provider", ty: ArgType::String, required: false },
+    ArgSpec { name: "max_results", ty: ArgType::Any, required: false },
+];
+const WEBSEARCH_RESEARCH_REPORT_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "query", ty: ArgType::String, required: true },
+    ArgSpec { name: "provider", ty: ArgType::String, required: false },
+    ArgSpec { name: "max_results", ty: ArgType::Any, required: false },
+    ArgSpec { name: "per_source_chars", ty: ArgType::Any, required: false },
+    ArgSpec { name: "report_chars", ty: ArgType::Any, required: false },
+    ArgSpec { name: "md_options", ty: ArgType::Object, required: false },
+];
+const WEBSEARCH_RESEARCH_MATERIALS_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "query", ty: ArgType::String, required: true },
+    ArgSpec { name: "provider", ty: ArgType::String, required: false },
+    ArgSpec { name: "max_results", ty: ArgType::Any, required: false },
+    ArgSpec { name: "per_source_chars", ty: ArgType::Any, required: false },
+    ArgSpec { name: "md_options", ty: ArgType::Object, required: false },
+    ArgSpec { name: "include_http_body", ty: ArgType::Any, required: false },
 ];
 
 const TCP_CONNECT_ARGS: &[ArgSpec] = &[ArgSpec { name: "target", ty: ArgType::String, required: true }];
@@ -147,7 +221,14 @@ const MEMORY_LOAD_ARGS: &[ArgSpec] = &[ArgSpec { name: "key", ty: ArgType::Strin
 
 const DOCS_GUIDE_ARGS: &[ArgSpec] = &[ArgSpec { name: "topic", ty: ArgType::String, required: false }];
 const DOCS_EXAMPLE_ARGS: &[ArgSpec] = &[ArgSpec { name: "module", ty: ArgType::String, required: false }];
-const HTML_TO_MD_ARGS: &[ArgSpec] = &[ArgSpec { name: "html", ty: ArgType::String, required: false }];
+const HTML_TO_MD_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "html", ty: ArgType::String, required: false },
+    ArgSpec { name: "options", ty: ArgType::Object, required: false },
+];
+const HTML_CLEAN_TEXT_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "text", ty: ArgType::String, required: false },
+    ArgSpec { name: "max_chars", ty: ArgType::Any, required: false },
+];
 const JSON_PARSE_ARGS: &[ArgSpec] = &[ArgSpec { name: "text", ty: ArgType::String, required: false }];
 const CSV_TO_LIST_ARGS: &[ArgSpec] = &[ArgSpec { name: "text", ty: ArgType::String, required: false }];
 const YAML_TO_JSON_ARGS: &[ArgSpec] = &[ArgSpec { name: "text", ty: ArgType::String, required: false }];
@@ -156,6 +237,9 @@ const OP_SPECS: &[OpSpec] = &[
     OpSpec { module: "core", op: "echo", args: CORE_ECHO_ARGS },
     OpSpec { module: "core", op: "map", args: CORE_MAP_ARGS },
     OpSpec { module: "core", op: "filter", args: CORE_FILTER_ARGS },
+    OpSpec { module: "core", op: "find", args: CORE_FIND_ARGS },
+    OpSpec { module: "core", op: "reduce", args: CORE_REDUCE_ARGS },
+    OpSpec { module: "core", op: "group_by", args: CORE_GROUP_BY_ARGS },
     OpSpec { module: "core", op: "merge", args: CORE_MERGE_ARGS },
     OpSpec { module: "core", op: "pick", args: CORE_PICK_ARGS },
     OpSpec { module: "core", op: "validate_schema", args: CORE_VALIDATE_SCHEMA_ARGS },
@@ -171,11 +255,24 @@ const OP_SPECS: &[OpSpec] = &[
     OpSpec { module: "core", op: "inc_field", args: CORE_INC_FIELD_ARGS },
     OpSpec { module: "core", op: "dec_field", args: CORE_DEC_FIELD_ARGS },
     OpSpec { module: "core", op: "set_fields", args: CORE_SET_FIELDS_ARGS },
+    OpSpec { module: "core", op: "split", args: CORE_SPLIT_ARGS },
+    OpSpec { module: "core", op: "join", args: CORE_JOIN_ARGS },
+    OpSpec { module: "core", op: "replace", args: CORE_REPLACE_ARGS },
+    OpSpec { module: "core", op: "trim", args: CORE_TRIM_ARGS },
+    OpSpec { module: "core", op: "lower", args: CORE_LOWER_ARGS },
+    OpSpec { module: "core", op: "upper", args: CORE_UPPER_ARGS },
+    OpSpec { module: "core", op: "contains", args: CORE_CONTAINS_ARGS },
+    OpSpec { module: "core", op: "get_path", args: CORE_GET_PATH_ARGS },
+    OpSpec { module: "core", op: "set_path", args: CORE_SET_PATH_ARGS },
+    OpSpec { module: "core", op: "has_path", args: CORE_HAS_PATH_ARGS },
     OpSpec { module: "io", op: "read_text", args: IO_READ_TEXT_ARGS },
     OpSpec { module: "io", op: "write_text", args: IO_WRITE_TEXT_ARGS },
     OpSpec { module: "io", op: "list_dir", args: IO_LIST_DIR_ARGS },
     OpSpec { module: "http", op: "get", args: HTTP_GET_ARGS },
     OpSpec { module: "http", op: "post", args: HTTP_POST_ARGS },
+    OpSpec { module: "websearch", op: "search", args: WEBSEARCH_SEARCH_ARGS },
+    OpSpec { module: "websearch", op: "research_materials", args: WEBSEARCH_RESEARCH_MATERIALS_ARGS },
+    OpSpec { module: "websearch", op: "research_report", args: WEBSEARCH_RESEARCH_REPORT_ARGS },
     OpSpec { module: "tcp", op: "connect", args: TCP_CONNECT_ARGS },
     OpSpec { module: "tcp", op: "send", args: TCP_SEND_ARGS },
     OpSpec { module: "tcp", op: "receive", args: TCP_RECEIVE_ARGS },
@@ -189,6 +286,7 @@ const OP_SPECS: &[OpSpec] = &[
     OpSpec { module: "docs", op: "native_module_registry", args: &[] },
     OpSpec { module: "docs", op: "native_module_example", args: DOCS_EXAMPLE_ARGS },
     OpSpec { module: "html", op: "to_md", args: HTML_TO_MD_ARGS },
+    OpSpec { module: "html", op: "clean_text", args: HTML_CLEAN_TEXT_ARGS },
     OpSpec { module: "json", op: "parse", args: JSON_PARSE_ARGS },
     OpSpec { module: "csv", op: "to_list", args: CSV_TO_LIST_ARGS },
     OpSpec { module: "yaml", op: "to_json", args: YAML_TO_JSON_ARGS },
@@ -941,9 +1039,9 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
     }
 
     if let Some(each) = args.get("each") {
-        let selector = each.as_str().ok_or_else(|| {
+        let selector = loop_each_selector(each).ok_or_else(|| {
             GraphemeError::TypeError(format!(
-                "definition '{}': @loop each must be a string",
+                "definition '{}': @loop each must be a string or variable reference",
                 def.name
             ))
         })?;
@@ -1023,6 +1121,18 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
     }
 
     Ok(())
+}
+
+fn loop_each_selector(value: &JsonValue) -> Option<String> {
+    if let Some(selector) = value.as_str() {
+        return Some(selector.to_string());
+    }
+
+    value
+        .as_object()
+        .and_then(|obj| obj.get("$var"))
+        .and_then(|v| v.as_str())
+        .map(|v| format!("${v}"))
 }
 
 fn verify_retry_directive(

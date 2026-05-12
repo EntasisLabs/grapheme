@@ -11,6 +11,10 @@ grapheme compile <file.gr> --emit ast|hir|mir|artifact
 grapheme plugins build [all|core|docs|io|http|memory|tcp|smtp|secrets ...]
 grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules] [--stream-steps]
 grapheme modules
+grapheme modules search <query>
+grapheme modules info <module>
+grapheme modules types <module>
+grapheme modules examples <module>
 ```
 
 ## Commands
@@ -87,6 +91,57 @@ Prints runtime module manifests as JSON.
 
 ```bash
 cargo run -- modules
+```
+
+Search manifests by module id or op name:
+
+```bash
+cargo run -- modules search http
+```
+
+Show one manifest:
+
+```bash
+cargo run -- modules info http
+```
+
+Show op type metadata for one module:
+
+```bash
+cargo run -- modules types http
+```
+
+Show curated example files for one module:
+
+```bash
+cargo run -- modules examples http
+```
+
+Web search module example:
+
+```bash
+cargo run -- modules examples websearch
+```
+
+Run the high-level research pipeline (search -> fetch -> clean -> report):
+
+```bash
+cargo run -- run examples/websearch-report.gr --json
+```
+
+Run the composable research-materials pipeline (search -> fetch -> markdown + structured payload):
+
+```bash
+cargo run -- run examples/websearch-materials.gr --json
+```
+
+Use this when an LLM should decide its own output shape (summary, memo, citations, markdown artifact)
+from source-grounded materials rather than relying on a fixed built-in report template.
+
+For the expanded core std helpers, discover examples with:
+
+```bash
+cargo run -- modules examples core
 ```
 
 ## Environment Variables

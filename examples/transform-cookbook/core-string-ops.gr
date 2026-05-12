@@ -1,0 +1,8 @@
+query Q on Any {
+  core.trim(text: "  Canary Stage  ")
+  |> core.lower(text: "$current.text")
+  |> core.replace(text: "$current.text", from: "canary", to: "rollout")
+  |> core.split(text: "$current.text", sep: " ")
+  |> core.join(sep: "-")
+  |> core.upper(text: "$current.text")
+}

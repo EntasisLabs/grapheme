@@ -69,6 +69,12 @@ pub struct StepResult {
     pub iteration_index: Option<usize>,
     /// Optional call target for call.* bookkeeping steps
     pub call_target: Option<String>,
+    /// Optional executable intent goal attached by compiler metadata.
+    #[serde(default)]
+    pub intent_goal: Option<String>,
+    /// Optional executable intent risk attached by compiler metadata.
+    #[serde(default)]
+    pub intent_risk: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -77,6 +83,8 @@ pub struct StepContext {
     pub call_depth: usize,
     pub iteration_index: Option<usize>,
     pub call_target: Option<String>,
+    pub intent_goal: Option<String>,
+    pub intent_risk: Option<String>,
 }
 
 // ── Agent Error ───────────────────────────────────────────────
@@ -185,6 +193,8 @@ impl AgentState {
             call_depth: context.call_depth,
             iteration_index: context.iteration_index,
             call_target: context.call_target,
+            intent_goal: context.intent_goal,
+            intent_risk: context.intent_risk,
         });
         self.current = output;
     }
@@ -218,6 +228,8 @@ impl AgentState {
             call_depth: context.call_depth,
             iteration_index: context.iteration_index,
             call_target: context.call_target,
+            intent_goal: context.intent_goal,
+            intent_risk: context.intent_risk,
         });
         self.diff = None;
     }
@@ -237,6 +249,8 @@ impl AgentState {
             call_depth: context.call_depth,
             iteration_index: context.iteration_index,
             call_target: context.call_target,
+            intent_goal: context.intent_goal,
+            intent_risk: context.intent_risk,
         });
     }
 

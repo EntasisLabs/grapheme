@@ -20,6 +20,9 @@ If you only run a handful of programs, use these.
 ### Module-Using Examples
 
 - `http-get.gr`
+- `websearch-basic.gr`
+- `websearch-materials.gr`
+- `websearch-report.gr`
 - `tcp-connect.gr`
 - `smtp-send.gr`
 - `io-list.gr`
@@ -28,6 +31,12 @@ If you only run a handful of programs, use these.
 - `secrets-sign.gr`
 - `request-transform-output.gr`
 - `docs-native-modules.gr`
+
+Pipeline tip (important):
+
+- Every step rewrites `$current`.
+- Example: `core.echo(message: "$current.url")` changes `$current` to an echo-shaped object, so downstream steps expecting `$current.url` may fail.
+- In `websearch-basic.gr`, call `http.get(url: "$current.url")` before echoing derived text.
 
 ### Workflow/Control-Plane Showcases
 

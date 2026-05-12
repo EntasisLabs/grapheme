@@ -56,6 +56,7 @@ pub fn core_v1_manifests() -> Vec<ModuleManifest> {
         module_docs(),
         module_io(),
         module_http(),
+        module_websearch(),
         module_tcp(),
         module_smtp(),
         module_memory(),
@@ -71,7 +72,7 @@ fn module_html() -> ModuleManifest {
         version: "1.0.0".to_string(),
         abi: ModuleAbi::MirV1,
         entrypoint: "html.main".to_string(),
-        exported_ops: vec![op("to_md", EffectKind::Pure)],
+        exported_ops: vec![op("to_md", EffectKind::Pure), op("clean_text", EffectKind::Pure)],
         required_capabilities: vec!["html.transform".to_string()],
         limits: limits_standard(),
     }
@@ -148,6 +149,9 @@ fn module_core() -> ModuleManifest {
             op("echo", EffectKind::Pure),
             op("map", EffectKind::Pure),
             op("filter", EffectKind::Pure),
+            op("find", EffectKind::Pure),
+            op("reduce", EffectKind::Pure),
+            op("group_by", EffectKind::Pure),
             op("merge", EffectKind::Pure),
             op("pick", EffectKind::Pure),
             op("validate_schema", EffectKind::Pure),
@@ -163,6 +167,16 @@ fn module_core() -> ModuleManifest {
             op("inc_field", EffectKind::Pure),
             op("dec_field", EffectKind::Pure),
             op("set_fields", EffectKind::Pure),
+            op("split", EffectKind::Pure),
+            op("join", EffectKind::Pure),
+            op("replace", EffectKind::Pure),
+            op("trim", EffectKind::Pure),
+            op("lower", EffectKind::Pure),
+            op("upper", EffectKind::Pure),
+            op("contains", EffectKind::Pure),
+            op("get_path", EffectKind::Pure),
+            op("set_path", EffectKind::Pure),
+            op("has_path", EffectKind::Pure),
         ],
         required_capabilities: vec!["core.execute".to_string()],
         limits: limits_standard(),
@@ -199,6 +213,22 @@ fn module_http() -> ModuleManifest {
             "http.get.allowed_domain".to_string(),
             "http.post.allowed_domain".to_string(),
         ],
+        limits: limits_standard(),
+    }
+}
+
+fn module_websearch() -> ModuleManifest {
+    ModuleManifest {
+        module_id: "websearch".to_string(),
+        version: "1.0.0".to_string(),
+        abi: ModuleAbi::MirV1,
+        entrypoint: "websearch.main".to_string(),
+        exported_ops: vec![
+            op("search", EffectKind::Network),
+            op("research_materials", EffectKind::Network),
+            op("research_report", EffectKind::Network),
+        ],
+        required_capabilities: vec!["websearch.execute".to_string()],
         limits: limits_standard(),
     }
 }

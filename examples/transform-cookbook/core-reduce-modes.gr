@@ -1,0 +1,3 @@
+query Q on Any {
+  core.reduce(items: [3, 8, 2, 5], mode: "avg")
+}

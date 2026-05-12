@@ -72,6 +72,7 @@ pub struct HirExecutable {
     pub retry_args: Option<JsonValue>,
     pub timeout_directive_count: usize,
     pub timeout_args: Option<JsonValue>,
+    pub intent_args: Option<JsonValue>,
     pub pipelines: Vec<HirPipeline>,
 }
 
@@ -176,98 +177,114 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
 
     for def in &program.definitions {
         match def {
-            Definition::Query(q) => executable_defs.push(HirExecutable {
+            Definition::Query(q) => {
+                let directives = normalize_executable_directives(&q.name, &q.directives)?;
+                executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Query,
                 name: q.name.clone(),
                 input_type: q.signature.as_ref().map(|sig| sig.input.clone()),
                 output_type: q.signature.as_ref().and_then(|sig| sig.output.clone()),
-                loop_directive_count: loop_directive_count(&q.directives),
-                loop_args: first_loop_args(&q.directives),
-                recursive_directive_count: recursive_directive_count(&q.directives),
-                recursive_args: first_recursive_args(&q.directives),
-                recursive_max_depth: first_recursive_max_depth(first_recursive_args(&q.directives).as_ref()),
-                retry_directive_count: retry_directive_count(&q.directives),
-                retry_args: first_retry_args(&q.directives),
-                timeout_directive_count: timeout_directive_count(&q.directives),
-                timeout_args: first_timeout_args(&q.directives),
+                loop_directive_count: loop_directive_count(&directives),
+                loop_args: first_loop_args(&directives),
+                recursive_directive_count: recursive_directive_count(&directives),
+                recursive_args: first_recursive_args(&directives),
+                recursive_max_depth: first_recursive_max_depth(first_recursive_args(&directives).as_ref()),
+                retry_directive_count: retry_directive_count(&directives),
+                retry_args: first_retry_args(&directives),
+                timeout_directive_count: timeout_directive_count(&directives),
+                timeout_args: first_timeout_args(&directives),
+                intent_args: first_intent_args(&directives),
                 pipelines: lower_pipelines(
                     &q.name,
                     &q.pipelines,
                     &executable_names,
-                    first_recursive_max_depth(first_recursive_args(&q.directives).as_ref()),
+                    first_recursive_max_depth(first_recursive_args(&directives).as_ref()),
                     &fragment_defs,
-                    has_core_default_directive(&q.directives),
+                    has_core_default_directive(&directives),
                 )?,
-            }),
-            Definition::Mutation(m) => executable_defs.push(HirExecutable {
+            })
+            }
+            Definition::Mutation(m) => {
+                let directives = normalize_executable_directives(&m.name, &m.directives)?;
+                executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Mutation,
                 name: m.name.clone(),
                 input_type: m.signature.as_ref().map(|sig| sig.input.clone()),
                 output_type: m.signature.as_ref().and_then(|sig| sig.output.clone()),
-                loop_directive_count: loop_directive_count(&m.directives),
-                loop_args: first_loop_args(&m.directives),
-                recursive_directive_count: recursive_directive_count(&m.directives),
-                recursive_args: first_recursive_args(&m.directives),
-                recursive_max_depth: first_recursive_max_depth(first_recursive_args(&m.directives).as_ref()),
-                retry_directive_count: retry_directive_count(&m.directives),
-                retry_args: first_retry_args(&m.directives),
-                timeout_directive_count: timeout_directive_count(&m.directives),
-                timeout_args: first_timeout_args(&m.directives),
+                loop_directive_count: loop_directive_count(&directives),
+                loop_args: first_loop_args(&directives),
+                recursive_directive_count: recursive_directive_count(&directives),
+                recursive_args: first_recursive_args(&directives),
+                recursive_max_depth: first_recursive_max_depth(first_recursive_args(&directives).as_ref()),
+                retry_directive_count: retry_directive_count(&directives),
+                retry_args: first_retry_args(&directives),
+                timeout_directive_count: timeout_directive_count(&directives),
+                timeout_args: first_timeout_args(&directives),
+                intent_args: first_intent_args(&directives),
                 pipelines: lower_pipelines(
                     &m.name,
                     &m.pipelines,
                     &executable_names,
-                    first_recursive_max_depth(first_recursive_args(&m.directives).as_ref()),
+                    first_recursive_max_depth(first_recursive_args(&directives).as_ref()),
                     &fragment_defs,
-                    has_core_default_directive(&m.directives),
+                    has_core_default_directive(&directives),
                 )?,
-            }),
-            Definition::Subscription(s) => executable_defs.push(HirExecutable {
+            })
+            }
+            Definition::Subscription(s) => {
+                let directives = normalize_executable_directives(&s.name, &s.directives)?;
+                executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Subscription,
                 name: s.name.clone(),
                 input_type: s.signature.as_ref().map(|sig| sig.input.clone()),
                 output_type: s.signature.as_ref().and_then(|sig| sig.output.clone()),
-                loop_directive_count: loop_directive_count(&s.directives),
-                loop_args: first_loop_args(&s.directives),
-                recursive_directive_count: recursive_directive_count(&s.directives),
-                recursive_args: first_recursive_args(&s.directives),
-                recursive_max_depth: first_recursive_max_depth(first_recursive_args(&s.directives).as_ref()),
-                retry_directive_count: retry_directive_count(&s.directives),
-                retry_args: first_retry_args(&s.directives),
-                timeout_directive_count: timeout_directive_count(&s.directives),
-                timeout_args: first_timeout_args(&s.directives),
+                loop_directive_count: loop_directive_count(&directives),
+                loop_args: first_loop_args(&directives),
+                recursive_directive_count: recursive_directive_count(&directives),
+                recursive_args: first_recursive_args(&directives),
+                recursive_max_depth: first_recursive_max_depth(first_recursive_args(&directives).as_ref()),
+                retry_directive_count: retry_directive_count(&directives),
+                retry_args: first_retry_args(&directives),
+                timeout_directive_count: timeout_directive_count(&directives),
+                timeout_args: first_timeout_args(&directives),
+                intent_args: first_intent_args(&directives),
                 pipelines: lower_pipelines(
                     &s.name,
                     &s.pipelines,
                     &executable_names,
-                    first_recursive_max_depth(first_recursive_args(&s.directives).as_ref()),
+                    first_recursive_max_depth(first_recursive_args(&directives).as_ref()),
                     &fragment_defs,
-                    has_core_default_directive(&s.directives),
+                    has_core_default_directive(&directives),
                 )?,
-            }),
-            Definition::Iterator(f) => executable_defs.push(HirExecutable {
+            })
+            }
+            Definition::Iterator(f) => {
+                let directives = normalize_executable_directives(&f.name, &f.directives)?;
+                executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Fragment,
                 name: f.name.clone(),
                 input_type: Some(f.signature.input.clone()),
                 output_type: f.signature.output.clone(),
-                loop_directive_count: loop_directive_count(&f.directives),
-                loop_args: first_loop_args(&f.directives),
-                recursive_directive_count: recursive_directive_count(&f.directives),
-                recursive_args: first_recursive_args(&f.directives),
-                recursive_max_depth: first_recursive_max_depth(first_recursive_args(&f.directives).as_ref()),
-                retry_directive_count: retry_directive_count(&f.directives),
-                retry_args: first_retry_args(&f.directives),
-                timeout_directive_count: timeout_directive_count(&f.directives),
-                timeout_args: first_timeout_args(&f.directives),
+                loop_directive_count: loop_directive_count(&directives),
+                loop_args: first_loop_args(&directives),
+                recursive_directive_count: recursive_directive_count(&directives),
+                recursive_args: first_recursive_args(&directives),
+                recursive_max_depth: first_recursive_max_depth(first_recursive_args(&directives).as_ref()),
+                retry_directive_count: retry_directive_count(&directives),
+                retry_args: first_retry_args(&directives),
+                timeout_directive_count: timeout_directive_count(&directives),
+                timeout_args: first_timeout_args(&directives),
+                intent_args: first_intent_args(&directives),
                 pipelines: lower_pipelines(
                     &f.name,
                     &f.pipelines,
                     &executable_names,
-                    first_recursive_max_depth(first_recursive_args(&f.directives).as_ref()),
+                    first_recursive_max_depth(first_recursive_args(&directives).as_ref()),
                     &fragment_defs,
-                    has_core_default_directive(&f.directives),
+                    has_core_default_directive(&directives),
                 )?,
-            }),
+            })
+            }
             Definition::Fragment(_) | Definition::Struct(_) | Definition::Enum(_) | Definition::StateMachine(_) | Definition::Schema(_) | Definition::ModuleProposal(_) => {}
         }
     }
@@ -496,6 +513,76 @@ fn lower_args(args: &[(String, Value)]) -> JsonValue {
     JsonValue::Object(object)
 }
 
+fn normalize_executable_directives(
+    executable_name: &str,
+    directives: &[Directive],
+) -> Result<Vec<Directive>, GraphemeError> {
+    let resilient_directives = directives
+        .iter()
+        .filter(|d| d.name == "resilient")
+        .count();
+
+    if resilient_directives == 0 {
+        return Ok(directives.to_vec());
+    }
+
+    if resilient_directives > 1 {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}': multiple @resilient directives are not allowed",
+            executable_name
+        )));
+    }
+
+    if directives
+        .iter()
+        .any(|d| d.name == "loop" || d.name == "retry" || d.name == "timeout")
+    {
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}': @resilient cannot be combined with @loop/@retry/@timeout",
+            executable_name
+        )));
+    }
+
+    let mut normalized = directives
+        .iter()
+        .filter(|d| d.name != "resilient")
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let resilient = directives
+        .iter()
+        .find(|d| d.name == "resilient")
+        .expect("resilient directive count checked");
+
+    for (key, value) in &resilient.args {
+        let directive_name = match key.as_str() {
+            "loop" => "loop",
+            "retry" | "r" => "retry",
+            "timeout" | "t" => "timeout",
+            other => {
+                return Err(GraphemeError::TypeError(format!(
+                    "definition '{}': @resilient unknown key '{}'",
+                    executable_name, other
+                )))
+            }
+        };
+
+        let Value::Object(fields) = value else {
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}': @resilient.{} must be an object",
+                executable_name, key
+            )));
+        };
+
+        normalized.push(Directive {
+            name: directive_name.to_string(),
+            args: fields.clone(),
+        });
+    }
+
+    Ok(normalized)
+}
+
 fn loop_directive_count(directives: &[Directive]) -> usize {
     directives.iter().filter(|d| d.name == "loop").count()
 }
@@ -545,6 +632,13 @@ fn first_timeout_args(directives: &[Directive]) -> Option<JsonValue> {
     directives
         .iter()
         .find(|d| d.name == "timeout")
+        .map(|d| lower_args(&d.args))
+}
+
+fn first_intent_args(directives: &[Directive]) -> Option<JsonValue> {
+    directives
+        .iter()
+        .find(|d| d.name == "intent")
         .map(|d| lower_args(&d.args))
 }
 
