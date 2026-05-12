@@ -261,6 +261,62 @@ const HTML_CLEAN_TEXT_ARGS: &[ArgSpec] = &[
 const JSON_PARSE_ARGS: &[ArgSpec] = &[ArgSpec { name: "text", ty: ArgType::String, required: false }];
 const CSV_TO_LIST_ARGS: &[ArgSpec] = &[ArgSpec { name: "text", ty: ArgType::String, required: false }];
 const YAML_TO_JSON_ARGS: &[ArgSpec] = &[ArgSpec { name: "text", ty: ArgType::String, required: false }];
+const DB_QUERY_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "connection", ty: ArgType::String, required: true },
+    ArgSpec { name: "sql", ty: ArgType::String, required: true },
+    ArgSpec { name: "params", ty: ArgType::Any, required: false },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+];
+const DB_EXECUTE_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "connection", ty: ArgType::String, required: true },
+    ArgSpec { name: "sql", ty: ArgType::String, required: true },
+    ArgSpec { name: "params", ty: ArgType::Any, required: false },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+];
+const DB_TRANSACTION_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "connection", ty: ArgType::String, required: true },
+    ArgSpec { name: "steps", ty: ArgType::Array, required: true },
+    ArgSpec { name: "isolation", ty: ArgType::String, required: false },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+];
+const DB_HEALTH_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "connection", ty: ArgType::String, required: true },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+];
+const SURREAL_QUERY_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "connection", ty: ArgType::String, required: true },
+    ArgSpec { name: "query", ty: ArgType::String, required: true },
+    ArgSpec { name: "vars", ty: ArgType::Object, required: false },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+];
+const SURREAL_SELECT_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "connection", ty: ArgType::String, required: true },
+    ArgSpec { name: "thing_or_table", ty: ArgType::String, required: true },
+    ArgSpec { name: "where", ty: ArgType::String, required: false },
+    ArgSpec { name: "limit", ty: ArgType::Any, required: false },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+];
+const SURREAL_CREATE_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "connection", ty: ArgType::String, required: true },
+    ArgSpec { name: "thing_or_table", ty: ArgType::String, required: true },
+    ArgSpec { name: "data", ty: ArgType::Any, required: true },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+];
+const SURREAL_UPDATE_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "connection", ty: ArgType::String, required: true },
+    ArgSpec { name: "thing_or_table", ty: ArgType::String, required: true },
+    ArgSpec { name: "data", ty: ArgType::Any, required: true },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+];
+const SURREAL_DELETE_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "connection", ty: ArgType::String, required: true },
+    ArgSpec { name: "thing_or_table", ty: ArgType::String, required: true },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+];
+const SURREAL_HEALTH_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "connection", ty: ArgType::String, required: true },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+];
 
 pub const OP_SPECS: &[OpSpec] = &[
     OpSpec { module: "core", op: "echo", args: CORE_ECHO_ARGS, effect: SignatureEffect::Pure, input_schema_ref: None, output_schema_ref: None },
@@ -329,6 +385,16 @@ pub const OP_SPECS: &[OpSpec] = &[
     OpSpec { module: "json", op: "parse", args: JSON_PARSE_ARGS, effect: SignatureEffect::Pure, input_schema_ref: None, output_schema_ref: None },
     OpSpec { module: "csv", op: "to_list", args: CSV_TO_LIST_ARGS, effect: SignatureEffect::Pure, input_schema_ref: None, output_schema_ref: None },
     OpSpec { module: "yaml", op: "to_json", args: YAML_TO_JSON_ARGS, effect: SignatureEffect::Pure, input_schema_ref: None, output_schema_ref: None },
+    OpSpec { module: "sql", op: "query", args: DB_QUERY_ARGS, effect: SignatureEffect::Network, input_schema_ref: None, output_schema_ref: None },
+    OpSpec { module: "sql", op: "execute", args: DB_EXECUTE_ARGS, effect: SignatureEffect::Network, input_schema_ref: None, output_schema_ref: None },
+    OpSpec { module: "sql", op: "transaction", args: DB_TRANSACTION_ARGS, effect: SignatureEffect::Network, input_schema_ref: None, output_schema_ref: None },
+    OpSpec { module: "sql", op: "health", args: DB_HEALTH_ARGS, effect: SignatureEffect::Network, input_schema_ref: None, output_schema_ref: None },
+    OpSpec { module: "surreal", op: "query", args: SURREAL_QUERY_ARGS, effect: SignatureEffect::Network, input_schema_ref: None, output_schema_ref: None },
+    OpSpec { module: "surreal", op: "select", args: SURREAL_SELECT_ARGS, effect: SignatureEffect::Network, input_schema_ref: None, output_schema_ref: None },
+    OpSpec { module: "surreal", op: "create", args: SURREAL_CREATE_ARGS, effect: SignatureEffect::Network, input_schema_ref: None, output_schema_ref: None },
+    OpSpec { module: "surreal", op: "update", args: SURREAL_UPDATE_ARGS, effect: SignatureEffect::Network, input_schema_ref: None, output_schema_ref: None },
+    OpSpec { module: "surreal", op: "delete", args: SURREAL_DELETE_ARGS, effect: SignatureEffect::Network, input_schema_ref: None, output_schema_ref: None },
+    OpSpec { module: "surreal", op: "health", args: SURREAL_HEALTH_ARGS, effect: SignatureEffect::Network, input_schema_ref: None, output_schema_ref: None },
 ];
 
 pub fn op_specs() -> &'static [OpSpec] {

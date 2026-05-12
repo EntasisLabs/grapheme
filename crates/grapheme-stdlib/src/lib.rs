@@ -5,6 +5,7 @@ pub mod http;
 pub mod json;
 pub mod registry;
 pub mod research;
+pub mod sql;
 pub mod smtp;
 pub mod tcp;
 pub mod web;

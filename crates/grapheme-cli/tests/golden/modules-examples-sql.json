@@ -1,0 +1,6 @@
+{
+  "examples": [
+    "examples/sql-query.gr"
+  ],
+  "module_id": "sql"
+}

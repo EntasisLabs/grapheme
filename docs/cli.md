@@ -151,6 +151,8 @@ cargo run -- modules examples core
 Runtime policy env vars consumed by CLI:
 
 - `GRAPHEME_ALLOWED_HTTP_DOMAINS` (comma-separated hosts)
+- `GRAPHEME_ALLOWED_SQL_CONNECTIONS` (comma-separated connection ids)
+- `GRAPHEME_ALLOWED_SURREAL_CONNECTIONS` (comma-separated connection ids)
 - `GRAPHEME_ALLOWED_TCP_TARGETS` (comma-separated host:port entries)
 - `GRAPHEME_ALLOWED_SMTP_DOMAINS` (comma-separated domains)
 - `GRAPHEME_ALLOWED_SECRETS` (comma-separated secret names)

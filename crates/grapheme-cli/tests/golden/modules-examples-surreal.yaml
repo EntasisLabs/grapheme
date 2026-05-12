@@ -1,0 +1,3 @@
+examples:
+- examples/surreal-select.gr
+module_id: surreal

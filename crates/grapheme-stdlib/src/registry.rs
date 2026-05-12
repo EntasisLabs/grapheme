@@ -1,4 +1,4 @@
-use crate::{core, csv, html, http, json as json_mod, research, smtp, tcp, web, yaml};
+use crate::{core, csv, html, http, json as json_mod, research, smtp, sql, tcp, web, yaml};
 use serde_json::{json, Value as JsonValue};
 
 struct RegisteredModule {
@@ -35,6 +35,14 @@ const REGISTERED_MODULES: &[RegisteredModule] = &[
     RegisteredModule {
         module_id: "smtp",
         handler: dispatch_smtp,
+    },
+    RegisteredModule {
+        module_id: "sql",
+        handler: dispatch_sql,
+    },
+    RegisteredModule {
+        module_id: "surreal",
+        handler: dispatch_surreal,
     },
     RegisteredModule {
         module_id: "html",
@@ -181,6 +189,8 @@ pub fn is_registered_op(module: &str, op: &str) -> bool {
         "websearch" => matches!(op, "search" | "research_materials" | "research_report"),
         "tcp" => matches!(op, "connect" | "send" | "receive"),
         "smtp" => matches!(op, "send_mail"),
+        "sql" => matches!(op, "query" | "execute" | "transaction" | "health"),
+        "surreal" => matches!(op, "query" | "select" | "create" | "update" | "delete" | "health"),
         "html" => HTML_OPS.iter().any(|entry| entry.op == op),
         "json" => JSON_OPS.iter().any(|entry| entry.op == op),
         "csv" => CSV_OPS.iter().any(|entry| entry.op == op),
@@ -197,6 +207,8 @@ pub fn registered_ops_for_module(module: &str) -> Vec<&'static str> {
         "websearch" => vec!["search", "research_materials", "research_report"],
         "tcp" => vec!["connect", "send", "receive"],
         "smtp" => vec!["send_mail"],
+        "sql" => vec!["query", "execute", "transaction", "health"],
+        "surreal" => vec!["query", "select", "create", "update", "delete", "health"],
         "html" => HTML_OPS.iter().map(|entry| entry.op).collect(),
         "json" => JSON_OPS.iter().map(|entry| entry.op).collect(),
         "csv" => CSV_OPS.iter().map(|entry| entry.op).collect(),
@@ -281,6 +293,40 @@ fn dispatch_smtp(op: &str, args: &JsonValue) -> Option<JsonValue> {
         "send_mail" => Some(smtp::send_mail(args)),
         _ => None,
     }
+}
+
+fn dispatch_sql(op: &str, args: &JsonValue) -> Option<JsonValue> {
+    match op {
+        "query" => Some(sql::query(args)),
+        "execute" => Some(sql::execute(args)),
+        "health" => Some(sql::health(args)),
+        "transaction" => Some(not_implemented_payload("sql", op, args)),
+        _ => None,
+    }
+}
+
+fn dispatch_surreal(op: &str, args: &JsonValue) -> Option<JsonValue> {
+    match op {
+        "query" | "select" | "create" | "update" | "delete" | "health" => {
+            Some(not_implemented_payload("surreal", op, args))
+        }
+        _ => None,
+    }
+}
+
+fn not_implemented_payload(module: &str, op: &str, args: &JsonValue) -> JsonValue {
+    json!({
+        "ok": false,
+        "error": {
+            "kind": "not_implemented",
+            "code": "capability_not_implemented",
+            "message": format!("{}.{} is planned in RFC-0003 and not implemented yet", module, op),
+            "retryable": false
+        },
+        "module": module,
+        "op": op,
+        "received": args
+    })
 }
 
 fn dispatch_html(op: &str, args: &JsonValue) -> Option<JsonValue> {
@@ -604,6 +650,8 @@ mod tests {
         "websearch",
         "tcp",
         "smtp",
+        "sql",
+        "surreal",
         "html",
         "json",
         "csv",
@@ -713,6 +761,58 @@ mod tests {
             missing.is_empty(),
             "signature ops missing registry coverage: {}",
             missing.join(", ")
+        );
+    }
+
+    #[test]
+    fn sql_query_executes_basic_select() {
+        let out = dispatch("sql", "query", &json!({
+            "connection": "sqlite::memory:",
+            "sql": "select 1"
+        }))
+        .expect("sql.query should be registered");
+
+        assert_eq!(
+            out.get("ok").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn sql_transaction_remains_deterministic_not_implemented() {
+        let out = dispatch("sql", "transaction", &json!({
+            "connection": "local",
+            "steps": []
+        }))
+        .expect("sql.transaction should be registered");
+
+        assert_eq!(
+            out.get("error")
+                .and_then(|v| v.get("code"))
+                .and_then(|v| v.as_str()),
+            Some("capability_not_implemented")
+        );
+    }
+
+    #[test]
+    fn surreal_stub_returns_deterministic_not_implemented_error_shape() {
+        let out = dispatch("surreal", "select", &json!({
+            "connection": "local",
+            "thing_or_table": "doc"
+        }))
+        .expect("surreal.select should be registered");
+
+        assert_eq!(
+            out.get("error")
+                .and_then(|v| v.get("kind"))
+                .and_then(|v| v.as_str()),
+            Some("not_implemented")
+        );
+        assert_eq!(
+            out.get("error")
+                .and_then(|v| v.get("retryable"))
+                .and_then(|v| v.as_bool()),
+            Some(false)
         );
     }
 }

@@ -23,6 +23,8 @@ Run these first:
 - `smtp-send.gr`
 - `secrets-handle.gr`
 - `secrets-sign.gr`
+- `sql-query.gr`
+- `surreal-select.gr`
 
 Pipeline tip:
 

@@ -1,0 +1,7 @@
+import sql from "grapheme/sql"
+
+query SqlQueryStub {
+  sql.query(connection: "local", sql: "select 1 as ok") {
+    state { current }
+  }
+}

@@ -12,13 +12,14 @@
 use grapheme_artifact::{ExecutionResult, MirInst};
 use grapheme_compiler::{Compiler, CompilerError, CompilerOptions};
 use grapheme_compiler::verifier::LintWarning;
+use grapheme_sdk::{GraphemeEngine, StructuredMode};
 use grapheme_runtime::{
-    CapabilityCall, CapabilityHost, HostCallError, PolicyGuard, RuntimeEngine,
+    PolicyGuard,
     TracePolicy, TraceProjection,
 };
 use serde::Serialize;
 use serde_json::{json, Value as JsonValue};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::env;
 use std::fs;
@@ -549,6 +550,8 @@ fn emit_modules_examples(module: &str, mode: DiscoveryOutputMode) -> Result<(), 
         ],
         "tcp" => &["examples/tcp-connect.gr"],
         "smtp" => &["examples/smtp-send.gr"],
+        "sql" => &["examples/sql-query.gr"],
+        "surreal" => &["examples/surreal-select.gr"],
         "io" => &["examples/io-list.gr"],
         "memory" => &["examples/memory-roundtrip.gr"],
         "secrets" => &["examples/secrets-handle.gr", "examples/secrets-sign.gr"],
@@ -583,41 +586,6 @@ struct CliRunOutput {
     lint_warnings: Vec<LintWarning>,
 }
 
-struct CliHost;
-
-impl CliHost {
-    fn resolve_module(call: &CapabilityCall) -> String {
-        call.module
-            .as_deref()
-            .map(|m| m.to_lowercase())
-            .or_else(|| call.capability.split('.').next().map(|m| m.to_lowercase()))
-            .unwrap_or_default()
-    }
-
-    fn dispatch(&self, module: &str, op: &str, args: &JsonValue) -> Option<JsonValue> {
-        grapheme_stdlib::registry::dispatch(module, op, args)
-    }
-}
-
-impl CapabilityHost for CliHost {
-    fn call(&mut self, call: &CapabilityCall) -> Result<serde_json::Value, HostCallError> {
-        let module = Self::resolve_module(call);
-        if let Some(out) = self.dispatch(&module, &call.op, &call.args) {
-            return Ok(out);
-        }
-
-        Ok(json!({
-            "module": call.module,
-            "op": call.op,
-            "capability": call.capability,
-            "arg_count": call.arg_count,
-            "args": call.args,
-            "step_index": call.step_index,
-            "status": "ok"
-        }))
-    }
-}
-
 fn run_program(
     file_path: &str,
     run_options: RunOptions,
@@ -630,10 +598,7 @@ fn run_program(
 
     let trace_policy = trace_policy_from_run_options(&run_options);
 
-    let mut module_bindings: HashMap<String, PathBuf> = HashMap::new();
-    for (module, path) in run_options.bindings {
-        module_bindings.insert(module, path);
-    }
+    let mut module_bindings = run_options.bindings;
 
     if run_options.native_modules {
         let required_modules = collect_called_modules(&compiled.artifact);
@@ -648,56 +613,76 @@ fn run_program(
         }
 
         for module in plugin_targets {
-            if module_bindings.contains_key(&module) {
+            if module_bindings.iter().any(|(bound_module, _)| bound_module == &module) {
                 continue;
             }
 
             if let Some(spec) = plugin_spec_by_name(&module) {
-                module_bindings.insert(module, cwd.join(spec.output_rel));
+                module_bindings.push((module, cwd.join(spec.output_rel)));
             }
         }
     }
 
-    let mut host = CliHost;
-    let mut options = grapheme_runtime::RuntimeOptions::default();
-    options.policy_guard = policy_guard_from_env();
-    options.trace_policy = trace_policy;
-    options.stream_step_output =
-        run_options.output_mode == RunOutputMode::Plain && run_options.stream_steps;
+    let mut engine_builder = GraphemeEngine::builder()
+        .with_policy_guard(policy_guard_from_env())
+        .with_trace_policy(trace_policy)
+        .with_stream_step_output(
+            run_options.output_mode == RunOutputMode::Plain && run_options.stream_steps,
+        );
+
     let (is_set, max_steps) = parse_optional_usize_env("GRAPHEME_RUNTIME_MAX_STEPS")
         .map_err(|e| CompilerError::RuntimeError(e.to_string()))?;
     if is_set {
-        options.max_steps = max_steps;
+        engine_builder = engine_builder.with_max_steps(max_steps);
     }
     let (is_set, max_call_depth) = parse_optional_usize_env("GRAPHEME_RUNTIME_MAX_CALL_DEPTH")
         .map_err(|e| CompilerError::RuntimeError(e.to_string()))?;
     if is_set {
-        options.max_call_depth = max_call_depth;
+        engine_builder = engine_builder.with_max_call_depth(max_call_depth);
     }
+
     for (module, path) in module_bindings {
-        options.module_registry.set_wasm_path(&module, path);
+        engine_builder = engine_builder.with_module_path(&module, path);
     }
-    let runtime = RuntimeEngine::new(options);
-    let (state, execution) = runtime
-        .execute_artifact(&compiled.artifact, &mut host)
+
+    let engine = engine_builder.build();
+    let result = engine
+        .execute_compiled(&compiled)
         .map_err(|e| CompilerError::RuntimeError(e.to_string()))?;
+    let final_state = result.final_state;
+    let execution = result.execution;
+    let lint_warnings = result.lint_warnings;
 
     match run_options.output_mode {
         RunOutputMode::Json => {
             let out = CliRunOutput {
-                artifact_id: compiled.artifact.artifact_id,
+                artifact_id: result.artifact_id,
                 execution,
-                final_state: state.to_json(),
-                lint_warnings: compiled.compilation.lint_warnings.clone(),
+                final_state: final_state.clone(),
+                lint_warnings,
             };
-            print_json(&out)
+            let rendered = engine
+                .format_result(
+                    &grapheme_sdk::ExecuteResultPayload {
+                        artifact_id: out.artifact_id,
+                        execution: out.execution,
+                        final_state: out.final_state,
+                        lint_warnings: out.lint_warnings,
+                    },
+                    StructuredMode::Json,
+                )
+                .map_err(|e| CompilerError::RuntimeError(e.to_string()))?;
+            println!("{rendered}");
+            Ok(())
         }
         RunOutputMode::Plain => {
             if run_options.stream_steps {
                 return Ok(());
             }
 
-            let current_lines = collect_printable_lines_from_json(&state.current);
+            let current_lines = collect_printable_lines_from_json(
+                final_state.get("current").unwrap_or(&final_state),
+            );
             if !current_lines.is_empty() {
                 for line in current_lines {
                     println!("{line}");
@@ -706,15 +691,17 @@ fn run_program(
             }
 
             let mut printed_any = false;
-            for step in state
-                .pipeline
-                .iter()
-                .filter(|step| step.ok)
-                .filter(|step| is_echo_step(&step.op))
-            {
-                if let Some(line) = printable_line_from_json(&step.output) {
-                    println!("{line}");
-                    printed_any = true;
+            if let Some(pipeline) = final_state.get("pipeline").and_then(|v| v.as_array()) {
+                for step in pipeline {
+                    let ok = step.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let op = step.get("op").and_then(|v| v.as_str()).unwrap_or_default();
+                    if !ok || !is_echo_step(op) {
+                        continue;
+                    }
+                    if let Some(line) = step.get("output").and_then(printable_line_from_json) {
+                        println!("{line}");
+                        printed_any = true;
+                    }
                 }
             }
 
@@ -722,7 +709,7 @@ fn run_program(
                 return Ok(());
             }
 
-            let current = &state.current;
+            let current = final_state.get("current").unwrap_or(&final_state);
             if let Some(message) = current.get("message").and_then(|v| v.as_str()) {
                 println!("{message}");
                 Ok(())
@@ -737,10 +724,10 @@ fn run_program(
                 Ok(())
             } else {
                 let out = CliRunOutput {
-                    artifact_id: compiled.artifact.artifact_id,
+                    artifact_id: result.artifact_id,
                     execution,
-                    final_state: state.to_json(),
-                    lint_warnings: compiled.compilation.lint_warnings.clone(),
+                    final_state,
+                    lint_warnings,
                 };
                 print_json(&out)
             }
@@ -798,6 +785,8 @@ fn policy_guard_from_env() -> PolicyGuard {
         allowed_tcp_targets: parse_csv_env("GRAPHEME_ALLOWED_TCP_TARGETS"),
         allowed_smtp_domains: parse_csv_env("GRAPHEME_ALLOWED_SMTP_DOMAINS"),
         allowed_secret_names: parse_csv_env("GRAPHEME_ALLOWED_SECRETS"),
+        allowed_sql_connections: parse_csv_env("GRAPHEME_ALLOWED_SQL_CONNECTIONS"),
+        allowed_surreal_connections: parse_csv_env("GRAPHEME_ALLOWED_SURREAL_CONNECTIONS"),
     }
 }
 
@@ -1308,6 +1297,66 @@ mod tests {
         let actual = format_discovery(&payload, DiscoveryOutputMode::Json)
             .expect("json format should succeed");
         let expected = include_str!("../tests/golden/modules-examples-core.json");
+        assert_eq!(normalized(&actual), normalized(expected));
+    }
+
+    #[test]
+    fn golden_modules_examples_sql_yaml_contract() {
+        let payload = json!({
+            "module_id": "sql",
+            "examples": [
+                "examples/sql-query.gr"
+            ]
+        });
+
+        let actual = format_discovery(&payload, DiscoveryOutputMode::Yaml)
+            .expect("yaml format should succeed");
+        let expected = include_str!("../tests/golden/modules-examples-sql.yaml");
+        assert_eq!(normalized(&actual), normalized(expected));
+    }
+
+    #[test]
+    fn golden_modules_examples_sql_json_contract() {
+        let payload = json!({
+            "module_id": "sql",
+            "examples": [
+                "examples/sql-query.gr"
+            ]
+        });
+
+        let actual = format_discovery(&payload, DiscoveryOutputMode::Json)
+            .expect("json format should succeed");
+        let expected = include_str!("../tests/golden/modules-examples-sql.json");
+        assert_eq!(normalized(&actual), normalized(expected));
+    }
+
+    #[test]
+    fn golden_modules_examples_surreal_yaml_contract() {
+        let payload = json!({
+            "module_id": "surreal",
+            "examples": [
+                "examples/surreal-select.gr"
+            ]
+        });
+
+        let actual = format_discovery(&payload, DiscoveryOutputMode::Yaml)
+            .expect("yaml format should succeed");
+        let expected = include_str!("../tests/golden/modules-examples-surreal.yaml");
+        assert_eq!(normalized(&actual), normalized(expected));
+    }
+
+    #[test]
+    fn golden_modules_examples_surreal_json_contract() {
+        let payload = json!({
+            "module_id": "surreal",
+            "examples": [
+                "examples/surreal-select.gr"
+            ]
+        });
+
+        let actual = format_discovery(&payload, DiscoveryOutputMode::Json)
+            .expect("json format should succeed");
+        let expected = include_str!("../tests/golden/modules-examples-surreal.json");
         assert_eq!(normalized(&actual), normalized(expected));
     }
 

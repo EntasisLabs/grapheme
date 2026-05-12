@@ -61,6 +61,8 @@ pub fn core_v1_manifests() -> Vec<ModuleManifest> {
         module_websearch(),
         module_tcp(),
         module_smtp(),
+        module_sql(),
+        module_surreal(),
         module_memory(),
         module_runtime(),
         module_secrets(),
@@ -227,6 +229,33 @@ fn module_smtp() -> ModuleManifest {
     }
 }
 
+fn module_sql() -> ModuleManifest {
+    ModuleManifest {
+        module_id: "sql".to_string(),
+        version: "1.0.0".to_string(),
+        abi: ModuleAbi::MirV1,
+        entrypoint: "sql.main".to_string(),
+        exported_ops: exported_ops_for("sql"),
+        required_capabilities: vec![
+            "sql.query.allowed_connection".to_string(),
+            "sql.execute.allowed_connection".to_string(),
+        ],
+        limits: limits_standard(),
+    }
+}
+
+fn module_surreal() -> ModuleManifest {
+    ModuleManifest {
+        module_id: "surreal".to_string(),
+        version: "1.0.0".to_string(),
+        abi: ModuleAbi::MirV1,
+        entrypoint: "surreal.main".to_string(),
+        exported_ops: exported_ops_for("surreal"),
+        required_capabilities: vec!["surreal.query.allowed_connection".to_string()],
+        limits: limits_standard(),
+    }
+}
+
 fn module_memory() -> ModuleManifest {
     ModuleManifest {
         module_id: "memory".to_string(),
@@ -327,6 +356,8 @@ mod tests {
         "websearch",
         "tcp",
         "smtp",
+        "sql",
+        "surreal",
         "html",
         "json",
         "csv",

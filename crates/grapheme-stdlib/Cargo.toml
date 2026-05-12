@@ -11,6 +11,7 @@ ehttp = "0.7.1"
 html-to-markdown-rs = { version = "3.4.0", features = ["serde"] }
 tokio = { version = "1.48", features = ["rt", "time", "net"] }
 websearch = "0.1.1"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "any", "sqlite", "postgres", "json"] }
 
 [dev-dependencies]
 grapheme-signatures = { path = "../grapheme-signatures" }

@@ -27,10 +27,17 @@ This directory is the canonical documentation set for Grapheme.
 - `docs/language-control-flow-v1-implementation.md`
 - `docs/language-typed-records-v1.md`
 - `docs/turing-completeness-roadmap.md`
+- `docs/roadmaps/runtime-platform-evolution-v1.md`
 - `docs/roadmaps/language-ergonomics-v2-draft.md`
 - `docs/roadmaps/sprint-01-language-ergonomics.md`
 - `docs/roadmaps/executable-kinds-v1-draft.md`
 - `docs/llm-friendliness-checklist.md`
+
+## RFCs
+
+- `docs/rfc/rfc-0001-embedded-runtime-sdk-v1.md`
+- `docs/rfc/rfc-0002-wasm-hot-module-loading-v1.md`
+- `docs/rfc/rfc-0003-database-capability-modules-v1.md`
 
 ## Tooling and Distribution
 
