@@ -64,6 +64,7 @@ Important state-shape rule:
 - A step can intentionally or accidentally change the shape of `$current` for all following steps.
 - For example, `core.echo(message: "$current.url")` yields `{ message: ... }`, so a following step like `http.get(url: "$current.url")` will no longer see `url` unless you preserved it earlier.
 - Practical guidance: place transformation/logging steps that narrow shape (like `echo`) after steps that still need the original fields, or explicitly pass required fields forward.
+- Prefer `core.tap` for diagnostics when downstream steps still need unchanged `$current`.
 
 Calls are represented by module/op + capability:
 
@@ -165,6 +166,7 @@ Core std helper expansion (current behavior):
 
 - Core transform ops now include list/object/string helpers such as:
 	- list/object: `map`, `filter`, `find`, `reduce`, `group_by`, `merge`, `pick`, `validate_schema`, `get_path`, `set_path`, `has_path`
+	- flow/data helpers: `tap`, `pack_state_data`, `get_state`, `get_data`
 	- string/text: `split`, `join`, `replace`, `trim`, `lower`, `upper`, `contains`
 - These ops are exposed via module manifest discovery (`grapheme modules info/types core`) and enforced by verifier arg checks.
 

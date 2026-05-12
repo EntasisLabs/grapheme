@@ -44,6 +44,8 @@ Pipeline tip (important):
 - `showcase/blue-green-cutover.gr`
 - `showcase/feature-flag-progressive-rollout.gr`
 - `showcase/oncall-escalation-ladder.gr`
+- `showcase/websearch-decision-loop.gr`
+- `showcase/state-data-convention.gr`
 
 See `examples/showcase/README.md` for scenario details and live-demo toggle ideas.
 

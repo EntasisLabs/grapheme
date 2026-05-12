@@ -29,6 +29,8 @@ This directory is the canonical documentation set for Grapheme.
 - `docs/turing-completeness-roadmap.md`
 - `docs/roadmaps/language-ergonomics-v2-draft.md`
 - `docs/roadmaps/sprint-01-language-ergonomics.md`
+- `docs/roadmaps/executable-kinds-v1-draft.md`
+- `docs/llm-friendliness-checklist.md`
 
 ## Tooling and Distribution
 

@@ -147,6 +147,10 @@ fn module_core() -> ModuleManifest {
         entrypoint: "core.main".to_string(),
         exported_ops: vec![
             op("echo", EffectKind::Pure),
+            op("tap", EffectKind::Pure),
+            op("pack_state_data", EffectKind::Pure),
+            op("get_state", EffectKind::Pure),
+            op("get_data", EffectKind::Pure),
             op("map", EffectKind::Pure),
             op("filter", EffectKind::Pure),
             op("find", EffectKind::Pure),

@@ -1,0 +1,17 @@
+#[intent(goal: "Demonstrate flow/data split helpers so control state and payload shape stay explicit")]
+query Q on Any {
+  websearch.research_materials(
+    query: "Rust async runtime patterns",
+    provider: "duckduckgo",
+    max_results: 3,
+    per_source_chars: 1800
+  )
+  |> core.pack_state_data(state: { phase: "collecting", min_sources: 2 })
+  |> core.get_data
+  |> core.get_path(path: "sources")
+  |> core.map(field: "citation")
+  |> core.join(sep: "\n")
+  |> core.pack_state_data(state: { phase: "done" })
+  |> core.get_data
+  |> core.get_path(path: "text")
+}

@@ -62,6 +62,8 @@ Structured JSON output:
 cargo run -- run examples/hello-world.gr --json
 ```
 
+`--json` output now includes `lint_warnings` (non-fatal compile-time advisory lints) so agents can consume warnings structurally instead of parsing stderr text.
+
 Manual module binding:
 
 ```bash

@@ -7,6 +7,12 @@ query Q on Any {
 
 iterator ParseResults on Any @loop(max: 3, each: $current.results, merge: "append"){
   http.get(url: "$current.url")
-  |> html.to_md(html: "$current.body")
+  |> html.to_md(html: "$current.body",  md_options: {
+      output_format: "markdown",
+      include_document_structure: true,
+      extract_metadata: true,
+      strip_tags: ["script", "style", "nav", "footer", "aside"],
+      exclude_selectors: [".cookie-banner", "#cookie", ".advertisement"]
+    })
 }
 

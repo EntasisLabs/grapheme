@@ -11,6 +11,7 @@
 
 use grapheme_artifact::{ExecutionResult, MirInst};
 use grapheme_compiler::{Compiler, CompilerError, CompilerOptions};
+use grapheme_compiler::verifier::LintWarning;
 use grapheme_runtime::{
     CapabilityCall, CapabilityHost, HostCallError, PolicyGuard, RuntimeEngine,
     TracePolicy, TraceProjection,
@@ -501,6 +502,7 @@ struct CliRunOutput {
     artifact_id: String,
     execution: ExecutionResult,
     final_state: serde_json::Value,
+    lint_warnings: Vec<LintWarning>,
 }
 
 struct CliHost;
@@ -524,6 +526,10 @@ impl CapabilityHost for CliHost {
                     .to_string();
                 Ok(json!({ "message": message }))
             }
+            ("core", "tap") => Ok(host_core_tap(&call.args)),
+            ("core", "pack_state_data") => Ok(host_core_pack_state_data(&call.args)),
+            ("core", "get_state") => Ok(host_core_get_state(&call.args)),
+            ("core", "get_data") => Ok(host_core_get_data(&call.args)),
             ("core", "map") => Ok(host_core_map(&call.args)),
             ("core", "filter") => Ok(host_core_filter(&call.args)),
             ("core", "find") => Ok(host_core_find(&call.args)),
@@ -670,6 +676,45 @@ fn host_html_clean_text(args: &JsonValue) -> JsonValue {
         "text": cleaned,
         "length": cleaned.chars().count(),
     })
+}
+
+fn host_core_tap(args: &JsonValue) -> JsonValue {
+    args.get("__input").cloned().unwrap_or_else(|| {
+        let message = arg_text(args, "message");
+        json!({ "message": message })
+    })
+}
+
+fn host_core_pack_state_data(args: &JsonValue) -> JsonValue {
+    let state = args.get("state").cloned().unwrap_or(JsonValue::Null);
+    let data = args
+        .get("data")
+        .cloned()
+        .or_else(|| args.get("__input").cloned())
+        .unwrap_or(JsonValue::Null);
+
+    json!({
+        "state": state,
+        "data": data,
+    })
+}
+
+fn host_core_get_state(args: &JsonValue) -> JsonValue {
+    args
+        .get("input")
+        .or_else(|| args.get("__input"))
+        .and_then(|v| v.get("state"))
+        .cloned()
+        .unwrap_or(JsonValue::Null)
+}
+
+fn host_core_get_data(args: &JsonValue) -> JsonValue {
+    args
+        .get("input")
+        .or_else(|| args.get("__input"))
+        .and_then(|v| v.get("data"))
+        .cloned()
+        .unwrap_or(JsonValue::Null)
 }
 
 fn host_core_map(args: &JsonValue) -> JsonValue {
@@ -2034,6 +2079,7 @@ fn run_program(
                 artifact_id: compiled.artifact.artifact_id,
                 execution,
                 final_state: state.to_json(),
+                lint_warnings: compiled.compilation.lint_warnings.clone(),
             };
             print_json(&out)
         }
@@ -2085,6 +2131,7 @@ fn run_program(
                     artifact_id: compiled.artifact.artifact_id,
                     execution,
                     final_state: state.to_json(),
+                    lint_warnings: compiled.compilation.lint_warnings.clone(),
                 };
                 print_json(&out)
             }

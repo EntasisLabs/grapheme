@@ -1,5 +1,6 @@
 use crate::error::GraphemeError;
 use grapheme_artifact::{CapabilityPolicy, MirProgram};
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
 
@@ -29,8 +30,30 @@ struct OpSpec {
     args: &'static [ArgSpec],
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LintWarning {
+    pub code: String,
+    pub message: String,
+    pub definition: String,
+    pub pipeline: usize,
+    pub step: usize,
+}
+
 const CORE_ECHO_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "message", ty: ArgType::String, required: false },
+];
+const CORE_TAP_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "message", ty: ArgType::String, required: false },
+];
+const CORE_PACK_STATE_DATA_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "state", ty: ArgType::Any, required: true },
+    ArgSpec { name: "data", ty: ArgType::Any, required: false },
+];
+const CORE_GET_STATE_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "input", ty: ArgType::Any, required: false },
+];
+const CORE_GET_DATA_ARGS: &[ArgSpec] = &[
+    ArgSpec { name: "input", ty: ArgType::Any, required: false },
 ];
 const CORE_MAP_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "items", ty: ArgType::Array, required: false },
@@ -235,6 +258,10 @@ const YAML_TO_JSON_ARGS: &[ArgSpec] = &[ArgSpec { name: "text", ty: ArgType::Str
 
 const OP_SPECS: &[OpSpec] = &[
     OpSpec { module: "core", op: "echo", args: CORE_ECHO_ARGS },
+    OpSpec { module: "core", op: "tap", args: CORE_TAP_ARGS },
+    OpSpec { module: "core", op: "pack_state_data", args: CORE_PACK_STATE_DATA_ARGS },
+    OpSpec { module: "core", op: "get_state", args: CORE_GET_STATE_ARGS },
+    OpSpec { module: "core", op: "get_data", args: CORE_GET_DATA_ARGS },
     OpSpec { module: "core", op: "map", args: CORE_MAP_ARGS },
     OpSpec { module: "core", op: "filter", args: CORE_FILTER_ARGS },
     OpSpec { module: "core", op: "find", args: CORE_FIND_ARGS },
@@ -293,11 +320,18 @@ const OP_SPECS: &[OpSpec] = &[
 ];
 
 pub fn verify_hir(hir: &HirProgram) -> Result<(), GraphemeError> {
+    let _ = verify_hir_with_lints(hir)?;
+    Ok(())
+}
+
+pub fn verify_hir_with_lints(hir: &HirProgram) -> Result<Vec<LintWarning>, GraphemeError> {
     if hir.executable_defs.is_empty() {
         return Err(GraphemeError::VerificationError(
             "program contains no executable definitions".to_string(),
         ));
     }
+
+    let mut lint_warnings = Vec::new();
 
     let executable_names: HashSet<String> = hir
         .executable_defs
@@ -476,6 +510,12 @@ pub fn verify_hir(hir: &HirProgram) -> Result<(), GraphemeError> {
                 &struct_fields_by_name,
                 &required_struct_fields_by_name,
             )?;
+
+            lint_warnings.extend(emit_echo_shape_clobber_lints(
+                &def.name,
+                i,
+                pipeline.steps.as_slice(),
+            ));
         }
 
         verify_loop_directive(def)?;
@@ -484,7 +524,63 @@ pub fn verify_hir(hir: &HirProgram) -> Result<(), GraphemeError> {
         verify_timeout_directive(def, &executable_names)?;
     }
 
-    Ok(())
+    Ok(lint_warnings)
+}
+
+fn emit_echo_shape_clobber_lints(
+    def_name: &str,
+    pipeline_idx: usize,
+    steps: &[HirStep],
+) -> Vec<LintWarning> {
+    let mut out = Vec::new();
+
+    for (idx, step) in steps.iter().enumerate() {
+        if !is_core_echo(step) {
+            continue;
+        }
+
+        let Some(next_step) = steps.get(idx + 1) else {
+            continue;
+        };
+
+        let mut refs = Vec::new();
+        collect_current_field_refs(&next_step.args, &mut refs);
+
+        let risky = refs.iter().any(|current_ref| {
+            current_ref
+                .strip_prefix("current.")
+                .and_then(|field| field.split('.').next())
+                .map(|root| !root.is_empty() && root != "message")
+                .unwrap_or(false)
+        });
+
+        if risky {
+            out.push(LintWarning {
+                code: "llm-shape-clobber".to_string(),
+                message: format!(
+                    "definition '{}', pipeline {}, step {} uses core.echo before step {} reads $current.<field>; core.echo rewrites state shape. Consider core.tap for non-mutating diagnostics.",
+                    def_name,
+                    pipeline_idx,
+                    idx,
+                    idx + 1
+                ),
+                definition: def_name.to_string(),
+                pipeline: pipeline_idx,
+                step: idx,
+            });
+        }
+    }
+
+    out
+}
+
+fn is_core_echo(step: &HirStep) -> bool {
+    step
+        .module
+        .as_deref()
+        .map(|m| m.eq_ignore_ascii_case("core"))
+        .unwrap_or(false)
+        && step.op == "echo"
 }
 
 fn verify_typed_output_field_population(
@@ -925,7 +1021,20 @@ fn collect_current_field_refs(value: &JsonValue, out: &mut Vec<String>) {
                 collect_current_field_refs(item, out);
             }
         }
+        JsonValue::String(text) => {
+            collect_current_refs_from_text(text, out);
+        }
         _ => {}
+    }
+}
+
+fn collect_current_refs_from_text(text: &str, out: &mut Vec<String>) {
+    for token in text
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '$' || c == '_' || c == '.'))
+    {
+        if token == "$current" || token.starts_with("$current.") {
+            out.push(token.trim_start_matches('$').to_string());
+        }
     }
 }
 
