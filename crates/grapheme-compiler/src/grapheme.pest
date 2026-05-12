@@ -228,6 +228,7 @@ match_default = {
 
 inline_target_step = {
     transition_step
+    | apply_step
     | set_step
     | struct_init_step
     | call_step
@@ -256,6 +257,12 @@ set_step = {
     ~ object_value
 }
 
+apply_step = {
+    "apply"
+    ~ ident
+    ~ object_value
+}
+
 transition_step = {
     "transition"
     ~ variable
@@ -266,10 +273,10 @@ transition_step = {
 
 // The pipe operator |> chains steps left to right
 // Each step receives the AgentState from the previous
-pipe_step = { "|>" ~ (match_step | if_step | transition_step | set_step | struct_init_step | call_step | field_call) }
+pipe_step = { "|>" ~ (match_step | if_step | transition_step | apply_step | set_step | struct_init_step | call_step | field_call) }
 
 pipeline = {
-    (match_step | if_step | transition_step | set_step | struct_init_step | call_step | field_call) ~ pipe_step*
+    (match_step | if_step | transition_step | apply_step | set_step | struct_init_step | call_step | field_call) ~ pipe_step*
 }
 
 // ── Top-Level Definitions ─────────────────────────────────────

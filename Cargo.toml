@@ -1,6 +1,8 @@
 [workspace]
 members = [
 	"crates/grapheme-artifact",
+	"crates/grapheme-signatures",
+	"crates/grapheme-stdlib",
 	"crates/grapheme-compiler",
 	"crates/grapheme-runtime",
 	"crates/grapheme-cli",

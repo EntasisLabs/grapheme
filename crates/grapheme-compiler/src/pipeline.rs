@@ -2,6 +2,7 @@ use crate::ast::Program;
 use crate::error::GraphemeError;
 use grapheme_artifact::{CapabilityPolicy, MirProgram};
 use crate::verifier::LintWarning;
+use crate::verifier::ExecutableKindPolicyMode;
 
 use super::hir::{self, HirProgram};
 use super::mir_lower;
@@ -10,12 +11,14 @@ use super::verifier;
 #[derive(Debug, Clone)]
 pub struct CompileOptions {
     pub capability_policy: CapabilityPolicy,
+    pub executable_kind_policy_mode: ExecutableKindPolicyMode,
 }
 
 impl Default for CompileOptions {
     fn default() -> Self {
         Self {
             capability_policy: CapabilityPolicy::default(),
+            executable_kind_policy_mode: ExecutableKindPolicyMode::Compatibility,
         }
     }
 }
@@ -30,7 +33,7 @@ pub struct CompilationArtifact {
 
 pub fn compile_program(ast: Program, options: CompileOptions) -> Result<CompilationArtifact, GraphemeError> {
     let hir = hir::lower_from_ast(&ast)?;
-    let lint_warnings = verifier::verify_hir_with_lints(&hir)?;
+    let lint_warnings = verifier::verify_hir_with_lints_mode(&hir, options.executable_kind_policy_mode)?;
 
     let mir = mir_lower::lower_from_hir(&hir);
     verifier::verify_mir(&mir, &options.capability_policy)?;

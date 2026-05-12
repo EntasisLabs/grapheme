@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use grapheme_signatures::{module_ops, SignatureEffect};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModuleManifest {
@@ -56,6 +57,7 @@ pub fn core_v1_manifests() -> Vec<ModuleManifest> {
         module_docs(),
         module_io(),
         module_http(),
+        module_web(),
         module_websearch(),
         module_tcp(),
         module_smtp(),
@@ -72,7 +74,7 @@ fn module_html() -> ModuleManifest {
         version: "1.0.0".to_string(),
         abi: ModuleAbi::MirV1,
         entrypoint: "html.main".to_string(),
-        exported_ops: vec![op("to_md", EffectKind::Pure), op("clean_text", EffectKind::Pure)],
+        exported_ops: exported_ops_for("html"),
         required_capabilities: vec!["html.transform".to_string()],
         limits: limits_standard(),
     }
@@ -84,7 +86,7 @@ fn module_json() -> ModuleManifest {
         version: "1.0.0".to_string(),
         abi: ModuleAbi::MirV1,
         entrypoint: "json.main".to_string(),
-        exported_ops: vec![op("parse", EffectKind::Pure)],
+        exported_ops: exported_ops_for("json"),
         required_capabilities: vec!["json.transform".to_string()],
         limits: limits_standard(),
     }
@@ -96,7 +98,7 @@ fn module_csv() -> ModuleManifest {
         version: "1.0.0".to_string(),
         abi: ModuleAbi::MirV1,
         entrypoint: "csv.main".to_string(),
-        exported_ops: vec![op("to_list", EffectKind::Pure)],
+        exported_ops: exported_ops_for("csv"),
         required_capabilities: vec!["csv.transform".to_string()],
         limits: limits_standard(),
     }
@@ -108,7 +110,7 @@ fn module_yaml() -> ModuleManifest {
         version: "1.0.0".to_string(),
         abi: ModuleAbi::MirV1,
         entrypoint: "yaml.main".to_string(),
-        exported_ops: vec![op("to_json", EffectKind::Pure)],
+        exported_ops: exported_ops_for("yaml"),
         required_capabilities: vec!["yaml.transform".to_string()],
         limits: limits_standard(),
     }
@@ -120,11 +122,7 @@ fn module_docs() -> ModuleManifest {
         version: "1.0.0".to_string(),
         abi: ModuleAbi::WasixV1,
         entrypoint: "docs.main".to_string(),
-        exported_ops: vec![
-            op("native_module_guide", EffectKind::Control),
-            op("native_module_registry", EffectKind::Control),
-            op("native_module_example", EffectKind::Control),
-        ],
+        exported_ops: exported_ops_for("docs"),
         required_capabilities: vec!["docs.read.native_modules".to_string()],
         limits: limits_standard(),
     }
@@ -145,43 +143,7 @@ fn module_core() -> ModuleManifest {
         version: "1.0.0".to_string(),
         abi: ModuleAbi::MirV1,
         entrypoint: "core.main".to_string(),
-        exported_ops: vec![
-            op("echo", EffectKind::Pure),
-            op("tap", EffectKind::Pure),
-            op("pack_state_data", EffectKind::Pure),
-            op("get_state", EffectKind::Pure),
-            op("get_data", EffectKind::Pure),
-            op("map", EffectKind::Pure),
-            op("filter", EffectKind::Pure),
-            op("find", EffectKind::Pure),
-            op("reduce", EffectKind::Pure),
-            op("group_by", EffectKind::Pure),
-            op("merge", EffectKind::Pure),
-            op("pick", EffectKind::Pure),
-            op("validate_schema", EffectKind::Pure),
-            op("add", EffectKind::Pure),
-            op("sub", EffectKind::Pure),
-            op("inc", EffectKind::Pure),
-            op("dec", EffectKind::Pure),
-            op("eq", EffectKind::Pure),
-            op("lt", EffectKind::Pure),
-            op("gt", EffectKind::Pure),
-            op("gte", EffectKind::Pure),
-            op("lte", EffectKind::Pure),
-            op("inc_field", EffectKind::Pure),
-            op("dec_field", EffectKind::Pure),
-            op("set_fields", EffectKind::Pure),
-            op("split", EffectKind::Pure),
-            op("join", EffectKind::Pure),
-            op("replace", EffectKind::Pure),
-            op("trim", EffectKind::Pure),
-            op("lower", EffectKind::Pure),
-            op("upper", EffectKind::Pure),
-            op("contains", EffectKind::Pure),
-            op("get_path", EffectKind::Pure),
-            op("set_path", EffectKind::Pure),
-            op("has_path", EffectKind::Pure),
-        ],
+        exported_ops: exported_ops_for("core"),
         required_capabilities: vec!["core.execute".to_string()],
         limits: limits_standard(),
     }
@@ -193,11 +155,7 @@ fn module_io() -> ModuleManifest {
         version: "1.0.0".to_string(),
         abi: ModuleAbi::WasixV1,
         entrypoint: "io.main".to_string(),
-        exported_ops: vec![
-            op("read_text", EffectKind::Io),
-            op("write_text", EffectKind::Io),
-            op("list_dir", EffectKind::Io),
-        ],
+        exported_ops: exported_ops_for("io"),
         required_capabilities: vec![
             "io.read.workspace".to_string(),
             "io.write.workspace".to_string(),
@@ -212,7 +170,7 @@ fn module_http() -> ModuleManifest {
         version: "1.0.0".to_string(),
         abi: ModuleAbi::MirV1,
         entrypoint: "http.main".to_string(),
-        exported_ops: vec![op("get", EffectKind::Network), op("post", EffectKind::Network)],
+        exported_ops: exported_ops_for("http"),
         required_capabilities: vec![
             "http.get.allowed_domain".to_string(),
             "http.post.allowed_domain".to_string(),
@@ -227,12 +185,20 @@ fn module_websearch() -> ModuleManifest {
         version: "1.0.0".to_string(),
         abi: ModuleAbi::MirV1,
         entrypoint: "websearch.main".to_string(),
-        exported_ops: vec![
-            op("search", EffectKind::Network),
-            op("research_materials", EffectKind::Network),
-            op("research_report", EffectKind::Network),
-        ],
+        exported_ops: exported_ops_for("websearch"),
         required_capabilities: vec!["websearch.execute".to_string()],
+        limits: limits_standard(),
+    }
+}
+
+fn module_web() -> ModuleManifest {
+    ModuleManifest {
+        module_id: "web".to_string(),
+        version: "1.0.0".to_string(),
+        abi: ModuleAbi::MirV1,
+        entrypoint: "web.main".to_string(),
+        exported_ops: exported_ops_for("web"),
+        required_capabilities: vec!["web.search.execute".to_string()],
         limits: limits_standard(),
     }
 }
@@ -243,11 +209,7 @@ fn module_tcp() -> ModuleManifest {
         version: "1.0.0".to_string(),
         abi: ModuleAbi::MirV1,
         entrypoint: "tcp.main".to_string(),
-        exported_ops: vec![
-            op("connect", EffectKind::Network),
-            op("send", EffectKind::Network),
-            op("receive", EffectKind::Network),
-        ],
+        exported_ops: exported_ops_for("tcp"),
         required_capabilities: vec!["tcp.connect.allowed_target".to_string()],
         limits: limits_standard(),
     }
@@ -259,7 +221,7 @@ fn module_smtp() -> ModuleManifest {
         version: "1.0.0".to_string(),
         abi: ModuleAbi::MirV1,
         entrypoint: "smtp.main".to_string(),
-        exported_ops: vec![op("send_mail", EffectKind::Network)],
+        exported_ops: exported_ops_for("smtp"),
         required_capabilities: vec!["smtp.send.notifications".to_string()],
         limits: limits_standard(),
     }
@@ -271,11 +233,7 @@ fn module_memory() -> ModuleManifest {
         version: "1.0.0".to_string(),
         abi: ModuleAbi::MirV1,
         entrypoint: "memory.main".to_string(),
-        exported_ops: vec![
-            op("load_context", EffectKind::State),
-            op("store_context", EffectKind::State),
-            op("summarize_context", EffectKind::State),
-        ],
+        exported_ops: exported_ops_for("memory"),
         required_capabilities: vec!["memory.namespace.access".to_string()],
         limits: limits_standard(),
     }
@@ -303,10 +261,7 @@ fn module_secrets() -> ModuleManifest {
         version: "1.0.0".to_string(),
         abi: ModuleAbi::WasixV1,
         entrypoint: "secrets.main".to_string(),
-        exported_ops: vec![
-            op("get_secret_handle", EffectKind::Secrets),
-            op("sign_request", EffectKind::Secrets),
-        ],
+        exported_ops: exported_ops_for("secrets"),
         required_capabilities: vec!["secrets.use.scoped".to_string()],
         limits: limits_standard(),
     }
@@ -334,5 +289,28 @@ fn op(name: &str, effect: EffectKind) -> ExportedOp {
         input_schema_ref: None,
         output_schema_ref: None,
         effect,
+    }
+}
+
+fn exported_ops_for(module_id: &str) -> Vec<ExportedOp> {
+    module_ops(module_id)
+        .into_iter()
+        .map(|spec| ExportedOp {
+            op: spec.op.to_string(),
+            input_schema_ref: spec.input_schema_ref.map(|s| s.to_string()),
+            output_schema_ref: spec.output_schema_ref.map(|s| s.to_string()),
+            effect: effect_from_signature(spec.effect),
+        })
+        .collect()
+}
+
+fn effect_from_signature(effect: SignatureEffect) -> EffectKind {
+    match effect {
+        SignatureEffect::Pure => EffectKind::Pure,
+        SignatureEffect::Network => EffectKind::Network,
+        SignatureEffect::Io => EffectKind::Io,
+        SignatureEffect::State => EffectKind::State,
+        SignatureEffect::Secrets => EffectKind::Secrets,
+        SignatureEffect::Control => EffectKind::Control,
     }
 }

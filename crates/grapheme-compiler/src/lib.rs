@@ -28,7 +28,97 @@ pub fn compile_to_artifact(source: &str, entrypoint: Option<&str>) -> Result<Art
 #[cfg(test)]
 mod tests {
 		use super::*;
+		use crate::verifier::ExecutableKindPolicyMode;
 		use grapheme_artifact::mir::MirCompareOp;
+
+		#[test]
+		fn strict_kind_policy_rejects_write_like_core_set_path_in_query() {
+				let source = r#"
+query Q {
+	core.set_path(path: "state.status", value: "collecting")
+}
+"#;
+
+				let ast = parse(source).expect("parse should succeed");
+				let options = CompileOptions {
+						capability_policy: grapheme_artifact::CapabilityPolicy::default(),
+						executable_kind_policy_mode: ExecutableKindPolicyMode::StrictMutationOnly,
+				};
+
+				let err = compile_program(ast, options).expect_err("strict policy should reject write-like op in query");
+				let msg = err.to_string();
+				assert!(msg.contains("restricted to mutation declarations"));
+		}
+
+		#[test]
+		fn compatibility_kind_policy_emits_warning_for_write_like_core_set_path_in_query() {
+				let source = r#"
+query Q {
+	core.set_path(path: "state.status", value: "collecting")
+}
+"#;
+
+				let ast = parse(source).expect("parse should succeed");
+				let options = CompileOptions {
+						capability_policy: grapheme_artifact::CapabilityPolicy::default(),
+						executable_kind_policy_mode: ExecutableKindPolicyMode::Compatibility,
+				};
+
+				let artifact = compile_program(ast, options).expect("compat mode should compile");
+				assert!(artifact
+						.lint_warnings
+						.iter()
+						.any(|w| w.code == "kind-write-outside-mutation"));
+		}
+
+		#[test]
+		fn supports_apply_lane_syntax_inside_mutation() {
+				let source = r#"
+mutation Advance on Any {
+	apply state { status: "collecting" }
+}
+"#;
+
+				let compilation = compile(source).expect("apply should parse/lower inside mutation");
+				let func = compilation
+						.mir
+						.functions
+						.iter()
+						.find(|f| f.name == "Advance")
+						.expect("Advance function present");
+
+				let saw_apply_lane = func
+						.blocks
+						.iter()
+						.flat_map(|b| b.instructions.iter())
+						.any(|inst| match inst {
+								grapheme_artifact::MirInst::Call { module, op, .. } => {
+										module.as_deref() == Some("core") && op == "apply_lane"
+								}
+								_ => false,
+						});
+
+				assert!(saw_apply_lane, "expected apply step to lower to core.apply_lane");
+		}
+
+		#[test]
+		fn strict_kind_policy_rejects_apply_lane_outside_mutation() {
+				let source = r#"
+query Q {
+	apply state { status: "collecting" }
+}
+"#;
+
+				let ast = parse(source).expect("parse should succeed");
+				let options = CompileOptions {
+						capability_policy: grapheme_artifact::CapabilityPolicy::default(),
+						executable_kind_policy_mode: ExecutableKindPolicyMode::StrictMutationOnly,
+				};
+
+				let err = compile_program(ast, options).expect_err("strict policy should reject apply in query");
+				let msg = err.to_string();
+				assert!(msg.contains("restricted to mutation declarations"));
+		}
 
 		#[test]
 		fn rejects_invalid_loop_merge_value() {

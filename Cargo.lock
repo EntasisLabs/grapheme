@@ -1611,17 +1611,12 @@ dependencies = [
 name = "grapheme"
 version = "0.1.0"
 dependencies = [
- "csv",
- "ehttp",
  "grapheme-artifact",
  "grapheme-compiler",
  "grapheme-runtime",
- "html-to-markdown-rs",
+ "grapheme-stdlib",
  "serde",
  "serde_json",
- "serde_yaml",
- "tokio",
- "websearch",
 ]
 
 [[package]]
@@ -1640,6 +1635,7 @@ name = "grapheme-compiler"
 version = "0.1.0"
 dependencies = [
  "grapheme-artifact",
+ "grapheme-signatures",
  "pest",
  "pest_derive",
  "serde",
@@ -1652,6 +1648,7 @@ name = "grapheme-lsp"
 version = "0.1.0"
 dependencies = [
  "grapheme-compiler",
+ "grapheme-signatures",
  "tokio",
  "tower-lsp",
 ]
@@ -1661,6 +1658,7 @@ name = "grapheme-runtime"
 version = "0.1.0"
 dependencies = [
  "grapheme-artifact",
+ "grapheme-signatures",
  "hex",
  "serde",
  "serde_json",
@@ -1670,6 +1668,23 @@ dependencies = [
  "wasmer",
  "wasmer-types",
  "wasmer-wasix",
+]
+
+[[package]]
+name = "grapheme-signatures"
+version = "0.1.0"
+
+[[package]]
+name = "grapheme-stdlib"
+version = "0.1.0"
+dependencies = [
+ "csv",
+ "ehttp",
+ "html-to-markdown-rs",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "websearch",
 ]
 
 [[package]]

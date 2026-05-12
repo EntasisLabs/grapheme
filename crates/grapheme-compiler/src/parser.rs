@@ -506,17 +506,19 @@ fn parse_pipeline(pair: Pair<Rule>, state: &mut ParseState) -> Result<Pipeline, 
             Rule::match_step => steps.push(PipelineStep::Field(parse_match_step_as_match_call(p, state)?)),
             Rule::if_step => steps.push(PipelineStep::Field(parse_if_step_as_branch_call(p, state)?)),
             Rule::transition_step => steps.push(PipelineStep::Field(parse_transition_step_as_set_fields_call(p)?)),
+            Rule::apply_step => steps.push(PipelineStep::Field(parse_apply_step_as_apply_lane_call(p)?)),
             Rule::set_step => steps.push(PipelineStep::Field(parse_set_step_as_set_fields_call(p)?)),
             Rule::struct_init_step => steps.push(PipelineStep::StructInit(parse_struct_init_step(p)?)),
             Rule::field_call => steps.push(PipelineStep::Field(parse_field_call(p)?)),
             Rule::call_step  => steps.push(PipelineStep::Call(parse_call_step(p)?)),
             Rule::pipe_step  => {
-                // pipe_step = { "|>" ~ (match_step | if_step | transition_step | set_step | struct_init_step | call_step | field_call) }
+                // pipe_step = { "|>" ~ (match_step | if_step | transition_step | apply_step | set_step | struct_init_step | call_step | field_call) }
                 let inner = p.into_inner().next().unwrap();
                 match inner.as_rule() {
                     Rule::match_step => steps.push(PipelineStep::Field(parse_match_step_as_match_call(inner, state)?)),
                     Rule::if_step => steps.push(PipelineStep::Field(parse_if_step_as_branch_call(inner, state)?)),
                     Rule::transition_step => steps.push(PipelineStep::Field(parse_transition_step_as_set_fields_call(inner)?)),
+                    Rule::apply_step => steps.push(PipelineStep::Field(parse_apply_step_as_apply_lane_call(inner)?)),
                     Rule::set_step => steps.push(PipelineStep::Field(parse_set_step_as_set_fields_call(inner)?)),
                     Rule::struct_init_step => steps.push(PipelineStep::StructInit(parse_struct_init_step(inner)?)),
                     Rule::field_call => steps.push(PipelineStep::Field(parse_field_call(inner)?)),
@@ -639,6 +641,45 @@ fn parse_set_step_as_set_fields_call(pair: Pair<Rule>) -> Result<FieldCall, Grap
     })
 }
 
+fn parse_apply_step_as_apply_lane_call(pair: Pair<Rule>) -> Result<FieldCall, GraphemeError> {
+    let mut inner = pair.into_inner();
+    let lane = inner
+        .next()
+        .ok_or_else(|| GraphemeError::ParseError("apply-step missing lane name".to_string()))?
+        .as_str()
+        .to_string();
+
+    if lane != "state" && lane != "data" {
+        return Err(GraphemeError::ParseError(format!(
+            "apply-step lane must be 'state' or 'data', got '{}'",
+            lane
+        )));
+    }
+
+    let object = inner
+        .next()
+        .ok_or_else(|| GraphemeError::ParseError("apply-step missing object body".to_string()))?;
+
+    let mut fields = Vec::new();
+    for field in object.into_inner() {
+        let mut fi = field.into_inner();
+        let key = fi.next().unwrap().as_str().to_string();
+        let value = parse_value(fi.next().unwrap())?;
+        fields.push((key, value));
+    }
+
+    Ok(FieldCall {
+        module: Some("core".to_string()),
+        name: "apply_lane".to_string(),
+        args: vec![
+            ("lane".to_string(), Value::String(lane)),
+            ("fields".to_string(), Value::Object(fields)),
+        ],
+        directives: vec![],
+        selection: None,
+    })
+}
+
 fn parse_transition_step_as_set_fields_call(pair: Pair<Rule>) -> Result<FieldCall, GraphemeError> {
     let mut inner = pair.into_inner();
     let left_var = inner
@@ -737,6 +778,7 @@ fn parse_branch_target_value(pair: Pair<Rule>, state: &mut ParseState) -> Result
         }
         Rule::inline_target_step
         | Rule::transition_step
+        | Rule::apply_step
         | Rule::set_step
         | Rule::struct_init_step
         | Rule::field_call
@@ -843,6 +885,7 @@ fn parse_inline_target_step(
 
     match step_pair.as_rule() {
         Rule::transition_step => Ok(PipelineStep::Field(parse_transition_step_as_set_fields_call(step_pair)?)),
+        Rule::apply_step => Ok(PipelineStep::Field(parse_apply_step_as_apply_lane_call(step_pair)?)),
         Rule::set_step => Ok(PipelineStep::Field(parse_set_step_as_set_fields_call(step_pair)?)),
         Rule::struct_init_step => Ok(PipelineStep::StructInit(parse_struct_init_step(step_pair)?)),
         Rule::field_call => Ok(PipelineStep::Field(parse_field_call(step_pair)?)),

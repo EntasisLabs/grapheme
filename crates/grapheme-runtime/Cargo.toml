@@ -14,6 +14,7 @@ sha2 = "0.10"
 hex = "0.4"
 thiserror = "1.0"
 grapheme-artifact = { path = "../grapheme-artifact" }
+grapheme-signatures = { path = "../grapheme-signatures" }
 wasmer = { version = "7.2.0-alpha.2", optional = true, default-features = false }
 wasmer-types = { version = "7.2.0-alpha.2", optional = true }
 wasmer-wasix = { version = "0.702.0-alpha.2", optional = true, default-features = false, features = ["sys-default"] }
