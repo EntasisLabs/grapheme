@@ -277,6 +277,91 @@ pub fn validate_schema(args: &JsonValue) -> JsonValue {
     })
 }
 
+pub fn add(args: &JsonValue) -> JsonValue {
+    let Some(a) = core_arg_f64(args, "a") else {
+        return json!({ "error": "missing numeric arg: a" });
+    };
+    let Some(b) = core_arg_f64(args, "b") else {
+        return json!({ "error": "missing numeric arg: b" });
+    };
+    json!(a + b)
+}
+
+pub fn sub(args: &JsonValue) -> JsonValue {
+    let Some(a) = core_arg_f64(args, "a") else {
+        return json!({ "error": "missing numeric arg: a" });
+    };
+    let Some(b) = core_arg_f64(args, "b") else {
+        return json!({ "error": "missing numeric arg: b" });
+    };
+    json!(a - b)
+}
+
+pub fn inc(args: &JsonValue) -> JsonValue {
+    let value = core_arg_f64(args, "value")
+        .or_else(|| args.get("__input").and_then(|v| v.as_f64()))
+        .unwrap_or(0.0);
+    json!(value + 1.0)
+}
+
+pub fn dec(args: &JsonValue) -> JsonValue {
+    let value = core_arg_f64(args, "value")
+        .or_else(|| args.get("__input").and_then(|v| v.as_f64()))
+        .unwrap_or(0.0);
+    json!(value - 1.0)
+}
+
+pub fn eq(args: &JsonValue) -> JsonValue {
+    let a = args.get("a").cloned().unwrap_or(JsonValue::Null);
+    let b = args.get("b").cloned().unwrap_or(JsonValue::Null);
+    json!({ "value": a == b })
+}
+
+pub fn lt(args: &JsonValue) -> JsonValue {
+    compare_numeric(args, |a, b| a < b)
+}
+
+pub fn gt(args: &JsonValue) -> JsonValue {
+    compare_numeric(args, |a, b| a > b)
+}
+
+pub fn gte(args: &JsonValue) -> JsonValue {
+    compare_numeric(args, |a, b| a >= b)
+}
+
+pub fn lte(args: &JsonValue) -> JsonValue {
+    compare_numeric(args, |a, b| a <= b)
+}
+
+pub fn inc_field(args: &JsonValue) -> JsonValue {
+    bump_field(args, 1.0)
+}
+
+pub fn dec_field(args: &JsonValue) -> JsonValue {
+    bump_field(args, -1.0)
+}
+
+pub fn set_fields(args: &JsonValue) -> JsonValue {
+    let fields = args
+        .get("fields")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut input = args
+        .get("input")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .or_else(|| args.get("__input").and_then(|v| v.as_object()).cloned())
+        .unwrap_or_default();
+
+    for (key, value) in fields {
+        input.insert(key, value);
+    }
+
+    JsonValue::Object(input)
+}
+
 pub fn split(args: &JsonValue) -> JsonValue {
     let text = core_arg_text(args, "text");
     let sep = args.get("sep").and_then(|v| v.as_str()).unwrap_or(",");
@@ -461,4 +546,37 @@ fn core_arg_text(args: &JsonValue, key: &str) -> String {
         .map(ToOwned::to_owned)
         .or_else(|| args.get("__input").and_then(|v| v.as_str()).map(ToOwned::to_owned))
         .unwrap_or_default()
+}
+
+fn core_arg_f64(args: &JsonValue, key: &str) -> Option<f64> {
+    args.get(key)
+        .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok())))
+}
+
+fn compare_numeric(args: &JsonValue, pred: fn(f64, f64) -> bool) -> JsonValue {
+    let Some(a) = core_arg_f64(args, "a") else {
+        return json!({ "error": "missing numeric arg: a" });
+    };
+    let Some(b) = core_arg_f64(args, "b") else {
+        return json!({ "error": "missing numeric arg: b" });
+    };
+    json!({ "value": pred(a, b) })
+}
+
+fn bump_field(args: &JsonValue, delta: f64) -> JsonValue {
+    let field = args.get("field").and_then(|v| v.as_str()).unwrap_or("");
+    if field.is_empty() {
+        return json!({ "error": "missing arg: field" });
+    }
+
+    let mut input = args
+        .get("input")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .or_else(|| args.get("__input").and_then(|v| v.as_object()).cloned())
+        .unwrap_or_default();
+
+    let current = input.get(field).and_then(|v| v.as_f64()).unwrap_or(0.0);
+    input.insert(field.to_string(), json!(current + delta));
+    JsonValue::Object(input)
 }

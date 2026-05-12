@@ -1,7 +1,7 @@
-import Core from "grapheme/core"
+import core from "grapheme/core"
 
 query CoreFilterDemo {
-  Core.filter(
+  core.filter(
     items: [
       { id: 1, status: "active" },
       { id: 2, status: "inactive" },

@@ -1,7 +1,7 @@
-import IO from "grapheme/io"
+import io from "grapheme/io"
 
 query ListWorkspace {
-  IO.list_dir(path: "./bin") {
+  io.list_dir(path: "./bin") {
     state { current }
   }
 }

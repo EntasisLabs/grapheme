@@ -30,6 +30,12 @@ enum RunOutputMode {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DiscoveryOutputMode {
+    Yaml,
+    Json,
+}
+
 struct RunOptions {
     bindings: Vec<(String, PathBuf)>,
     output_mode: RunOutputMode,
@@ -124,6 +130,11 @@ fn run(args: Vec<String>) -> Result<(), CompilerError> {
         ));
     }
 
+    if args.len() == 2 && matches!(args[1].as_str(), "help" | "--help" | "-h") {
+        print_usage();
+        return Ok(());
+    }
+
     // Backwards-compatible mode: `grapheme file.gr` maps to parse.
     if args.len() == 2
         && args[1] != "parse"
@@ -132,20 +143,14 @@ fn run(args: Vec<String>) -> Result<(), CompilerError> {
         && args[1] != "plugins"
         && args[1] != "modules"
     {
-        return emit_parse(&args[1]);
+        return emit_parse(&args[1], DiscoveryOutputMode::Yaml);
     }
 
     match args[1].as_str() {
         "parse" => {
-            if args.len() != 3 {
-                print_usage();
-                return Err(CompilerError::RuntimeError(
-                    "parse requires exactly one file path".to_string(),
-                ));
-            }
-            emit_parse(&args[2])
+            emit_parse_cmd(&args[2..])
         }
-        "compile" => emit_compile(&args),
+        "compile" => emit_compile_cmd(&args[2..]),
         "plugins" => emit_plugins(&args),
         "run" => {
             if args.len() < 3 {
@@ -350,48 +355,54 @@ fn plugin_spec_by_name(name: &str) -> Option<&'static PluginBuildSpec> {
     PLUGIN_BUILD_SPECS.iter().find(|spec| spec.name == name)
 }
 
-fn emit_modules() -> Result<(), CompilerError> {
+fn emit_modules(mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
     let manifests = grapheme_runtime::core_v1_manifests();
-    print_json(&manifests)
+    print_discovery(&manifests, mode)
 }
 
 fn emit_modules_cmd(args: &[String]) -> Result<(), CompilerError> {
-    if args.is_empty() {
-        return emit_modules();
+    let (mode, cmd_args) = parse_discovery_args(args)?;
+
+    if cmd_args.is_empty() {
+        return emit_modules(mode);
     }
 
-    match args[0].as_str() {
+    match cmd_args[0].as_str() {
+        "help" | "--help" | "-h" => {
+            print_modules_usage();
+            Ok(())
+        }
         "search" => {
-            if args.len() != 2 {
+            if cmd_args.len() != 2 {
                 return Err(CompilerError::RuntimeError(
                     "modules search requires a query".to_string(),
                 ));
             }
-            emit_modules_search(&args[1])
+            emit_modules_search(&cmd_args[1], mode)
         }
         "info" => {
-            if args.len() != 2 {
+            if cmd_args.len() != 2 {
                 return Err(CompilerError::RuntimeError(
                     "modules info requires a module id".to_string(),
                 ));
             }
-            emit_modules_info(&args[1])
+            emit_modules_info(&cmd_args[1], mode)
         }
         "types" => {
-            if args.len() != 2 {
+            if cmd_args.len() != 2 {
                 return Err(CompilerError::RuntimeError(
                     "modules types requires a module id".to_string(),
                 ));
             }
-            emit_modules_types(&args[1])
+            emit_modules_types(&cmd_args[1], mode)
         }
         "examples" => {
-            if args.len() != 2 {
+            if cmd_args.len() != 2 {
                 return Err(CompilerError::RuntimeError(
                     "modules examples requires a module id".to_string(),
                 ));
             }
-            emit_modules_examples(&args[1])
+            emit_modules_examples(&cmd_args[1], mode)
         }
         other => Err(CompilerError::RuntimeError(format!(
             "unknown modules subcommand '{}'; expected search|info|types|examples",
@@ -400,7 +411,30 @@ fn emit_modules_cmd(args: &[String]) -> Result<(), CompilerError> {
     }
 }
 
-fn emit_modules_search(query: &str) -> Result<(), CompilerError> {
+fn parse_discovery_args(args: &[String]) -> Result<(DiscoveryOutputMode, Vec<String>), CompilerError> {
+    let mut mode = DiscoveryOutputMode::Yaml;
+    let mut cmd_args = Vec::new();
+
+    for arg in args {
+        match arg.as_str() {
+            "--yaml" => mode = DiscoveryOutputMode::Yaml,
+            "--json" => mode = DiscoveryOutputMode::Json,
+            _ => cmd_args.push(arg.clone()),
+        }
+    }
+
+    Ok((mode, cmd_args))
+}
+
+fn parse_structured_output_flag(flag: &str) -> Option<DiscoveryOutputMode> {
+    match flag {
+        "--yaml" => Some(DiscoveryOutputMode::Yaml),
+        "--json" => Some(DiscoveryOutputMode::Json),
+        _ => None,
+    }
+}
+
+fn emit_modules_search(query: &str, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
     let q = query.to_lowercase();
     let matches = grapheme_runtime::core_v1_manifests()
         .into_iter()
@@ -413,7 +447,7 @@ fn emit_modules_search(query: &str) -> Result<(), CompilerError> {
         .map(|m| m.module_id)
         .collect::<Vec<_>>();
 
-    print_json(&matches)
+    print_discovery(&matches, mode)
 }
 
 fn find_manifest(module: &str) -> Result<grapheme_runtime::ModuleManifest, CompilerError> {
@@ -423,12 +457,12 @@ fn find_manifest(module: &str) -> Result<grapheme_runtime::ModuleManifest, Compi
         .ok_or_else(|| CompilerError::RuntimeError(format!("unknown module '{}'", module)))
 }
 
-fn emit_modules_info(module: &str) -> Result<(), CompilerError> {
+fn emit_modules_info(module: &str, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
     let manifest = find_manifest(module)?;
-    print_json(&manifest)
+    print_discovery(&manifest, mode)
 }
 
-fn emit_modules_types(module: &str) -> Result<(), CompilerError> {
+fn emit_modules_types(module: &str, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
     let manifest = find_manifest(module)?;
     let types = manifest
         .exported_ops
@@ -443,18 +477,17 @@ fn emit_modules_types(module: &str) -> Result<(), CompilerError> {
         })
         .collect::<Vec<_>>();
 
-    print_json(&json!({
+    print_discovery(&json!({
         "module_id": manifest.module_id,
         "types": types,
-    }))
+    }), mode)
 }
 
-fn emit_modules_examples(module: &str) -> Result<(), CompilerError> {
+fn emit_modules_examples(module: &str, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
     let module_id = module.to_lowercase();
     let examples: &[&str] = match module_id.as_str() {
         "http" => &["examples/http-get.gr"],
         "websearch" => &[
-            "examples/websearch-basic.gr",
             "examples/websearch-materials.gr",
             "examples/websearch-report.gr",
         ],
@@ -463,19 +496,12 @@ fn emit_modules_examples(module: &str) -> Result<(), CompilerError> {
         "io" => &["examples/io-list.gr"],
         "memory" => &["examples/memory-roundtrip.gr"],
         "secrets" => &["examples/secrets-handle.gr", "examples/secrets-sign.gr"],
-        "json" | "csv" | "yaml" | "html" => &[
-            "examples/request-transform-output.gr",
-            "examples/transform-cookbook/yaml-json-parse-field.gr",
-            "examples/transform-cookbook/csv-to-json-envelope.gr",
-            "examples/transform-cookbook/http-html-markdown.gr",
-        ],
+        "json" | "csv" | "yaml" | "html" => &["examples/request-transform-output.gr"],
         "core" => &[
             "examples/core-merge.gr",
             "examples/core-filter.gr",
-            "examples/transform-cookbook/core-string-ops.gr",
-            "examples/transform-cookbook/core-list-ops.gr",
-            "examples/transform-cookbook/core-reduce-modes.gr",
-            "examples/transform-cookbook/core-path-ops.gr",
+            "examples/core-validate-schema.gr",
+            "examples/mutation-update-preferences.gr",
         ],
         _ => &[],
     };
@@ -487,10 +513,10 @@ fn emit_modules_examples(module: &str) -> Result<(), CompilerError> {
         )));
     }
 
-    print_json(&json!({
+    print_discovery(&json!({
         "module_id": module_id,
         "examples": examples,
-    }))
+    }), mode)
 }
 
 #[derive(Serialize)]
@@ -911,24 +937,58 @@ fn parse_usize_flag(flag: &str, value: &str) -> Result<usize, CompilerError> {
     })
 }
 
-fn emit_parse(file_path: &str) -> Result<(), CompilerError> {
+fn emit_parse_cmd(args: &[String]) -> Result<(), CompilerError> {
+    if args.is_empty() {
+        print_usage();
+        return Err(CompilerError::RuntimeError(
+            "parse requires a file path".to_string(),
+        ));
+    }
+
+    let file_path = args[0].as_str();
+    let mut output_mode = DiscoveryOutputMode::Yaml;
+
+    for flag in &args[1..] {
+        if let Some(mode) = parse_structured_output_flag(flag) {
+            output_mode = mode;
+            continue;
+        }
+
+        return Err(CompilerError::RuntimeError(format!(
+            "unknown parse flag '{}'",
+            flag
+        )));
+    }
+
+    emit_parse(file_path, output_mode)
+}
+
+fn emit_parse(file_path: &str, output_mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
     let source = read_source(file_path)?;
     let program = grapheme_compiler::parse(&source)?;
-    print_json(&program)?;
+    print_discovery(&program, output_mode)?;
     Ok(())
 }
 
-fn emit_compile(args: &[String]) -> Result<(), CompilerError> {
-    if args.len() < 3 {
+fn emit_compile_cmd(args: &[String]) -> Result<(), CompilerError> {
+    if args.is_empty() {
         print_usage();
         return Err(CompilerError::RuntimeError(
             "compile requires a file path".to_string(),
         ));
     }
 
+    let file_path = args[0].as_str();
     let mut emit_target = "mir".to_string();
-    let mut i = 3;
+    let mut output_mode = DiscoveryOutputMode::Yaml;
+    let mut i = 1;
     while i < args.len() {
+        if let Some(mode) = parse_structured_output_flag(&args[i]) {
+            output_mode = mode;
+            i += 1;
+            continue;
+        }
+
         match args[i].as_str() {
             "--emit" => {
                 if i + 1 >= args.len() {
@@ -948,17 +1008,17 @@ fn emit_compile(args: &[String]) -> Result<(), CompilerError> {
         }
     }
 
-    let source = read_source(&args[2])?;
+    let source = read_source(file_path)?;
     let compilation = grapheme_compiler::compile(&source)?;
 
     match emit_target.as_str() {
-        "ast" => print_json(&compilation.ast)?,
-        "hir" => print_json(&compilation.hir)?,
-        "mir" => print_json(&compilation.mir)?,
+        "ast" => print_discovery(&compilation.ast, output_mode)?,
+        "hir" => print_discovery(&compilation.hir, output_mode)?,
+        "mir" => print_discovery(&compilation.mir, output_mode)?,
         "artifact" => {
             let artifact = grapheme_artifact::build_artifact_from_mir(&compilation.mir, None)
                 .map_err(|e| CompilerError::ArtifactEmitError(e.to_string()))?;
-            print_json(&artifact)?;
+            print_discovery(&artifact, output_mode)?;
         }
         other => {
             return Err(CompilerError::RuntimeError(format!(
@@ -983,20 +1043,44 @@ fn print_json<T: serde::Serialize>(value: &T) -> Result<(), CompilerError> {
     Ok(())
 }
 
+fn print_discovery<T: serde::Serialize>(value: &T, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
+    match mode {
+        DiscoveryOutputMode::Json => print_json(value),
+        DiscoveryOutputMode::Yaml => {
+            let yaml = serde_yaml::to_string(value)
+                .map_err(|e| CompilerError::RuntimeError(format!("serialize output: {e}")))?;
+            print!("{yaml}");
+            Ok(())
+        }
+    }
+}
+
 fn print_usage() {
     eprintln!("usage:");
     eprintln!("  grapheme <file.gr>");
-    eprintln!("  grapheme parse <file.gr>");
-    eprintln!("  grapheme compile <file.gr> --emit ast|hir|mir|artifact");
+    eprintln!("  grapheme parse <file.gr> [--yaml|--json]");
+    eprintln!("  grapheme compile <file.gr> [--emit ast|hir|mir|artifact] [--yaml|--json]");
     eprintln!("  grapheme plugins build [all|core|io ...]");
     eprintln!("  grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules] [--stream-steps]");
     eprintln!("               [--trace-profile lean|debug] [--trace-steps N]");
     eprintln!("               [--trace-projection minimal|full] [--trace-max-string-bytes N]");
-    eprintln!("  grapheme modules");
-    eprintln!("  grapheme modules search <query>");
-    eprintln!("  grapheme modules info <module>");
-    eprintln!("  grapheme modules types <module>");
-    eprintln!("  grapheme modules examples <module>");
+    eprintln!("  grapheme modules [--yaml|--json]");
+    eprintln!("  grapheme modules search <query> [--yaml|--json]");
+    eprintln!("  grapheme modules info <module> [--yaml|--json]");
+    eprintln!("  grapheme modules types <module> [--yaml|--json]");
+    eprintln!("  grapheme modules examples <module> [--yaml|--json]");
+    eprintln!("  grapheme help");
+}
+
+fn print_modules_usage() {
+    eprintln!("usage:");
+    eprintln!("  grapheme modules [--yaml|--json]");
+    eprintln!("  grapheme modules search <query> [--yaml|--json]");
+    eprintln!("  grapheme modules info <module> [--yaml|--json]");
+    eprintln!("  grapheme modules types <module> [--yaml|--json]");
+    eprintln!("  grapheme modules examples <module> [--yaml|--json]");
+    eprintln!("\nnotes:");
+    eprintln!("  --yaml is the default for modules discovery output");
 }
 
 #[cfg(test)]
@@ -1088,6 +1172,42 @@ mod tests {
                 .and_then(|v| v.as_str()),
             Some("collecting")
         );
+    }
+
+    #[test]
+    fn core_math_and_comparison_ops_are_live() {
+        let add = dispatch_std("core", "add", &json!({ "a": 7, "b": 5 }));
+        let sub = dispatch_std("core", "sub", &json!({ "a": 7, "b": 5 }));
+        let gt = dispatch_std("core", "gt", &json!({ "a": 7, "b": 5 }));
+        let eq = dispatch_std("core", "eq", &json!({ "a": "x", "b": "x" }));
+
+        assert_eq!(add, json!(12.0));
+        assert_eq!(sub, json!(2.0));
+        assert_eq!(gt.get("value").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(eq.get("value").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    #[test]
+    fn core_field_mutation_ops_are_live() {
+        let inc = dispatch_std(
+            "core",
+            "inc_field",
+            &json!({ "field": "count", "input": { "count": 3 } }),
+        );
+        let dec = dispatch_std(
+            "core",
+            "dec_field",
+            &json!({ "field": "count", "input": { "count": 3 } }),
+        );
+        let set = dispatch_std(
+            "core",
+            "set_fields",
+            &json!({ "fields": { "status": "ok" }, "input": { "count": 1 } }),
+        );
+
+        assert_eq!(inc.get("count").and_then(|v| v.as_f64()), Some(4.0));
+        assert_eq!(dec.get("count").and_then(|v| v.as_f64()), Some(2.0));
+        assert_eq!(set.get("status").and_then(|v| v.as_str()), Some("ok"));
     }
 
 }

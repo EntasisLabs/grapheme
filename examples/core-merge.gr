@@ -1,7 +1,7 @@
-import Core from "grapheme/core"
+import core from "grapheme/core"
 
 query CoreMergeDemo {
-  Core.merge(
+  core.merge(
     left: { language: "grapheme", version: "0.1", mode: "dev" },
     right: { mode: "runtime-native", wasm: true }
   ) {

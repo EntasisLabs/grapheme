@@ -1,13 +1,13 @@
-import Core from "grapheme/core"
+import core from "grapheme/core"
 
 subscription HeartbeatStream {
-  Core.merge(
+  core.merge(
     left: { event: "heartbeat", source: "agent-runtime" },
     right: { sequence: 1, active: true }
   ) {
     state { current }
   }
-  |> Core.echo() {
+  |> core.echo() {
     state { current pipeline }
   }
 }

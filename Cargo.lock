@@ -1617,6 +1617,7 @@ dependencies = [
  "grapheme-stdlib",
  "serde",
  "serde_json",
+ "serde_yaml",
 ]
 
 [[package]]
@@ -1659,6 +1660,7 @@ version = "0.1.0"
 dependencies = [
  "grapheme-artifact",
  "grapheme-signatures",
+ "grapheme-stdlib",
  "hex",
  "serde",
  "serde_json",
@@ -1680,6 +1682,7 @@ version = "0.1.0"
 dependencies = [
  "csv",
  "ehttp",
+ "grapheme-signatures",
  "html-to-markdown-rs",
  "serde_json",
  "serde_yaml",

@@ -1,7 +1,7 @@
-import Core from "grapheme/core"
+import core from "grapheme/core"
 
 query HelloWorld {
-  Core.echo(message: "LETS GO?!!!!!") {
+  core.echo(message: "LETS GO?!!!!!") {
     state { current }
   }
 }

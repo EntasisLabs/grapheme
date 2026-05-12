@@ -90,6 +90,27 @@ const CORE_OPS: &[RegisteredOp] = &[
         op: "validate_schema",
         handler: core::validate_schema,
     },
+    RegisteredOp { op: "add", handler: core::add },
+    RegisteredOp { op: "sub", handler: core::sub },
+    RegisteredOp { op: "inc", handler: core::inc },
+    RegisteredOp { op: "dec", handler: core::dec },
+    RegisteredOp { op: "eq", handler: core::eq },
+    RegisteredOp { op: "lt", handler: core::lt },
+    RegisteredOp { op: "gt", handler: core::gt },
+    RegisteredOp { op: "gte", handler: core::gte },
+    RegisteredOp { op: "lte", handler: core::lte },
+    RegisteredOp {
+        op: "inc_field",
+        handler: core::inc_field,
+    },
+    RegisteredOp {
+        op: "dec_field",
+        handler: core::dec_field,
+    },
+    RegisteredOp {
+        op: "set_fields",
+        handler: core::set_fields,
+    },
     RegisteredOp { op: "split", handler: core::split },
     RegisteredOp { op: "join", handler: core::join },
     RegisteredOp {
@@ -143,11 +164,51 @@ const HTML_OPS: &[RegisteredOp] = &[
     },
 ];
 
+const EXPLICIT_UNSUPPORTED_SIGNATURE_OPS: &[(&str, &str)] = &[];
+
 pub fn dispatch(module: &str, op: &str, args: &JsonValue) -> Option<JsonValue> {
     REGISTERED_MODULES
         .iter()
         .find(|m| m.module_id == module)
         .and_then(|m| (m.handler)(op, args))
+}
+
+pub fn is_registered_op(module: &str, op: &str) -> bool {
+    match module {
+        "core" => CORE_OPS.iter().any(|entry| entry.op == op),
+        "http" => matches!(op, "get" | "post"),
+        "web" => matches!(op, "duckduckgo" | "google" | "xaviv" | "providers" | "capabilities"),
+        "websearch" => matches!(op, "search" | "research_materials" | "research_report"),
+        "tcp" => matches!(op, "connect" | "send" | "receive"),
+        "smtp" => matches!(op, "send_mail"),
+        "html" => HTML_OPS.iter().any(|entry| entry.op == op),
+        "json" => JSON_OPS.iter().any(|entry| entry.op == op),
+        "csv" => CSV_OPS.iter().any(|entry| entry.op == op),
+        "yaml" => YAML_OPS.iter().any(|entry| entry.op == op),
+        _ => false,
+    }
+}
+
+pub fn registered_ops_for_module(module: &str) -> Vec<&'static str> {
+    match module {
+        "core" => CORE_OPS.iter().map(|entry| entry.op).collect(),
+        "http" => vec!["get", "post"],
+        "web" => vec!["duckduckgo", "google", "xaviv", "providers", "capabilities"],
+        "websearch" => vec!["search", "research_materials", "research_report"],
+        "tcp" => vec!["connect", "send", "receive"],
+        "smtp" => vec!["send_mail"],
+        "html" => HTML_OPS.iter().map(|entry| entry.op).collect(),
+        "json" => JSON_OPS.iter().map(|entry| entry.op).collect(),
+        "csv" => CSV_OPS.iter().map(|entry| entry.op).collect(),
+        "yaml" => YAML_OPS.iter().map(|entry| entry.op).collect(),
+        _ => Vec::new(),
+    }
+}
+
+pub fn is_explicitly_unsupported_signature_op(module: &str, op: &str) -> bool {
+    EXPLICIT_UNSUPPORTED_SIGNATURE_OPS
+        .iter()
+        .any(|(m, o)| *m == module && *o == op)
 }
 
 fn dispatch_core(op: &str, args: &JsonValue) -> Option<JsonValue> {
@@ -533,7 +594,21 @@ impl ResearchReportRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use grapheme_signatures::op_specs;
     use serde_json::json;
+
+    const SIGNATURE_SCOPE_MODULES: &[&str] = &[
+        "core",
+        "http",
+        "web",
+        "websearch",
+        "tcp",
+        "smtp",
+        "html",
+        "json",
+        "csv",
+        "yaml",
+    ];
 
     #[test]
     fn tcp_send_request_reads_target_and_data_from_pipeline_input_object() {
@@ -616,6 +691,28 @@ mod tests {
         assert_eq!(
             normalized.get("report_chars").and_then(|v| v.as_u64()),
             Some(3000)
+        );
+    }
+
+    #[test]
+    fn signature_scope_ops_are_registered_or_explicitly_unsupported() {
+        let mut missing = Vec::new();
+
+        for spec in op_specs()
+            .iter()
+            .filter(|spec| SIGNATURE_SCOPE_MODULES.contains(&spec.module))
+        {
+            if !is_registered_op(spec.module, spec.op)
+                && !is_explicitly_unsupported_signature_op(spec.module, spec.op)
+            {
+                missing.push(format!("{}.{}", spec.module, spec.op));
+            }
+        }
+
+        assert!(
+            missing.is_empty(),
+            "signature ops missing registry coverage: {}",
+            missing.join(", ")
         );
     }
 }

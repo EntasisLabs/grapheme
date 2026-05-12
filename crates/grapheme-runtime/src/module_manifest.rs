@@ -314,3 +314,81 @@ fn effect_from_signature(effect: SignatureEffect) -> EffectKind {
         SignatureEffect::Control => EffectKind::Control,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    const STDLIB_SCOPE_MODULES: &[&str] = &[
+        "core",
+        "http",
+        "web",
+        "websearch",
+        "tcp",
+        "smtp",
+        "html",
+        "json",
+        "csv",
+        "yaml",
+    ];
+
+    #[test]
+    fn manifest_ops_are_registered_or_explicitly_unsupported_for_stdlib_scope() {
+        let manifests = core_v1_manifests();
+        let mut missing = Vec::new();
+
+        for manifest in manifests
+            .iter()
+            .filter(|m| STDLIB_SCOPE_MODULES.contains(&m.module_id.as_str()))
+        {
+            for op in &manifest.exported_ops {
+                if !grapheme_stdlib::registry::is_registered_op(&manifest.module_id, &op.op)
+                    && !grapheme_stdlib::registry::is_explicitly_unsupported_signature_op(
+                        &manifest.module_id,
+                        &op.op,
+                    )
+                {
+                    missing.push(format!("{}.{}", manifest.module_id, op.op));
+                }
+            }
+        }
+
+        assert!(
+            missing.is_empty(),
+            "manifest ops missing stdlib coverage: {}",
+            missing.join(", ")
+        );
+    }
+
+    #[test]
+    fn stdlib_registered_ops_exist_in_runtime_manifests_for_stdlib_scope() {
+        let manifests = core_v1_manifests();
+        let mut missing = Vec::new();
+
+        for module in STDLIB_SCOPE_MODULES {
+            let Some(manifest) = manifests.iter().find(|m| m.module_id == *module) else {
+                missing.push(format!("missing manifest for module '{module}'"));
+                continue;
+            };
+
+            let manifest_ops = manifest
+                .exported_ops
+                .iter()
+                .map(|op| op.op.as_str())
+                .collect::<HashSet<_>>();
+
+            for op in grapheme_stdlib::registry::registered_ops_for_module(module) {
+                if !manifest_ops.contains(op) {
+                    missing.push(format!("{module}.{op}"));
+                }
+            }
+        }
+
+        assert!(
+            missing.is_empty(),
+            "stdlib registered ops missing from runtime manifests: {}",
+            missing.join(", ")
+        );
+    }
+}

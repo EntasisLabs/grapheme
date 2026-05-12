@@ -19,3 +19,6 @@ wasmer = { version = "7.2.0-alpha.2", optional = true, default-features = false 
 wasmer-types = { version = "7.2.0-alpha.2", optional = true }
 wasmer-wasix = { version = "0.702.0-alpha.2", optional = true, default-features = false, features = ["sys-default"] }
 tokio = { version = "1", optional = true, features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+grapheme-stdlib = { path = "../grapheme-stdlib" }

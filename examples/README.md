@@ -1,91 +1,47 @@
 # Examples
 
-The examples directory is curated by intent so you can find runnable programs quickly.
+This directory now prioritizes a small, high-signal set of canonical examples for the stdlib surface.
 
-Use this page as the source of truth for which examples to demo and learn first.
+Canonical examples prefer the newer language sugar when behavior is stateful/branching (`set`, `transition`, inline `if/match`, bare iterator invocation).
 
-## Canonical Starter Set
+## Canonical Stdlib Set
 
-If you only run a handful of programs, use these.
-
-### Primitive Language Examples
+Run these first:
 
 - `hello-world.gr`
 - `core-merge.gr`
 - `core-filter.gr`
 - `core-validate-schema.gr`
-- `fibonacci-sequence.gr` (static loop/each list walk)
-- `fibonacci-computed.gr` (computed loop progression)
-
-### Module-Using Examples
-
+- `mutation-update-preferences.gr`
 - `http-get.gr`
-- `websearch-basic.gr`
+- `request-transform-output.gr`
 - `websearch-materials.gr`
 - `websearch-report.gr`
-- `tcp-connect.gr`
-- `smtp-send.gr`
 - `io-list.gr`
 - `memory-roundtrip.gr`
+- `tcp-connect.gr`
+- `smtp-send.gr`
 - `secrets-handle.gr`
 - `secrets-sign.gr`
-- `request-transform-output.gr`
-- `docs-native-modules.gr`
 
-Pipeline tip (important):
+Pipeline tip:
 
-- Every step rewrites `$current`.
-- Example: `core.echo(message: "$current.url")` changes `$current` to an echo-shaped object, so downstream steps expecting `$current.url` may fail.
-- In `websearch-basic.gr`, call `http.get(url: "$current.url")` before echoing derived text.
+- Every step rewrites `$current`, so prefer extracting fields (`core.get_path`, `core.pick`) before replacing shape-heavy payloads with `core.echo`.
 
-### Workflow/Control-Plane Showcases
+## Legacy and Exploratory
 
-- `showcase/release-control-tower-compact.gr`
-- `showcase/blue-green-cutover.gr`
-- `showcase/feature-flag-progressive-rollout.gr`
-- `showcase/oncall-escalation-ladder.gr`
-- `showcase/websearch-decision-loop.gr`
-- `showcase/state-data-convention.gr`
+Earlier exploratory material is preserved under `examples/legacy/`.
 
-See `examples/showcase/README.md` for scenario details and live-demo toggle ideas.
+- `examples/legacy/showcase/`
+- `examples/legacy/transform-cookbook/`
+- older ad-hoc experiments and transitional files
 
-## Extended Sets
+## Fixtures
 
-- Transform cookbook: `examples/transform-cookbook/README.md`
-- Additional showcase programs: `examples/showcase/README.md`
+Compatibility and verifier fixtures remain in `examples/fixtures/`.
 
-## Verification and Historical Files
-
-These are kept for compatibility checks, regression fixtures, and earlier design exploration.
-
-- `fixtures/v1-*.gr` files: parser/verifier/runtime fixtures and policy edge cases.
-- `fixtures/type-error-http-url.gr`: negative type-check fixture.
-
-## Run Commands
-
-Run a root-level example:
+## Run
 
 ```bash
 cargo run -- run examples/<file>.gr --native-modules
-```
-
-Run any showcase program:
-
-```bash
-cargo run -- run examples/showcase/<file>.gr --native-modules
-```
-
-Optional output formats:
-
-```bash
-cargo run -- run examples/showcase/<file>.gr --native-modules --json
-cargo run -- run examples/showcase/<file>.gr --native-modules --stream-steps
-```
-
-## Quick Smoke Path
-
-```bash
-cargo run -- run examples/hello-world.gr --native-modules
-cargo run -- run examples/io-list.gr --native-modules
-cargo run -- run examples/showcase/release-control-tower-compact.gr --native-modules
 ```

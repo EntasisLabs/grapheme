@@ -1,7 +1,7 @@
-import TCP from "grapheme/tcp"
+import tcp from "grapheme/tcp"
 
 query TcpConnectDemo {
-  TCP.connect(target: "127.0.0.1:8080") {
+  tcp.connect(target: "127.0.0.1:8080") {
     state { current }
   }
 }

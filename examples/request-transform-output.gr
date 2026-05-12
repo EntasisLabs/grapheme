@@ -1,22 +1,22 @@
-import HTTP from "grapheme/http"
-import Core from "grapheme/core"
+import http from "grapheme/http"
+import core from "grapheme/core"
 
 query RequestTransformOutputDemo {
-  HTTP.get(url: "https://httpbin.org/get") {
+  http.get(url: "https://httpbin.org/get") {
     state { current }
   }
-  |> Core.pick(
+  |> core.pick(
     fields: ["status", "method", "url", "body"]
   ) {
     state { current }
   }
-|> Core.map(
+|> core.map(
     identifier: "body"
     ,field: "args"
 ){
   state {current pipeline}
 }
-  |> Core.echo() {
+  |> core.echo() {
     state { current pipeline }
   }
 }
