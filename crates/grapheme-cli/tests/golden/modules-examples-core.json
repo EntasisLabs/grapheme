@@ -1,0 +1,9 @@
+{
+  "examples": [
+    "examples/core-merge.gr",
+    "examples/core-filter.gr",
+    "examples/core-validate-schema.gr",
+    "examples/mutation-update-preferences.gr"
+  ],
+  "module_id": "core"
+}

@@ -6,7 +6,7 @@
 ///    grapheme compile <file.gr> --emit ast|hir|mir|artifact
 ///    grapheme plugins build [all|core|io ...]
 ///    grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules]
-///    grapheme modules [search <query> | info <module> | types <module> | examples <module>]
+///    grapheme modules [search <query> | ops <query> | info <module> | types <module> | examples <module>]
 /// ─────────────────────────────────────────────────────────────
 
 use grapheme_artifact::{ExecutionResult, MirInst};
@@ -380,6 +380,14 @@ fn emit_modules_cmd(args: &[String]) -> Result<(), CompilerError> {
             }
             emit_modules_search(&cmd_args[1], mode)
         }
+        "ops" => {
+            if cmd_args.len() != 2 {
+                return Err(CompilerError::RuntimeError(
+                    "modules ops requires a query".to_string(),
+                ));
+            }
+            emit_modules_ops(&cmd_args[1], mode)
+        }
         "info" => {
             if cmd_args.len() != 2 {
                 return Err(CompilerError::RuntimeError(
@@ -405,7 +413,7 @@ fn emit_modules_cmd(args: &[String]) -> Result<(), CompilerError> {
             emit_modules_examples(&cmd_args[1], mode)
         }
         other => Err(CompilerError::RuntimeError(format!(
-            "unknown modules subcommand '{}'; expected search|info|types|examples",
+            "unknown modules subcommand '{}'; expected search|ops|info|types|examples",
             other
         ))),
     }
@@ -448,6 +456,54 @@ fn emit_modules_search(query: &str, mode: DiscoveryOutputMode) -> Result<(), Com
         .collect::<Vec<_>>();
 
     print_discovery(&matches, mode)
+}
+
+fn emit_modules_ops(query: &str, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
+    let q = query.to_lowercase();
+    let mut matches = Vec::new();
+
+    for manifest in grapheme_runtime::core_v1_manifests() {
+        let module_id = manifest.module_id;
+        let module_match = module_id.to_lowercase().contains(&q);
+
+        for op in manifest.exported_ops {
+            let full = format!("{}.{}", module_id, op.op);
+            if module_match
+                || op.op.to_lowercase().contains(&q)
+                || full.to_lowercase().contains(&q)
+            {
+                matches.push(json!({
+                    "module_id": module_id,
+                    "op": op.op,
+                    "effect": op.effect,
+                    "input_schema_ref": op.input_schema_ref,
+                    "output_schema_ref": op.output_schema_ref,
+                }));
+            }
+        }
+    }
+
+    matches.sort_by(|a, b| {
+        let a_module = a
+            .get("module_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let b_module = b
+            .get("module_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let a_op = a.get("op").and_then(|v| v.as_str()).unwrap_or_default();
+        let b_op = b.get("op").and_then(|v| v.as_str()).unwrap_or_default();
+        a_module.cmp(b_module).then(a_op.cmp(b_op))
+    });
+
+    print_discovery(
+        &json!({
+            "query": query,
+            "matches": matches,
+        }),
+        mode,
+    )
 }
 
 fn find_manifest(module: &str) -> Result<grapheme_runtime::ModuleManifest, CompilerError> {
@@ -1043,16 +1099,19 @@ fn print_json<T: serde::Serialize>(value: &T) -> Result<(), CompilerError> {
     Ok(())
 }
 
-fn print_discovery<T: serde::Serialize>(value: &T, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
+fn format_discovery<T: serde::Serialize>(value: &T, mode: DiscoveryOutputMode) -> Result<String, CompilerError> {
     match mode {
-        DiscoveryOutputMode::Json => print_json(value),
-        DiscoveryOutputMode::Yaml => {
-            let yaml = serde_yaml::to_string(value)
-                .map_err(|e| CompilerError::RuntimeError(format!("serialize output: {e}")))?;
-            print!("{yaml}");
-            Ok(())
-        }
+        DiscoveryOutputMode::Json => serde_json::to_string_pretty(value)
+            .map_err(|e| CompilerError::RuntimeError(format!("serialize output: {e}"))),
+        DiscoveryOutputMode::Yaml => serde_yaml::to_string(value)
+            .map_err(|e| CompilerError::RuntimeError(format!("serialize output: {e}"))),
     }
+}
+
+fn print_discovery<T: serde::Serialize>(value: &T, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
+    let output = format_discovery(value, mode)?;
+    print!("{output}");
+    Ok(())
 }
 
 fn print_usage() {
@@ -1066,6 +1125,7 @@ fn print_usage() {
     eprintln!("               [--trace-projection minimal|full] [--trace-max-string-bytes N]");
     eprintln!("  grapheme modules [--yaml|--json]");
     eprintln!("  grapheme modules search <query> [--yaml|--json]");
+    eprintln!("  grapheme modules ops <query> [--yaml|--json]");
     eprintln!("  grapheme modules info <module> [--yaml|--json]");
     eprintln!("  grapheme modules types <module> [--yaml|--json]");
     eprintln!("  grapheme modules examples <module> [--yaml|--json]");
@@ -1076,6 +1136,7 @@ fn print_modules_usage() {
     eprintln!("usage:");
     eprintln!("  grapheme modules [--yaml|--json]");
     eprintln!("  grapheme modules search <query> [--yaml|--json]");
+    eprintln!("  grapheme modules ops <query> [--yaml|--json]");
     eprintln!("  grapheme modules info <module> [--yaml|--json]");
     eprintln!("  grapheme modules types <module> [--yaml|--json]");
     eprintln!("  grapheme modules examples <module> [--yaml|--json]");
@@ -1087,6 +1148,10 @@ fn print_modules_usage() {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn normalized(s: &str) -> String {
+        s.replace("\r\n", "\n")
+    }
 
     fn dispatch_std(module: &str, op: &str, args: &JsonValue) -> JsonValue {
         grapheme_stdlib::registry::dispatch(module, op, args)
@@ -1208,6 +1273,186 @@ mod tests {
         assert_eq!(inc.get("count").and_then(|v| v.as_f64()), Some(4.0));
         assert_eq!(dec.get("count").and_then(|v| v.as_f64()), Some(2.0));
         assert_eq!(set.get("status").and_then(|v| v.as_str()), Some("ok"));
+    }
+
+    #[test]
+    fn golden_modules_examples_yaml_contract() {
+        let payload = json!({
+            "module_id": "core",
+            "examples": [
+                "examples/core-merge.gr",
+                "examples/core-filter.gr",
+                "examples/core-validate-schema.gr",
+                "examples/mutation-update-preferences.gr"
+            ]
+        });
+
+        let actual = format_discovery(&payload, DiscoveryOutputMode::Yaml)
+            .expect("yaml format should succeed");
+        let expected = include_str!("../tests/golden/modules-examples-core.yaml");
+        assert_eq!(normalized(&actual), normalized(expected));
+    }
+
+    #[test]
+    fn golden_modules_examples_json_contract() {
+        let payload = json!({
+            "module_id": "core",
+            "examples": [
+                "examples/core-merge.gr",
+                "examples/core-filter.gr",
+                "examples/core-validate-schema.gr",
+                "examples/mutation-update-preferences.gr"
+            ]
+        });
+
+        let actual = format_discovery(&payload, DiscoveryOutputMode::Json)
+            .expect("json format should succeed");
+        let expected = include_str!("../tests/golden/modules-examples-core.json");
+        assert_eq!(normalized(&actual), normalized(expected));
+    }
+
+    #[test]
+    fn golden_modules_ops_core_yaml_contract() {
+        let mut matches = Vec::new();
+        for manifest in grapheme_runtime::core_v1_manifests() {
+            if manifest.module_id != "core" {
+                continue;
+            }
+            for op in manifest.exported_ops {
+                matches.push(json!({
+                    "module_id": "core",
+                    "op": op.op,
+                    "effect": op.effect,
+                    "input_schema_ref": op.input_schema_ref,
+                    "output_schema_ref": op.output_schema_ref,
+                }));
+            }
+        }
+
+        matches.sort_by(|a, b| {
+            a.get("op")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .cmp(b.get("op").and_then(|v| v.as_str()).unwrap_or_default())
+        });
+
+        let payload = json!({
+            "query": "core",
+            "matches": matches,
+        });
+
+        let actual = format_discovery(&payload, DiscoveryOutputMode::Yaml)
+            .expect("yaml format should succeed");
+        let expected = include_str!("../tests/golden/modules-ops-core.yaml");
+        assert_eq!(normalized(&actual), normalized(expected));
+    }
+
+    #[test]
+    fn golden_modules_ops_core_json_contract() {
+        let mut matches = Vec::new();
+        for manifest in grapheme_runtime::core_v1_manifests() {
+            if manifest.module_id != "core" {
+                continue;
+            }
+            for op in manifest.exported_ops {
+                matches.push(json!({
+                    "module_id": "core",
+                    "op": op.op,
+                    "effect": op.effect,
+                    "input_schema_ref": op.input_schema_ref,
+                    "output_schema_ref": op.output_schema_ref,
+                }));
+            }
+        }
+
+        matches.sort_by(|a, b| {
+            a.get("op")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .cmp(b.get("op").and_then(|v| v.as_str()).unwrap_or_default())
+        });
+
+        let payload = json!({
+            "query": "core",
+            "matches": matches,
+        });
+
+        let actual = format_discovery(&payload, DiscoveryOutputMode::Json)
+            .expect("json format should succeed");
+        let expected = include_str!("../tests/golden/modules-ops-core.json");
+        assert_eq!(normalized(&actual), normalized(expected));
+    }
+
+    #[test]
+    fn golden_parse_yaml_contract() {
+                let source = r#"import core from "grapheme/core"
+
+query HelloWorld {
+    core.echo(message: "LETS GO?!!!!!") {
+    state { current }
+  }
+}
+"#;
+
+        let program = grapheme_compiler::parse(source).expect("parse should succeed");
+        let actual = format_discovery(&program, DiscoveryOutputMode::Yaml)
+            .expect("yaml format should succeed");
+        let expected = include_str!("../tests/golden/parse-hello-world.yaml");
+        assert_eq!(normalized(&actual), normalized(expected));
+    }
+
+    #[test]
+    fn golden_parse_json_contract() {
+                let source = r#"import core from "grapheme/core"
+
+query HelloWorld {
+    core.echo(message: "LETS GO?!!!!!") {
+    state { current }
+  }
+}
+"#;
+
+        let program = grapheme_compiler::parse(source).expect("parse should succeed");
+        let actual = format_discovery(&program, DiscoveryOutputMode::Json)
+            .expect("json format should succeed");
+        let expected = include_str!("../tests/golden/parse-hello-world.json");
+        assert_eq!(normalized(&actual), normalized(expected));
+    }
+
+    #[test]
+    fn golden_compile_mir_yaml_contract() {
+                let source = r#"import core from "grapheme/core"
+
+query HelloWorld {
+    core.echo(message: "LETS GO?!!!!!") {
+    state { current }
+  }
+}
+"#;
+
+        let compilation = grapheme_compiler::compile(source).expect("compile should succeed");
+        let actual = format_discovery(&compilation.mir, DiscoveryOutputMode::Yaml)
+            .expect("yaml format should succeed");
+        let expected = include_str!("../tests/golden/compile-mir-hello-world.yaml");
+        assert_eq!(normalized(&actual), normalized(expected));
+    }
+
+    #[test]
+    fn golden_compile_mir_json_contract() {
+                let source = r#"import core from "grapheme/core"
+
+query HelloWorld {
+    core.echo(message: "LETS GO?!!!!!") {
+    state { current }
+  }
+}
+"#;
+
+        let compilation = grapheme_compiler::compile(source).expect("compile should succeed");
+        let actual = format_discovery(&compilation.mir, DiscoveryOutputMode::Json)
+            .expect("json format should succeed");
+        let expected = include_str!("../tests/golden/compile-mir-hello-world.json");
+        assert_eq!(normalized(&actual), normalized(expected));
     }
 
 }

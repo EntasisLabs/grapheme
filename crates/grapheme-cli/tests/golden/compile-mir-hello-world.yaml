@@ -1,0 +1,21 @@
+functions:
+- name: HelloWorld
+  kind: Query
+  retry_config: null
+  timeout_config: null
+  intent_config: null
+  loop_config: null
+  blocks:
+  - id: 0
+    instructions:
+    - !Call
+      module: core
+      op: echo
+      capability: core.echo
+      arg_count: 1
+      args:
+        message: LETS GO?!!!!!
+      stores_state: true
+    terminator: ReturnState
+capabilities:
+- core.echo
