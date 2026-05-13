@@ -1,0 +1,52 @@
+enum ResearchStatus { collecting, synthesizing, done, failed }
+
+state_machine ResearchLifecycle on ResearchStatus {
+  transition collecting -> synthesizing
+  transition synthesizing -> done
+  transition synthesizing -> failed
+  terminal done
+  terminal failed
+}
+
+#[intent(goal: "Collect web evidence, transform it into a citation pack, then finalize via state-machine transitions")]
+query Q on Any {
+  websearch.research_materials(
+    query: "Rust async runtime patterns",
+    provider: "duckduckgo",
+    max_results: 6,
+    per_source_chars: 3500,
+    md_options: {
+      output_format: "markdown",
+      include_document_structure: true,
+      extract_metadata: true,
+      strip_tags: ["script", "style", "nav", "footer", "aside"],
+      exclude_selectors: [".cookie-banner", "#cookie", ".advertisement"]
+    }
+  )
+  |> core.get_path(path: "sources")
+  |> core.map(field: "citation")
+  |> core.join(sep: "\n")
+  |> core.set_path(path: "status", value: "collecting")
+  |> core.tap(message: "state initialized")
+  |> ControlLoop
+  |> core.get_path(path: "args.__input.text")
+}
+
+node ControlLoop on Any @loop(max: 8, merge: "replace") {
+  match $current.status {
+    case done, failed => return
+    default => Next
+  }
+}
+
+node Next on Any {
+  match $current.status {
+    case collecting => transition $current.status -> synthesizing
+    case synthesizing => GateText
+    default => return
+  }
+}
+
+node GateText on Any {
+  if $current.text == "" then transition $current.status -> failed else transition $current.status -> done
+}

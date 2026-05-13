@@ -230,6 +230,13 @@ pub struct QueryDef {
     pub pipelines: Vec<Pipeline>,
 }
 
+/// Glyph: explicit program-style composition root.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlyphDef {
+    pub name: String,
+    pub pipelines: Vec<Pipeline>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MutationDef {
     pub name: String,
@@ -270,6 +277,7 @@ pub struct SubscriptionDef {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Definition {
+    Glyph(GlyphDef),
     Query(QueryDef),
     Mutation(MutationDef),
     Iterator(IteratorDef),

@@ -1,80 +1,88 @@
 # Examples
 
-The examples directory is curated by intent so you can find runnable programs quickly.
+This directory now prioritizes a small, high-signal set of canonical examples for the stdlib surface.
 
-Use this page as the source of truth for which examples to demo and learn first.
+Canonical examples prefer the newer language sugar when behavior is stateful/branching (`set`, `transition`, inline `if/match`, bare iterator invocation).
 
-## Canonical Starter Set
+Authoring convention:
 
-If you only run a handful of programs, use these.
+- seed request/state with `set` at query start
+- pass values through explicit `$current.*` refs
+- keep pipelines linear and avoid legacy `state { current }` wrappers in normal examples
 
-### Primitive Language Examples
+## Canonical Stdlib Set
+
+Run these first:
+
+- `main.gr` (project default entrypoint from `grapheme.toml`)
 
 - `hello-world.gr`
 - `core-merge.gr`
 - `core-filter.gr`
 - `core-validate-schema.gr`
-- `fibonacci-sequence.gr` (static loop/each list walk)
-- `fibonacci-computed.gr` (computed loop progression)
-
-### Module-Using Examples
-
+- `mutation-update-preferences.gr`
+- `mutation-state-machine-apply.gr`
+- `resilience-composition.gr`
+- `subscription-heartbeat-readable.gr`
 - `http-get.gr`
-- `tcp-connect.gr`
-- `smtp-send.gr`
+- `request-transform-output.gr`
+- `websearch-materials.gr`
+- `websearch-report.gr`
+- `web-provider-catalog.gr`
+- `web-provider-routing.gr`
+- `web-xaviv-planned.gr`
 - `io-list.gr`
 - `memory-roundtrip.gr`
+- `tcp-connect.gr`
+- `smtp-send.gr`
 - `secrets-handle.gr`
 - `secrets-sign.gr`
-- `request-transform-output.gr`
-- `docs-native-modules.gr`
+- `sql-query.gr`
+- `sql-query-params.gr`
+- `sql-transaction.gr`
+- `sql-transaction-rollback.gr`
+- `surreal-select.gr`
+- `surreal-query.gr`
+- `surreal-select-filtered.gr`
+- `surreal-query-vars.gr`
+- `surreal-health.gr`
+- `surreal-create.gr`
+- `surreal-update.gr`
+- `surreal-delete.gr`
 
-### Workflow/Control-Plane Showcases
+Pipeline tip:
 
-- `showcase/release-control-tower-compact.gr`
-- `showcase/blue-green-cutover.gr`
-- `showcase/feature-flag-progressive-rollout.gr`
-- `showcase/oncall-escalation-ladder.gr`
+- Every step rewrites `$current`, so prefer extracting fields (`core.get_path`, `core.pick`) before replacing shape-heavy payloads with `core.echo`.
 
-See `examples/showcase/README.md` for scenario details and live-demo toggle ideas.
+## Legacy and Exploratory
 
-## Extended Sets
+Earlier exploratory material is preserved under `examples/legacy/`.
 
-- Transform cookbook: `examples/transform-cookbook/README.md`
-- Additional showcase programs: `examples/showcase/README.md`
+- `examples/legacy/showcase/`
+- `examples/legacy/transform-cookbook/`
+- older ad-hoc experiments and transitional files
 
-## Verification and Historical Files
+## Fixtures
 
-These are kept for compatibility checks, regression fixtures, and earlier design exploration.
+Compatibility and verifier fixtures remain in `examples/fixtures/`.
 
-- `fixtures/v1-*.gr` files: parser/verifier/runtime fixtures and policy edge cases.
-- `fixtures/type-error-http-url.gr`: negative type-check fixture.
+## Namespace Layout
 
-## Run Commands
+Project config (`grapheme.toml`) declares these example namespaces:
 
-Run a root-level example:
+- `core` -> `examples/`
+- `showcase` -> `examples/legacy/showcase/`
+- `fixtures` -> `examples/fixtures/`
+
+## Run
 
 ```bash
 cargo run -- run examples/<file>.gr --native-modules
 ```
 
-Run any showcase program:
+For SQL examples, allow the selected connection id in policy:
 
 ```bash
-cargo run -- run examples/showcase/<file>.gr --native-modules
-```
-
-Optional output formats:
-
-```bash
-cargo run -- run examples/showcase/<file>.gr --native-modules --json
-cargo run -- run examples/showcase/<file>.gr --native-modules --stream-steps
-```
-
-## Quick Smoke Path
-
-```bash
-cargo run -- run examples/hello-world.gr --native-modules
-cargo run -- run examples/io-list.gr --native-modules
-cargo run -- run examples/showcase/release-control-tower-compact.gr --native-modules
+GRAPHEME_ALLOWED_SQL_CONNECTIONS=sqlite::memory: \
+	cargo run -- run examples/sql-query-params.gr --json
 ```

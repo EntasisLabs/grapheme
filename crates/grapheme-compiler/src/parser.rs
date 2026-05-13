@@ -45,7 +45,8 @@ pub struct GraphemeParser;
 // ── Entry Point ───────────────────────────────────────────────
 
 pub fn parse(source: &str) -> Result<Program, GraphemeError> {
-    let pairs = GraphemeParser::parse(Rule::program, source)
+    let normalized_source = normalize_intent_attributes(source);
+    let pairs = GraphemeParser::parse(Rule::program, &normalized_source)
         .map_err(|e| GraphemeError::ParseError(e.to_string()))?;
 
     let program_pair = pairs
@@ -57,11 +58,69 @@ pub fn parse(source: &str) -> Result<Program, GraphemeError> {
     parse_program(program_pair, &mut state)
 }
 
+fn normalize_intent_attributes(source: &str) -> String {
+    let mut out = String::new();
+    let mut pending_intent: Option<String> = None;
+
+    for line in source.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("#[intent(") && trimmed.ends_with(")]") {
+            let args_raw = &trimmed["#[intent(".len()..trimmed.len() - 2];
+            let args = args_raw.replace('=', ":");
+            pending_intent = Some(format!("@intent({args})"));
+            continue;
+        }
+
+        if let Some(intent) = pending_intent.as_ref() {
+            if is_executable_definition_line(trimmed) {
+                if let Some(brace_idx) = line.find('{') {
+                    out.push_str(&line[..brace_idx]);
+                    out.push(' ');
+                    out.push_str(intent);
+                    out.push(' ');
+                    out.push_str(&line[brace_idx..]);
+                    out.push('\n');
+                    pending_intent = None;
+                    continue;
+                }
+
+                out.push_str(line);
+                out.push(' ');
+                out.push_str(intent);
+                out.push('\n');
+                pending_intent = None;
+                continue;
+            }
+        }
+
+        out.push_str(line);
+        out.push('\n');
+    }
+
+    if let Some(intent) = pending_intent {
+        out.push_str(&intent);
+        out.push('\n');
+    }
+
+    out
+}
+
+fn is_executable_definition_line(trimmed: &str) -> bool {
+    trimmed.starts_with("query ")
+        || trimmed.starts_with("mutation ")
+        || trimmed.starts_with("action ")
+        || trimmed.starts_with("iterator ")
+        || trimmed.starts_with("node ")
+        || trimmed.starts_with("fragment ")
+}
+
 // ── Program ───────────────────────────────────────────────────
 
 fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, GraphemeError> {
     let mut imports = vec![];
     let mut definitions = vec![];
+    let mut glyph_names = Vec::new();
 
     for inner in pair.into_inner() {
         match inner.as_rule() {
@@ -70,9 +129,15 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
                 // Unwrap the definition wrapper to get the actual variant
                 let def = inner.into_inner().next().unwrap();
                 match def.as_rule() {
+                    Rule::glyph_def        => {
+                        let glyph = parse_glyph(def, state)?;
+                        glyph_names.push(glyph.name.clone());
+                        definitions.push(Definition::Glyph(glyph));
+                    }
                     Rule::query_def        => definitions.push(Definition::Query(parse_query(def, state)?)),
                     Rule::mutation_def     => definitions.push(Definition::Mutation(parse_mutation(def, state)?)),
                     Rule::iterator_def     => definitions.push(Definition::Iterator(parse_iterator(def, state)?)),
+                    Rule::node_def         => definitions.push(Definition::Iterator(parse_iterator(def, state)?)),
                     Rule::fragment_def     => definitions.push(Definition::Fragment(parse_fragment(def, state)?)),
                     Rule::subscription_def => definitions.push(Definition::Subscription(parse_subscription(def, state)?)),
                     Rule::struct_def       => definitions.push(Definition::Struct(parse_struct_def(def)?)),
@@ -88,11 +153,41 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
         }
     }
 
+    if glyph_names.len() > 1 {
+        return Err(GraphemeError::ParseError(format!(
+            "only one glyph is allowed per file, found: {}",
+            glyph_names.join(", ")
+        )));
+    }
+
     for iterator in state.synthetic_iterators.drain(..) {
         definitions.push(Definition::Iterator(iterator));
     }
 
     Ok(Program { imports, definitions })
+}
+
+fn parse_glyph(pair: Pair<Rule>, state: &mut ParseState) -> Result<GlyphDef, GraphemeError> {
+    let mut inner = pair.into_inner();
+    let name = inner
+        .next()
+        .ok_or_else(|| GraphemeError::ParseError("glyph missing name".to_string()))?
+        .as_str()
+        .to_string();
+
+    let pipelines = inner
+        .filter(|p| p.as_rule() == Rule::pipeline)
+        .map(|p| parse_pipeline(p, state))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if pipelines.is_empty() {
+        return Err(GraphemeError::ParseError(format!(
+            "glyph '{}' must contain at least one pipeline",
+            name
+        )));
+    }
+
+    Ok(GlyphDef { name, pipelines })
 }
 
 // ── Imports ───────────────────────────────────────────────────
@@ -447,17 +542,19 @@ fn parse_pipeline(pair: Pair<Rule>, state: &mut ParseState) -> Result<Pipeline, 
             Rule::match_step => steps.push(PipelineStep::Field(parse_match_step_as_match_call(p, state)?)),
             Rule::if_step => steps.push(PipelineStep::Field(parse_if_step_as_branch_call(p, state)?)),
             Rule::transition_step => steps.push(PipelineStep::Field(parse_transition_step_as_set_fields_call(p)?)),
+            Rule::apply_step => steps.push(PipelineStep::Field(parse_apply_step_as_apply_lane_call(p)?)),
             Rule::set_step => steps.push(PipelineStep::Field(parse_set_step_as_set_fields_call(p)?)),
             Rule::struct_init_step => steps.push(PipelineStep::StructInit(parse_struct_init_step(p)?)),
             Rule::field_call => steps.push(PipelineStep::Field(parse_field_call(p)?)),
             Rule::call_step  => steps.push(PipelineStep::Call(parse_call_step(p)?)),
             Rule::pipe_step  => {
-                // pipe_step = { "|>" ~ (match_step | if_step | transition_step | set_step | struct_init_step | call_step | field_call) }
+                // pipe_step = { "|>" ~ (match_step | if_step | transition_step | apply_step | set_step | struct_init_step | call_step | field_call) }
                 let inner = p.into_inner().next().unwrap();
                 match inner.as_rule() {
                     Rule::match_step => steps.push(PipelineStep::Field(parse_match_step_as_match_call(inner, state)?)),
                     Rule::if_step => steps.push(PipelineStep::Field(parse_if_step_as_branch_call(inner, state)?)),
                     Rule::transition_step => steps.push(PipelineStep::Field(parse_transition_step_as_set_fields_call(inner)?)),
+                    Rule::apply_step => steps.push(PipelineStep::Field(parse_apply_step_as_apply_lane_call(inner)?)),
                     Rule::set_step => steps.push(PipelineStep::Field(parse_set_step_as_set_fields_call(inner)?)),
                     Rule::struct_init_step => steps.push(PipelineStep::StructInit(parse_struct_init_step(inner)?)),
                     Rule::field_call => steps.push(PipelineStep::Field(parse_field_call(inner)?)),
@@ -580,6 +677,45 @@ fn parse_set_step_as_set_fields_call(pair: Pair<Rule>) -> Result<FieldCall, Grap
     })
 }
 
+fn parse_apply_step_as_apply_lane_call(pair: Pair<Rule>) -> Result<FieldCall, GraphemeError> {
+    let mut inner = pair.into_inner();
+    let lane = inner
+        .next()
+        .ok_or_else(|| GraphemeError::ParseError("apply-step missing lane name".to_string()))?
+        .as_str()
+        .to_string();
+
+    if lane != "state" && lane != "data" {
+        return Err(GraphemeError::ParseError(format!(
+            "apply-step lane must be 'state' or 'data', got '{}'",
+            lane
+        )));
+    }
+
+    let object = inner
+        .next()
+        .ok_or_else(|| GraphemeError::ParseError("apply-step missing object body".to_string()))?;
+
+    let mut fields = Vec::new();
+    for field in object.into_inner() {
+        let mut fi = field.into_inner();
+        let key = fi.next().unwrap().as_str().to_string();
+        let value = parse_value(fi.next().unwrap())?;
+        fields.push((key, value));
+    }
+
+    Ok(FieldCall {
+        module: Some("core".to_string()),
+        name: "apply_lane".to_string(),
+        args: vec![
+            ("lane".to_string(), Value::String(lane)),
+            ("fields".to_string(), Value::Object(fields)),
+        ],
+        directives: vec![],
+        selection: None,
+    })
+}
+
 fn parse_transition_step_as_set_fields_call(pair: Pair<Rule>) -> Result<FieldCall, GraphemeError> {
     let mut inner = pair.into_inner();
     let left_var = inner
@@ -678,6 +814,7 @@ fn parse_branch_target_value(pair: Pair<Rule>, state: &mut ParseState) -> Result
         }
         Rule::inline_target_step
         | Rule::transition_step
+        | Rule::apply_step
         | Rule::set_step
         | Rule::struct_init_step
         | Rule::field_call
@@ -784,6 +921,7 @@ fn parse_inline_target_step(
 
     match step_pair.as_rule() {
         Rule::transition_step => Ok(PipelineStep::Field(parse_transition_step_as_set_fields_call(step_pair)?)),
+        Rule::apply_step => Ok(PipelineStep::Field(parse_apply_step_as_apply_lane_call(step_pair)?)),
         Rule::set_step => Ok(PipelineStep::Field(parse_set_step_as_set_fields_call(step_pair)?)),
         Rule::struct_init_step => Ok(PipelineStep::StructInit(parse_struct_init_step(step_pair)?)),
         Rule::field_call => Ok(PipelineStep::Field(parse_field_call(step_pair)?)),
@@ -1069,14 +1207,23 @@ fn parse_directive(pair: Pair<Rule>) -> Result<Directive, GraphemeError> {
     let mut args = Vec::new();
 
     for p in inner {
-        if p.as_rule() != Rule::arg_list {
-            continue;
-        }
-
-        for arg in p.into_inner() {
-            if arg.as_rule() == Rule::named_arg {
-                args.push(parse_named_arg(arg)?);
+        match p.as_rule() {
+            Rule::arg_list => {
+                for arg in p.into_inner() {
+                    if arg.as_rule() == Rule::named_arg {
+                        args.push(parse_named_arg(arg)?);
+                    }
+                }
             }
+            Rule::object_value => {
+                for field in p.into_inner() {
+                    let mut fi = field.into_inner();
+                    let key = fi.next().unwrap().as_str().to_string();
+                    let value = parse_value(fi.next().unwrap())?;
+                    args.push((key, value));
+                }
+            }
+            _ => {}
         }
     }
 

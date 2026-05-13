@@ -1,48 +1,50 @@
 # Grapheme Documentation
 
-This directory is the canonical documentation set for Grapheme.
+This is the front door for the docs set. Use this page for fast navigation.
 
-## Start Here
+## Quick Paths
 
-1. `docs/getting-started.md`
-2. `docs/language-contract.md`
-3. `docs/architecture.md`
-4. `docs/cli.md`
-5. `docs/runtime-policy.md`
-6. `docs/modules.md`
-7. `docs/native-modules.md`
+1. Language author
+   - docs/getting-started.md
+   - docs/language-contract.md
+   - docs/cli.md
+2. Runtime operator
+   - docs/runtime-policy.md
+   - docs/modules.md
+   - docs/native-modules.md
+   - docs/runtime/README.md
+3. SDK embedder (Rust)
+   - docs/sdk.md
+   - docs/architecture.md
+   - docs/governance/rustdoc-readiness.md
+4. Editor user
+   - docs/lsp/quickstart.md
+   - extensions/grapheme-vscode/README.md
 
-## Runtime Contracts
+## Core Documents
 
-- `docs/runtime/runtime-state-flow.md`
-- `docs/runtime/wit-contract-v1.5.md`
-- `docs/runtime/loop-state-contract-v1.5.md`
-- `docs/runtime/policy-profile-matrix.md`
-- `docs/runtime/module-capability-v1.md`
-- `docs/runtime/wasix-plugin-contract-v1.md`
+1. docs/getting-started.md
+2. docs/sdk.md
+3. docs/language-contract.md
+4. docs/architecture.md
+5. docs/cli.md
+6. docs/runtime-policy.md
+7. docs/modules.md
+8. docs/native-modules.md
 
-## Language Evolution and Roadmaps
+## Domain Indexes
 
-- `docs/language-control-flow-v1.md`
-- `docs/language-control-flow-v1-implementation.md`
-- `docs/language-typed-records-v1.md`
-- `docs/turing-completeness-roadmap.md`
-- `docs/roadmaps/language-ergonomics-v2-draft.md`
-- `docs/roadmaps/sprint-01-language-ergonomics.md`
+1. Runtime contracts and policy: docs/runtime/README.md
+2. Release process and gates: docs/release/README.md
+3. Product and language planning: docs/roadmaps/README.md
+4. Language evolution set: docs/language/README.md
+5. Governance docs: docs/governance/README.md
+6. Historical context: docs/history/README.md
+7. Quality checklists: docs/quality/README.md
+8. RFC set: docs/rfc
 
-## Tooling and Distribution
+## Governance and Quality
 
-- LSP quickstart: `docs/lsp/quickstart.md`
-- LSP and VSIX release flow: `docs/release/lsp-release.md`
-- VS Code extension: `extensions/grapheme-vscode/README.md`
-- Examples index: `examples/README.md`
-- Showcase examples: `examples/showcase/README.md`
-- Transform cookbook: `examples/transform-cookbook/README.md`
-
-## Historical Notes
-
-The following documents provide historical architecture context and early design direction:
-
-- `docs/compiler-first-draft.md`
-- `docs/compiler-runtime-split.md`
-- `docs/grapheme-stasis-integration.md`
+1. Master state and polish record: docs/governance/master-state-and-polish-plan.md
+2. Rustdoc/docs.rs policy: docs/governance/rustdoc-readiness.md
+3. Release gates and docs versioning policy: docs/release/release-gates-and-doc-versioning.md

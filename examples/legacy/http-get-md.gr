@@ -1,0 +1,7 @@
+
+#[intent(goal: "Test http and md pipe with echo")]
+query Q on Any {
+  http.get(url: "https://www.howtogeek.com/what-is-the-rust-programming-language-and-how-to-get-started/")
+  |> html.to_md(html: "$current.body")
+}
+

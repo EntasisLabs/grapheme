@@ -1,10 +1,9 @@
-import SMTP from "grapheme/smtp"
+import smtp from "grapheme/smtp"
 
 query SmtpSendDemo {
-  SMTP.send_mail(
+  set {
     to: "team@example.com",
     subject: "Grapheme Module Test"
-  ) {
-    state { current }
   }
+  |> smtp.send_mail(to: $current.to, subject: $current.subject)
 }

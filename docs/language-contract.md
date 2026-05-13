@@ -26,6 +26,7 @@ Top-level definitions currently supported:
 - mutation
 - subscription
 - iterator
+- node (alias of iterator)
 - schema
 - module proposal
 
@@ -35,17 +36,26 @@ Planned (not yet implemented):
 
 Only executable definitions are lowered to MIR functions:
 
+- glyph
 - query
 - mutation
 - subscription
 - iterator
+- node (lowered as iterator)
 
 ## Entrypoint and Execution Scope
 
 Artifact execution runs exactly one MIR function: the artifact entrypoint.
 
 - If an explicit entrypoint is provided, that function is used.
+- Otherwise, if a `glyph` exists, that glyph name is used as the entrypoint.
 - Otherwise, the first MIR function is used.
+
+Glyph constraints:
+
+- A file may declare at most one `glyph`.
+- `glyph` is intended as Program-style composition root (similar to `fn main()` orchestration).
+- Pipelines inside a glyph execute exactly like query pipelines.
 
 Implication: definitions after the selected entrypoint are not executed in that run.
 
@@ -56,6 +66,13 @@ A pipeline is an ordered list of call steps.
 - Steps execute left-to-right.
 - Each step output becomes current AgentState.
 - Runtime injects previous current state into step args as `__input`.
+
+Important state-shape rule:
+
+- A step can intentionally or accidentally change the shape of `$current` for all following steps.
+- For example, `core.echo(message: "$current.url")` yields `{ message: ... }`, so a following step like `http.get(url: "$current.url")` will no longer see `url` unless you preserved it earlier.
+- Practical guidance: place transformation/logging steps that narrow shape (like `echo`) after steps that still need the original fields, or explicitly pass required fields forward.
+- Prefer `core.tap` for diagnostics when downstream steps still need unchanged `$current`.
 
 Calls are represented by module/op + capability:
 
@@ -117,6 +134,7 @@ Current default deployment in this repo:
 
 - core/docs/io/secrets: primarily wasm plugin path when bound
 - http/tcp/smtp: host-backed by default in CLI runtime
+- websearch: host-backed by default in CLI runtime (DuckDuckGo provider via `websearch` crate)
 
 ## Policy and Failure Contract
 
@@ -150,7 +168,49 @@ Not implemented as fully finalized language/runtime guarantees yet:
 - native streaming subscriptions
 - complete variable binding model
 
-Current control-flow capabilities now include iterator loops, iterator invocation, and branch dispatch (`flow.branch`) lowered through compiler-to-MIR.
+Current control-flow capabilities now include iterator/node loops, iterator/node invocation, and branch dispatch (`flow.branch`) lowered through compiler-to-MIR.
+
+Core std helper expansion (current behavior):
+
+- Core transform ops now include list/object/string helpers such as:
+	- list/object: `map`, `filter`, `find`, `reduce`, `group_by`, `merge`, `pick`, `validate_schema`, `get_path`, `set_path`, `has_path`
+	- flow/data helpers: `tap`, `pack_state_data`, `get_state`, `get_data`
+	- string/text: `split`, `join`, `replace`, `trim`, `lower`, `upper`, `contains`
+- These ops are exposed via module manifest discovery (`grapheme modules info/types core`) and enforced by verifier arg checks.
+
+HTML conversion options passthrough (current behavior):
+
+- `html.to_md` accepts an optional `options` object that is parsed as `html-to-markdown-rs` conversion options.
+- This enables richer conversion and metadata/document extraction control from Grapheme programs.
+- Backward compatibility is preserved: `html.to_md()` still works with defaults when `options` is omitted.
+- `websearch.research_report` accepts optional `md_options` and forwards it to each internal `html.to_md` conversion.
+
+Resilience composition sugar (current behavior):
+
+- `@resilient` is supported on executable definitions as compile-time sugar.
+- It expands into any of the nested directive objects it provides:
+	- `loop: { ... }` -> `@loop(...)`
+	- `retry: { ... }` -> `@retry(...)`
+	- `timeout: { ... }` -> `@timeout(...)`
+- `@resilient` cannot be combined with explicit `@loop`, `@retry`, or `@timeout` on the same definition.
+
+Directive object shorthand:
+
+- Directives support both argument-list and object forms.
+- Equivalent forms:
+	- `@retry(max: 2, on_fail: Fallback)`
+	- `@retry { max: 2, on_fail: Fallback }`
+
+Intent annotation and trace surfacing (current behavior):
+
+- Executable definitions support an attribute-style intent annotation:
+	- `#[intent(goal = "validate canary before 50% rollout", risk = high)]`
+- Current compiler lowering maps it to runtime metadata fields:
+	- `goal` (string)
+	- `risk` (string or symbol)
+- Runtime trace step entries carry this metadata as:
+	- `intent_goal`
+	- `intent_risk`
 
 Branch target normalization contract (current behavior):
 
@@ -210,7 +270,7 @@ Recursive policy shift (current draft behavior):
 
 Control-flow design draft for loops and recursion:
 
-- `docs/language-control-flow-v1.md`
+- `docs/language/control-flow-v1.md`
 
 ## Compatibility Guidance
 

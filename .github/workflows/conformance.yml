@@ -1,0 +1,69 @@
+name: Conformance
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Runtime manifest/stdlib conformance tests
+        run: |
+          cargo test -p grapheme-runtime module_manifest::tests::manifest_ops_are_registered_or_explicitly_unsupported_for_stdlib_scope
+          cargo test -p grapheme-runtime module_manifest::tests::stdlib_registered_ops_exist_in_runtime_manifests_for_stdlib_scope
+          cargo test -p grapheme-runtime execute_aot_stage_b_strict_mode_rejects_parity_fallback
+
+      - name: Stdlib signature scope conformance test
+        run: cargo test -p grapheme-stdlib registry::tests::signature_scope_ops_are_registered_or_explicitly_unsupported
+
+      - name: Compiler AOT Stage A contract tests
+        run: |
+          cargo test -p grapheme-compiler compile_to_aot_stage_a_carries_artifact_compatibility_metadata
+          cargo test -p grapheme-compiler stage_a_parity_harness_keeps_base_artifact_shape
+          cargo test -p grapheme-compiler stage_a_aot_snapshot_matches_golden_contract
+
+      - name: Compiler AOT Stage B contract tests
+        run: |
+          cargo test -p grapheme-compiler compile_to_aot_stage_b_includes_workflow_container_metadata
+          cargo test -p grapheme-compiler compile_to_aot_stage_b_rejects_imports_outside_host_interface
+          cargo test -p grapheme-compiler stage_b_aot_snapshot_matches_golden_contract
+
+      - name: SDK AOT strict mode tests
+        run: |
+          cargo test -p grapheme-sdk execute_aot_stage_b_strict_mode_rejects_when_container_runtime_unavailable
+
+      - name: CLI AOT build manifest snapshot contract
+        run: |
+          cargo test -p grapheme --bin grapheme golden_aot_build_manifest_snapshot_contract
+
+      - name: Rustdoc build verification
+        run: |
+          cargo doc --workspace --no-deps
+
+  conformance-wasix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Runtime Stage B direct path tests (wasix-runtime)
+        run: |
+          cargo test -p grapheme-runtime --features wasix-runtime execute_aot_stage_b_direct_path_with_wasix_feature

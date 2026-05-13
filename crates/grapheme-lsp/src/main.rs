@@ -1,7 +1,13 @@
+//! Grapheme language server binary.
+//!
+//! Implements diagnostics, completion, formatting, and symbol/navigation features
+//! for Grapheme source files over LSP.
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use grapheme_signatures::{find_op_spec, op_specs, ArgType, OpSpec};
 use tokio::sync::Mutex;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
@@ -14,47 +20,8 @@ struct Backend {
 }
 
 #[derive(Clone, Copy)]
-struct TransformOpHint {
-    module: &'static str,
-    op: &'static str,
-    arg_name: &'static str,
-    return_shape: &'static str,
-    summary: &'static str,
-}
-
-const TRANSFORM_HINTS: &[TransformOpHint] = &[
-    TransformOpHint {
-        module: "html",
-        op: "to_md",
-        arg_name: "html",
-        return_shape: "{ text: string, markdown: string }",
-        summary: "Converts HTML input to Markdown text.",
-    },
-    TransformOpHint {
-        module: "json",
-        op: "parse",
-        arg_name: "text",
-        return_shape: "JsonValue (array | object | string | number | bool | null)",
-        summary: "Parses JSON text into a structured JSON value.",
-    },
-    TransformOpHint {
-        module: "csv",
-        op: "to_list",
-        arg_name: "text",
-        return_shape: "Array<Object<string, string>>",
-        summary: "Parses CSV text with headers into row objects.",
-    },
-    TransformOpHint {
-        module: "yaml",
-        op: "to_json",
-        arg_name: "text",
-        return_shape: "JsonValue (converted from YAML)",
-        summary: "Parses YAML text and converts it to JSON.",
-    },
-];
-
-#[derive(Clone, Copy)]
 enum DefinitionKind {
+    Glyph,
     Query,
     Mutation,
     Iterator,
@@ -130,7 +97,7 @@ impl LanguageServer for Backend {
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
                 name: "grapheme-lsp".to_string(),
-                version: Some("0.1.0".to_string()),
+                version: Some(env!("CARGO_PKG_VERSION").to_string()),
             }),
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -243,10 +210,17 @@ impl LanguageServer for Backend {
         };
 
         if let Some((module, op)) = op_at_position(line, position.character as usize) {
-            if let Some(hint) = transform_hint(module, op) {
+            if let Some(spec) = find_op_spec(module, op) {
+                let arg_docs = signature_args_label(spec);
+                let return_shape = signature_return_shape(spec);
                 let markdown = format!(
-                    "**{}.{}**\n\n{}\n\n- arg: `{}` (string; defaults to pipeline input when omitted)\n- returns: `{}`",
-                    hint.module, hint.op, hint.summary, hint.arg_name, hint.return_shape
+                    "**{}.{}**\n\n{}\n\n- args: `{}`\n- returns: `{}`\n- effect: `{}`",
+                    spec.module,
+                    spec.op,
+                    signature_summary(spec),
+                    arg_docs,
+                    return_shape,
+                    signature_effect_label(spec)
                 );
 
                 return Ok(Some(Hover {
@@ -325,10 +299,10 @@ impl LanguageServer for Backend {
         let prefix = module_and_op_prefix_at_position(line, position.character as usize);
         let mut items = Vec::new();
 
-        for hint in TRANSFORM_HINTS {
+        for spec in op_specs() {
             let include = match prefix {
                 Some((module, op_prefix)) => {
-                    hint.module == module && hint.op.starts_with(op_prefix)
+                    spec.module == module && spec.op.starts_with(op_prefix)
                 }
                 None => true,
             };
@@ -339,24 +313,30 @@ impl LanguageServer for Backend {
 
             let (insert_text, insert_format) = match prefix {
                 Some(_) => (
-                    format!("{}({}: ${{1:\"\"}})", hint.op, hint.arg_name),
+                    completion_insert_text(spec, true),
                     InsertTextFormat::SNIPPET,
                 ),
                 None => (
-                    format!("{}.{}({}: ${{1:\"\"}})", hint.module, hint.op, hint.arg_name),
+                    completion_insert_text(spec, false),
                     InsertTextFormat::SNIPPET,
                 ),
             };
 
             items.push(CompletionItem {
-                label: format!("{}.{}", hint.module, hint.op),
+                label: format!("{}.{}", spec.module, spec.op),
                 kind: Some(CompletionItemKind::FUNCTION),
-                detail: Some(format!("returns {}", hint.return_shape)),
+                detail: Some(format!(
+                    "returns {}",
+                    signature_return_shape(spec)
+                )),
                 documentation: Some(Documentation::MarkupContent(MarkupContent {
                     kind: MarkupKind::Markdown,
                     value: format!(
-                        "{}\n\n- arg: `{}` (string)\n- returns: `{}`",
-                        hint.summary, hint.arg_name, hint.return_shape
+                        "{}\n\n- args: `{}`\n- returns: `{}`\n- effect: `{}`",
+                        signature_summary(spec),
+                        signature_args_label(spec),
+                        signature_return_shape(spec),
+                        signature_effect_label(spec)
                     ),
                 })),
                 insert_text: Some(insert_text),
@@ -573,6 +553,7 @@ impl LanguageServer for Backend {
                 };
 
                 let detail = Some(match def.kind {
+                    DefinitionKind::Glyph => "glyph".to_string(),
                     DefinitionKind::Query => "query".to_string(),
                     DefinitionKind::Mutation => "mutation".to_string(),
                     DefinitionKind::Iterator => "iterator".to_string(),
@@ -615,7 +596,7 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
 
-        let Some((hint, active_parameter)) = active_transform_call_at(line, position.character as usize) else {
+        let Some((module, op, active_parameter)) = active_transform_call_at(line, position.character as usize) else {
             if let Some((target, active_parameter)) = active_user_call_at(line, position.character as usize) {
                 let signatures = parse_executable_signatures(&text);
                 if let Some(sig) = signatures.get(&target) {
@@ -648,19 +629,30 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
 
+        let Some(spec) = find_op_spec(&module, &op) else {
+            return Ok(None);
+        };
+
         let signature = SignatureInformation {
-            label: format!(
-                "{}.{}({}: string) -> {}",
-                hint.module, hint.op, hint.arg_name, hint.return_shape
-            ),
+            label: format!("{}.{}({}) -> {}", spec.module, spec.op, signature_args_label(spec), signature_return_shape(spec)),
             documentation: Some(Documentation::MarkupContent(MarkupContent {
                 kind: MarkupKind::Markdown,
-                value: hint.summary.to_string(),
+                value: format!("{}\n\nEffect: `{}`", signature_summary(spec), signature_effect_label(spec)),
             })),
-            parameters: Some(vec![ParameterInformation {
-                label: ParameterLabel::Simple(format!("{}: string", hint.arg_name)),
-                documentation: None,
-            }]),
+            parameters: Some(
+                spec.args
+                    .iter()
+                    .map(|arg| ParameterInformation {
+                        label: ParameterLabel::Simple(format!(
+                            "{}: {}{}",
+                            arg.name,
+                            signature_arg_type_label(arg.ty),
+                            if arg.required { "" } else { "?" }
+                        )),
+                        documentation: None,
+                    })
+                    .collect(),
+            ),
             active_parameter: Some(0),
         };
 
@@ -754,12 +746,6 @@ impl LanguageServer for Backend {
     }
 }
 
-fn transform_hint(module: &str, op: &str) -> Option<&'static TransformOpHint> {
-    TRANSFORM_HINTS
-        .iter()
-        .find(|hint| hint.module == module && hint.op == op)
-}
-
 fn line_at(text: &str, line_number: usize) -> Option<&str> {
     text.lines().nth(line_number)
 }
@@ -827,6 +813,16 @@ fn is_ident(value: &str) -> bool {
 
 fn keyword_completion_items() -> Vec<CompletionItem> {
     vec![
+        CompletionItem {
+            label: "glyph".to_string(),
+            kind: Some(CompletionItemKind::KEYWORD),
+            insert_text: Some("glyph ${1:Main} {\n  ${2}\n}".to_string()),
+            insert_text_format: Some(InsertTextFormat::SNIPPET),
+            documentation: Some(Documentation::String(
+                "Create an explicit composition entrypoint root.".to_string(),
+            )),
+            ..CompletionItem::default()
+        },
         CompletionItem {
             label: "query".to_string(),
             kind: Some(CompletionItemKind::KEYWORD),
@@ -965,6 +961,17 @@ fn index_definitions(text: &str) -> Vec<DefinitionIndex> {
             continue;
         }
 
+        if let Some((name, start_char, end_char)) = parse_definition_name(trimmed, "glyph", line) {
+            out.push(DefinitionIndex {
+                name,
+                kind: DefinitionKind::Glyph,
+                line: idx as u32,
+                start_char,
+                end_char,
+            });
+            continue;
+        }
+
         if let Some((name, start_char, end_char)) = parse_definition_name(trimmed, "mutation", line) {
             out.push(DefinitionIndex {
                 name,
@@ -1036,7 +1043,7 @@ fn definition_range(def: &DefinitionIndex) -> Range {
     }
 }
 
-fn active_transform_call_at(line: &str, cursor: usize) -> Option<(&'static TransformOpHint, u32)> {
+fn active_transform_call_at(line: &str, cursor: usize) -> Option<(String, String, u32)> {
     if line.is_empty() {
         return None;
     }
@@ -1061,11 +1068,94 @@ fn active_transform_call_at(line: &str, cursor: usize) -> Option<(&'static Trans
 
     let token = &call_head[start..end];
     let (module, op) = token.split_once('.')?;
-    let hint = transform_hint(module, op)?;
+    let _ = find_op_spec(module, op)?;
 
     let args_so_far = &before[open_idx + 1..];
     let active_parameter = args_so_far.chars().filter(|c| *c == ',').count() as u32;
-    Some((hint, active_parameter))
+    Some((module.to_string(), op.to_string(), active_parameter))
+}
+
+fn completion_insert_text(spec: &OpSpec, op_only: bool) -> String {
+    let mut parts = Vec::new();
+    for (idx, arg) in spec.args.iter().enumerate() {
+        let value = match arg.ty {
+            ArgType::String => format!("\"${{{}:}}\"", idx + 1),
+            ArgType::Object => format!("${{{}:{{}}}}", idx + 1),
+            ArgType::Array => format!("${{{}:[]}}", idx + 1),
+            ArgType::Any => format!("${{{}:null}}", idx + 1),
+        };
+        parts.push(format!("{}: {}", arg.name, value));
+    }
+
+    let args = parts.join(", ");
+    if op_only {
+        format!("{}({})", spec.op, args)
+    } else {
+        format!("{}.{}({})", spec.module, spec.op, args)
+    }
+}
+
+fn signature_summary(spec: &OpSpec) -> &'static str {
+    match (spec.module, spec.op) {
+        ("html", "to_md") => "Converts HTML input to Markdown text.",
+        ("json", "parse") => "Parses JSON text into a structured JSON value.",
+        ("csv", "to_list") => "Parses CSV text with headers into row objects.",
+        ("yaml", "to_json") => "Parses YAML text and converts it to JSON.",
+        _ => "Operation from shared signature registry.",
+    }
+}
+
+fn signature_return_shape(spec: &OpSpec) -> String {
+    if let Some(shape) = spec.output_schema_ref {
+        return shape.to_string();
+    }
+
+    match (spec.module, spec.op) {
+        ("html", "to_md") => "{ text: string, markdown: string, ... }".to_string(),
+        ("json", "parse") => "JsonValue".to_string(),
+        ("csv", "to_list") => "Array<Object<string, string>>".to_string(),
+        ("yaml", "to_json") => "JsonValue".to_string(),
+        _ => "JsonValue".to_string(),
+    }
+}
+
+fn signature_args_label(spec: &OpSpec) -> String {
+    if spec.args.is_empty() {
+        return "".to_string();
+    }
+
+    spec.args
+        .iter()
+        .map(|arg| {
+            format!(
+                "{}: {}{}",
+                arg.name,
+                signature_arg_type_label(arg.ty),
+                if arg.required { "" } else { "?" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn signature_arg_type_label(ty: ArgType) -> &'static str {
+    match ty {
+        ArgType::String => "string",
+        ArgType::Object => "object",
+        ArgType::Array => "array",
+        ArgType::Any => "any",
+    }
+}
+
+fn signature_effect_label(spec: &OpSpec) -> &'static str {
+    match spec.effect {
+        grapheme_signatures::SignatureEffect::Pure => "pure",
+        grapheme_signatures::SignatureEffect::Network => "network",
+        grapheme_signatures::SignatureEffect::Io => "io",
+        grapheme_signatures::SignatureEffect::State => "state",
+        grapheme_signatures::SignatureEffect::Secrets => "secrets",
+        grapheme_signatures::SignatureEffect::Control => "control",
+    }
 }
 
 fn text_line(text: &str, line_number: usize) -> Option<&str> {
@@ -1611,7 +1701,7 @@ fn add_line_semantic_tokens(line: &str, line_num: u32, out: &mut SemanticTokenBu
 }
 
 fn add_declaration_tokens(line: &str, line_num: u32, out: &mut SemanticTokenBuilder) {
-    for head in ["query", "mutation", "iterator", "subscription"] {
+    for head in ["glyph", "query", "mutation", "iterator", "subscription"] {
         if let Some((name_start, name_len)) = declaration_name_span(line, head) {
             let kw_pos = line.find(head).unwrap_or(0) as u32;
             out.push(line_num, kw_pos, head.len() as u32, TOKEN_KEYWORD);
@@ -1757,6 +1847,7 @@ fn is_keyword(value: &str) -> bool {
         value,
         "import"
             | "from"
+            | "glyph"
             | "query"
             | "mutation"
             | "iterator"

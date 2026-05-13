@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://grapheme.dev/schemas/project/v1/grapheme.schema.json",
+  "title": "Grapheme Project Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["project"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Path or URL to this schema"
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "main"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "main": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Canonical default entry .gr file for CLI commands"
+        }
+      }
+    },
+    "examples": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "namespaces": {
+          "type": "object",
+          "description": "Named example groups and their root paths",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

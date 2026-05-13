@@ -1,0 +1,24 @@
+import sql from "grapheme/sql"
+
+query SqlTransactionDemo {
+  set {
+    connection: "sqlite::memory:",
+    steps: [
+      {
+        mode: "execute",
+        sql: "create table if not exists todos (id integer, title text)"
+      },
+      {
+        mode: "execute",
+        sql: "insert into todos (id, title) values (?1, ?2)",
+        params: [1, "ship sql transaction"]
+      },
+      {
+        mode: "query",
+        sql: "select id, title from todos where id = ?1",
+        params: [1]
+      }
+    ]
+  }
+  |> sql.transaction(connection: $current.connection, steps: $current.steps)
+}

@@ -1,0 +1,43 @@
+query ResilienceComposition {
+  Seed
+  |> RunWithResilience
+  |> core.pick(fields: ["status", "attempt", "timeline", "notes"])
+}
+
+iterator Seed on Any {
+  set {
+    status: "queued",
+    attempt: 0.0,
+    timeline: "init"
+  }
+}
+
+iterator RunWithResilience on Any @core_default @resilient {
+  loop: { max: 6, merge: "replace" },
+  retry: { max: 2, backoff_ms: 25, on_fail: OnRetryExhausted },
+  timeout: { ms: 5000, on_timeout: OnTimeout }
+} {
+  echo(message: "resilience:{$current.attempt}:{$current.status}")
+  |> if $current.status == "done" then return else Tick
+}
+
+iterator Tick on Any @core_default {
+  inc_field(field: "attempt")
+  |> if $current.attempt >= 3.0 then transition $current.status -> done { timeline: "stabilized" } else set { status: "running", timeline: "retrying" }
+}
+
+iterator OnRetryExhausted on Any {
+  set {
+    status: "failed",
+    timeline: "retry-exhausted",
+    notes: "retry budget exhausted"
+  }
+}
+
+iterator OnTimeout on Any {
+  set {
+    status: "timed_out",
+    timeline: "timeout",
+    notes: "timeout budget exhausted"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "stage": "stage_a",
+  "payload_format": "grapheme.aot.stage_a.v1",
+  "host_interface_id": "grapheme.runtime.host.v1",
+  "runtime_contract": "grapheme.runtime.host.v1",
+  "base_payload_format": "grapheme.mir.v1"
+}

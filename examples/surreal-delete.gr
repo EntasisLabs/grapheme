@@ -1,0 +1,6 @@
+import surreal from "grapheme/surreal"
+
+query SurrealDelete {
+  set { connection: "local", target: "person:demo" }
+  |> surreal.delete(connection: $current.connection, thing_or_table: $current.target)
+}

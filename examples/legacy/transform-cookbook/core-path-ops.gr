@@ -1,0 +1,8 @@
+query Q on Any {
+  core.set_path(
+    input: { rollout: { stage: "canary", percent: 10 } },
+    path: "rollout.owner",
+    value: "platform"
+  )
+  |> core.get_path(path: "rollout.owner")
+}

@@ -1,0 +1,10 @@
+"$schema" = "./grapheme.schema.json"
+
+[project]
+name = "agentql"
+main = "examples/main.gr"
+
+[examples.namespaces]
+core = "examples"
+showcase = "examples/legacy/showcase"
+fixtures = "examples/fixtures"

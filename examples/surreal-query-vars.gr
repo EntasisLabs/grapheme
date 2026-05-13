@@ -1,0 +1,17 @@
+import surreal from "grapheme/surreal"
+
+query SurrealQueryVars {
+  set {
+    connection: "local",
+    statement: "select * from type::table($table) limit $limit;",
+    vars: {
+      table: "person",
+      limit: 5
+    }
+  }
+  |> surreal.query(
+    connection: $current.connection,
+    query: $current.statement,
+    vars: $current.vars
+  )
+}

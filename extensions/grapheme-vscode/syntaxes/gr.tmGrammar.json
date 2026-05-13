@@ -43,7 +43,7 @@
       "patterns": [
         {
           "name": "meta.definition.executable.gr",
-          "match": "\\b(query|mutation|iterator|subscription)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(glyph|query|mutation|iterator|subscription)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "storage.type.executable.gr" },
             "2": { "name": "entity.name.function.gr" }
@@ -94,7 +94,7 @@
       "patterns": [
         {
           "name": "keyword.control.gr",
-          "match": "\\b(import|from|query|mutation|iterator|subscription|fragment|on|schema|type|types|struct|propose|module)\\b"
+          "match": "\\b(import|from|glyph|query|mutation|iterator|subscription|fragment|on|schema|type|types|struct|propose|module)\\b"
         },
         {
           "name": "constant.language.gr",

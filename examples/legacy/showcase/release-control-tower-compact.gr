@@ -1,0 +1,68 @@
+import types Release from "./types-release-domain.gr"
+
+query Q on Release::DeployState -> Release::DeployState {
+  Release::DeployState {
+    status: "planned",
+    service: "billing-api",
+    priority: "critical",
+    attempt: 0.0,
+    max_attempts: 4.0,
+    test_fail_at: 99.0,
+    canary_fail_at: 99.0,
+    rollback_done: false
+  }
+  |> Run
+}
+
+iterator Run on Release::DeployState -> Release::DeployState @core_default @resilient {
+  loop: { max: 32, merge: "replace" },
+  retry: { max: 2, backoff_ms: 25, on_fail: Rx },
+  timeout: { ms: 25000, on_timeout: Tx }
+} {
+  echo(message: "{$current.service}:{$current.status}:{$current.attempt}")
+  |> if $current.status == "stabilized" then return else Rt
+}
+
+iterator Rt on Release::DeployState -> Release::DeployState {
+  match $current.status {
+    case planned => transition $current.status -> validating { timeline: "validate" }
+    case validating => transition $current.status -> building { artifact: "oci://registry/billing-api:2026.05.10", timeline: "build" }
+    case building => transition $current.status -> testing { timeline: "test" }
+    case testing => match $current.priority {
+      case critical => Crit
+      default => transition $current.status -> canary { timeline: "canary" }
+    }
+    case canary => Can
+    case rolling => Roll
+    case failed => transition $current.status -> rolled_back { rollback_done: true, timeline: "rb" }
+    default =>  set { timeline: "noop" }
+  }
+}
+
+iterator Crit on Release::DeployState -> Release::DeployState{
+    if $current.attempt == $current.test_fail_at 
+                        then transition $current.status -> failed { notes: "test-reg", timeline: "fail-test" }
+                         else transition $current.status -> canary { timeline: "canary" }
+}
+
+iterator Can on Release::DeployState -> Release::DeployState {
+    if $current.attempt == $current.canary_fail_at 
+            then 
+            transition $current.status -> failed { notes: "canary-burn", timeline: "fail-canary" }
+            else transition $current.status -> rolling { timeline: "roll" }
+}
+
+iterator Roll on Release::DeployState -> Release::DeployState {
+    if $current.attempt >= $current.max_attempts 
+            then transition $current.status -> stabilized { timeline: "stable" }
+            else   inc_field(field: "attempt")
+                    |> set { timeline: "roll+" }
+}
+
+iterator Rx on Release::DeployState -> Release::DeployState {
+  set { notes: "retry-exhaust", timeline: "rtx" }
+}
+
+iterator Tx on Release::DeployState -> Release::DeployState {
+  set { notes: "timeout", timeline: "tmo" }
+}

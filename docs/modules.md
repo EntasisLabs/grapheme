@@ -8,6 +8,8 @@ The runtime ships with core manifests for:
 - `docs`
 - `io`
 - `http`
+- `sql`
+- `surreal`
 - `tcp`
 - `smtp`
 - `memory`

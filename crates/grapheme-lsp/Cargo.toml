@@ -1,7 +1,11 @@
 [package]
 name = "grapheme-lsp"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+description = "Language Server Protocol implementation for Grapheme"
+license = "Apache-2.0"
+repository = "https://github.com/entasislabs/grapheme"
+homepage = "https://github.com/entasislabs/grapheme"
 
 [[bin]]
 name = "grapheme-lsp"
@@ -10,4 +14,5 @@ path = "src/main.rs"
 [dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std"] }
 tower-lsp = "0.20"
-grapheme-compiler = { path = "../grapheme-compiler" }
+grapheme-compiler = { path = "../grapheme-compiler", version = "0.1.0" }
+grapheme-signatures = { path = "../grapheme-signatures", version = "0.1.0" }

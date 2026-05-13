@@ -1,0 +1,8 @@
+{
+  "source": "examples/hello.gr",
+  "output": "build/hello.aot.json",
+  "stage": "stage_b",
+  "aot_id": "aot-847406e3930c2e82",
+  "runtime_contract": "grapheme.runtime.host.v1",
+  "host_interface_id": "grapheme.runtime.host.v1"
+}

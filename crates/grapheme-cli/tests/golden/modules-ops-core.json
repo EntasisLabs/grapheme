@@ -1,0 +1,257 @@
+{
+  "matches": [
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "add",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "apply_lane",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "contains",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "dec",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "dec_field",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "echo",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "eq",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "filter",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "find",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "get_data",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "get_path",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "get_state",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "group_by",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "gt",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "gte",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "has_path",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "inc",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "inc_field",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "join",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "lower",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "lt",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "lte",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "map",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "merge",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "pack_state_data",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "pick",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "reduce",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "replace",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "set_fields",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "set_path",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "split",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "sub",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "tap",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "trim",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "upper",
+      "output_schema_ref": null
+    },
+    {
+      "effect": "pure",
+      "input_schema_ref": null,
+      "module_id": "core",
+      "op": "validate_schema",
+      "output_schema_ref": null
+    }
+  ],
+  "query": "core"
+}

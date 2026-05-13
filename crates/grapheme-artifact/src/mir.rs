@@ -17,8 +17,16 @@ pub struct MirFunction {
     pub retry_config: Option<MirRetryConfig>,
     #[serde(default)]
     pub timeout_config: Option<MirTimeoutConfig>,
+    #[serde(default)]
+    pub intent_config: Option<MirIntentConfig>,
     pub loop_config: Option<MirLoopConfig>,
     pub blocks: Vec<MirBlock>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirIntentConfig {
+    pub goal: Option<String>,
+    pub risk: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

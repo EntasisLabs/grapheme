@@ -1,0 +1,37 @@
+query ResearchMaterials on Any {
+  set {
+    request: {
+      query: "Rust programming?",
+      max_results: 3,
+      per_source_chars: 5000,
+      include_http_body: false,
+      md_options: {
+        output_format: "markdown",
+        include_document_structure: true,
+        extract_metadata: true,
+        strip_tags: ["script", "style", "nav", "footer", "aside"],
+        exclude_selectors: [".cookie-banner", "#cookie", ".advertisement"]
+      }
+    }
+  }
+  |> websearch.research_materials(
+    query: $current.request.query,
+    max_results: $current.request.max_results,
+    per_source_chars: $current.request.per_source_chars,
+    include_http_body: $current.request.include_http_body,
+    md_options: $current.request.md_options
+  )
+  |> core.get_path(path: "sources")
+  |> NormalizeSources
+}
+
+iterator NormalizeSources on Any @loop(max: 5, each: $current, merge: "append") {
+  core.pick(fields: [
+    "source_id",
+    "title",
+    "url",
+    "content_origin",
+    "highlights",
+    "citation"
+  ])
+}

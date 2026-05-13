@@ -1,0 +1,49 @@
+{
+  "imports": [
+    {
+      "kind": "Module",
+      "alias": "core",
+      "path": "grapheme/core"
+    }
+  ],
+  "definitions": [
+    {
+      "Query": {
+        "name": "HelloWorld",
+        "variables": [],
+        "signature": null,
+        "directives": [],
+        "pipelines": [
+          {
+            "steps": [
+              {
+                "Field": {
+                  "module": "core",
+                  "name": "echo",
+                  "args": [
+                    [
+                      "message",
+                      {
+                        "String": "LETS GO?!!!!!"
+                      }
+                    ]
+                  ],
+                  "directives": [],
+                  "selection": {
+                    "fields": [
+                      {
+                        "State": [
+                          "Current"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

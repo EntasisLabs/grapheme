@@ -1,6 +1,7 @@
 use grapheme_artifact::{
     MirBlock, MirFunction, MirFunctionKind, MirInst, MirLoopConfig, MirLoopMergeMode,
     MirLoopUntil, MirMatchCase, MirMatchTarget, MirProgram, MirRetryConfig,
+    MirIntentConfig,
     MirTerminator, MirTimeoutConfig,
 };
 use grapheme_artifact::mir::MirCompareOp;
@@ -49,6 +50,7 @@ pub fn lower_from_hir(hir: &HirProgram) -> MirProgram {
                 kind: lower_kind(&def.kind),
                 retry_config: lower_retry_config(def.retry_args.as_ref()),
                 timeout_config: lower_timeout_config(def.timeout_args.as_ref()),
+                intent_config: lower_intent_config(def.intent_args.as_ref()),
                 loop_config: lower_loop_config(def.loop_args.as_ref()),
                 blocks: vec![block],
             }
@@ -69,8 +71,7 @@ fn lower_loop_config(loop_args: Option<&JsonValue>) -> Option<MirLoopConfig> {
         .map(|value| value as u32);
     let each = args
         .get("each")
-        .and_then(|value| value.as_str())
-        .map(|value| value.to_string());
+        .and_then(loop_each_selector_value);
 
     let until = args.get("until").and_then(|value| {
         let object = value.as_object()?;
@@ -86,6 +87,18 @@ fn lower_loop_config(loop_args: Option<&JsonValue>) -> Option<MirLoopConfig> {
         until,
         merge: lower_loop_merge_mode(args.get("merge")),
     })
+}
+
+fn loop_each_selector_value(value: &JsonValue) -> Option<String> {
+    if let Some(selector) = value.as_str() {
+        return Some(selector.to_string());
+    }
+
+    value
+        .as_object()
+        .and_then(|obj| obj.get("$var"))
+        .and_then(|v| v.as_str())
+        .map(|v| format!("${v}"))
 }
 
 fn lower_retry_config(retry_args: Option<&JsonValue>) -> Option<MirRetryConfig> {
@@ -110,6 +123,35 @@ fn lower_timeout_config(timeout_args: Option<&JsonValue>) -> Option<MirTimeoutCo
     let on_timeout = branch_target_from_value(args.get("on_timeout")?)?;
 
     Some(MirTimeoutConfig { ms, on_timeout })
+}
+
+fn lower_intent_config(intent_args: Option<&JsonValue>) -> Option<MirIntentConfig> {
+    let args = intent_args?.as_object()?;
+
+    let goal = args
+        .get("goal")
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string());
+
+    let risk = args.get("risk").and_then(intent_value_as_string);
+
+    if goal.is_none() && risk.is_none() {
+        return None;
+    }
+
+    Some(MirIntentConfig { goal, risk })
+}
+
+fn intent_value_as_string(value: &JsonValue) -> Option<String> {
+    if let Some(s) = value.as_str() {
+        return Some(s.to_string());
+    }
+
+    value
+        .as_object()
+        .and_then(|obj| obj.get("$symbol"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 fn lower_loop_merge_mode(value: Option<&JsonValue>) -> MirLoopMergeMode {

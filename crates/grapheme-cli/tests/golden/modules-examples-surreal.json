@@ -1,0 +1,13 @@
+{
+  "examples": [
+    "examples/surreal-select.gr",
+    "examples/surreal-query.gr",
+    "examples/surreal-select-filtered.gr",
+    "examples/surreal-query-vars.gr",
+    "examples/surreal-health.gr",
+    "examples/surreal-create.gr",
+    "examples/surreal-update.gr",
+    "examples/surreal-delete.gr"
+  ],
+  "module_id": "surreal"
+}

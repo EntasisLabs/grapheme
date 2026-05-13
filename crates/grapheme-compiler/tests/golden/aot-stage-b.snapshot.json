@@ -1,0 +1,12 @@
+{
+  "stage": "stage_b",
+  "payload_format": "grapheme.aot.stage_b.v1",
+  "host_interface_id": "grapheme.runtime.host.v1",
+  "runtime_contract": "grapheme.runtime.host.v1",
+  "entry_export": "_start",
+  "byte_len": 11,
+  "allowed_imports": [
+    "grapheme.runtime.host.v1::state.read",
+    "grapheme.runtime.host.v1::state.write"
+  ]
+}

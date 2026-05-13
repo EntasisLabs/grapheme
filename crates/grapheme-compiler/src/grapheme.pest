@@ -63,7 +63,7 @@ type_arg_list = { "(" ~ (type_named_arg ~ ("," ~ type_named_arg)*)? ~ ")" }
 
 // ── Directives  (@ annotations on any node) ──────────────────
 
-directive = { "@" ~ ident ~ arg_list? }
+directive = { "@" ~ ident ~ (arg_list | object_value)? }
 
 // ── Type System ───────────────────────────────────────────────
 
@@ -228,6 +228,7 @@ match_default = {
 
 inline_target_step = {
     transition_step
+    | apply_step
     | set_step
     | struct_init_step
     | call_step
@@ -256,6 +257,12 @@ set_step = {
     ~ object_value
 }
 
+apply_step = {
+    "apply"
+    ~ ident
+    ~ object_value
+}
+
 transition_step = {
     "transition"
     ~ variable
@@ -266,10 +273,10 @@ transition_step = {
 
 // The pipe operator |> chains steps left to right
 // Each step receives the AgentState from the previous
-pipe_step = { "|>" ~ (match_step | if_step | transition_step | set_step | struct_init_step | call_step | field_call) }
+pipe_step = { "|>" ~ (match_step | if_step | transition_step | apply_step | set_step | struct_init_step | call_step | field_call) }
 
 pipeline = {
-    (match_step | if_step | transition_step | set_step | struct_init_step | call_step | field_call) ~ pipe_step*
+    (match_step | if_step | transition_step | apply_step | set_step | struct_init_step | call_step | field_call) ~ pipe_step*
 }
 
 // ── Top-Level Definitions ─────────────────────────────────────
@@ -280,6 +287,12 @@ variable_def = { "$" ~ ident ~ ":" ~ type_ref ~ ("=" ~ value)? }
 variable_defs = { "(" ~ (variable_def ~ ("," ~ variable_def)*)? ~ ")" }
 
 executable_signature = { "on" ~ type_ref ~ ("->" ~ type_ref)? }
+
+glyph_def = {
+    "glyph" ~ ident ~ "{"
+    ~ pipeline+
+    ~ "}"
+}
 
 query_def = {
     "query" ~ ident ~ variable_defs? ~ executable_signature? ~ directive* ~ "{"
@@ -296,6 +309,13 @@ mutation_def = {
 // Iterators: reusable named executable pipelines (like functions)
 iterator_def = {
     "iterator" ~ ident ~ executable_signature ~ directive* ~ "{"
+    ~ pipeline+
+    ~ "}"
+}
+
+// Node alias: semantic equivalent of iterator
+node_def = {
+    "node" ~ ident ~ executable_signature ~ directive* ~ "{"
     ~ pipeline+
     ~ "}"
 }
@@ -317,9 +337,12 @@ subscription_def = {
 // ── Program Root ──────────────────────────────────────────────
 
 definition = {
+        glyph_def
+    |
     query_def
   | mutation_def
     | iterator_def
+        | node_def
     | fragment_def
   | subscription_def
     | struct_def

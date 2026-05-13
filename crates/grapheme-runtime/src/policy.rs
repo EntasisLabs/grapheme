@@ -9,6 +9,8 @@ pub struct PolicyGuard {
     pub allowed_tcp_targets: Vec<String>,
     pub allowed_smtp_domains: Vec<String>,
     pub allowed_secret_names: Vec<String>,
+    pub allowed_sql_connections: Vec<String>,
+    pub allowed_surreal_connections: Vec<String>,
 }
 
 impl PolicyGuard {
@@ -20,7 +22,56 @@ impl PolicyGuard {
             ("secrets", "get_secret_handle") | ("secrets", "sign_request") => {
                 self.check_secrets(args)
             }
+            ("sql", _) => self.check_sql(args),
+            ("surreal", _) => self.check_surreal(args),
             _ => Ok(()),
+        }
+    }
+
+    fn check_sql(&self, args: &JsonValue) -> Result<(), RuntimeError> {
+        if self.allowed_sql_connections.is_empty() {
+            return Err(RuntimeError::RuntimeError(
+                "policy: sql module is disabled (no allowed sql connections configured)".to_string(),
+            ));
+        }
+
+        let connection = args
+            .get("connection")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| RuntimeError::RuntimeError("policy: missing sql connection arg".to_string()))?;
+
+        if self.allowed_sql_connections.iter().any(|c| c == connection) {
+            Ok(())
+        } else {
+            Err(RuntimeError::RuntimeError(format!(
+                "policy: sql connection '{}' is not allowed",
+                connection
+            )))
+        }
+    }
+
+    fn check_surreal(&self, args: &JsonValue) -> Result<(), RuntimeError> {
+        if self.allowed_surreal_connections.is_empty() {
+            return Err(RuntimeError::RuntimeError(
+                "policy: surreal module is disabled (no allowed surreal connections configured)"
+                    .to_string(),
+            ));
+        }
+
+        let connection = args
+            .get("connection")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                RuntimeError::RuntimeError("policy: missing surreal connection arg".to_string())
+            })?;
+
+        if self.allowed_surreal_connections.iter().any(|c| c == connection) {
+            Ok(())
+        } else {
+            Err(RuntimeError::RuntimeError(format!(
+                "policy: surreal connection '{}' is not allowed",
+                connection
+            )))
         }
     }
 
@@ -126,5 +177,89 @@ fn extract_host(url: &str) -> Option<String> {
         None
     } else {
         Some(host.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::module_manifest::ModuleAbi;
+    use crate::module_registry::ResolvedModuleCall;
+    use serde_json::json;
+
+    #[test]
+    fn sql_calls_are_denied_when_no_allowed_connections_configured() {
+        let guard = PolicyGuard::default();
+        let call = ResolvedModuleCall {
+            module_id: "sql".to_string(),
+            op: "query".to_string(),
+            abi: ModuleAbi::MirV1,
+            wasm_path: None,
+            generation_id: None,
+            content_hash: None,
+        };
+
+        let err = guard
+            .check(&call, &json!({"connection": "local", "sql": "select 1"}))
+            .expect_err("sql should be denied by default");
+        assert!(err.to_string().contains("sql module is disabled"));
+    }
+
+    #[test]
+    fn sql_calls_allowlisted_connection_is_permitted() {
+        let guard = PolicyGuard {
+            allowed_sql_connections: vec!["local".to_string()],
+            ..PolicyGuard::default()
+        };
+        let call = ResolvedModuleCall {
+            module_id: "sql".to_string(),
+            op: "query".to_string(),
+            abi: ModuleAbi::MirV1,
+            wasm_path: None,
+            generation_id: None,
+            content_hash: None,
+        };
+
+        guard
+            .check(&call, &json!({"connection": "local", "sql": "select 1"}))
+            .expect("allowlisted sql connection should pass");
+    }
+
+    #[test]
+    fn surreal_calls_are_denied_when_no_allowed_connections_configured() {
+        let guard = PolicyGuard::default();
+        let call = ResolvedModuleCall {
+            module_id: "surreal".to_string(),
+            op: "query".to_string(),
+            abi: ModuleAbi::MirV1,
+            wasm_path: None,
+            generation_id: None,
+            content_hash: None,
+        };
+
+        let err = guard
+            .check(&call, &json!({"connection": "local", "query": "return true;"}))
+            .expect_err("surreal should be denied by default");
+        assert!(err.to_string().contains("surreal module is disabled"));
+    }
+
+    #[test]
+    fn surreal_calls_allowlisted_connection_is_permitted() {
+        let guard = PolicyGuard {
+            allowed_surreal_connections: vec!["local".to_string()],
+            ..PolicyGuard::default()
+        };
+        let call = ResolvedModuleCall {
+            module_id: "surreal".to_string(),
+            op: "query".to_string(),
+            abi: ModuleAbi::MirV1,
+            wasm_path: None,
+            generation_id: None,
+            content_hash: None,
+        };
+
+        guard
+            .check(&call, &json!({"connection": "local", "query": "return true;"}))
+            .expect("allowlisted surreal connection should pass");
     }
 }

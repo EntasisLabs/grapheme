@@ -1,0 +1,9 @@
+import surreal from "grapheme/surreal"
+
+query SurrealQueryDemo {
+  set {
+    connection: "local",
+    statement: "select * from person limit 3;"
+  }
+  |> surreal.query(connection: $current.connection, query: $current.statement)
+}
