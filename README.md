@@ -42,6 +42,15 @@ cargo run -- compile examples/hello-world.gr --emit artifact
 cargo run -- run examples/hello-world.gr
 ```
 
+Project-level default entrypoint:
+
+```bash
+cargo run -- run
+cargo run --
+```
+
+Both commands resolve `project.main` from `grapheme.toml` (currently `examples/main.gr`).
+
 ### Run with native modules
 
 ```bash

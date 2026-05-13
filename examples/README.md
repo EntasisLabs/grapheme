@@ -14,6 +14,8 @@ Authoring convention:
 
 Run these first:
 
+- `main.gr` (project default entrypoint from `grapheme.toml`)
+
 - `hello-world.gr`
 - `core-merge.gr`
 - `core-filter.gr`
@@ -57,6 +59,14 @@ Earlier exploratory material is preserved under `examples/legacy/`.
 ## Fixtures
 
 Compatibility and verifier fixtures remain in `examples/fixtures/`.
+
+## Namespace Layout
+
+Project config (`grapheme.toml`) declares these example namespaces:
+
+- `core` -> `examples/`
+- `showcase` -> `examples/legacy/showcase/`
+- `fixtures` -> `examples/fixtures/`
 
 ## Run
 

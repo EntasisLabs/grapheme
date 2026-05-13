@@ -24,10 +24,10 @@ use grapheme_runtime::{
     PolicyGuard,
     TracePolicy, TraceProjection,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
-use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 use std::env;
 use std::fs;
 use std::process::{self, Command};
@@ -75,6 +75,27 @@ struct PluginBuildSpec {
     manifest_rel: &'static str,
     wasm_binary_name: &'static str,
     output_rel: &'static str,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct GraphemeProjectToml {
+    #[serde(rename = "$schema", default)]
+    schema: Option<String>,
+    project: GraphemeProjectSection,
+    #[serde(default)]
+    examples: Option<GraphemeExamplesSection>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct GraphemeProjectSection {
+    name: String,
+    main: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct GraphemeExamplesSection {
+    #[serde(default)]
+    namespaces: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -156,9 +177,13 @@ fn main() {
 
 fn run(args: Vec<String>) -> Result<(), CompilerError> {
     if args.len() < 2 {
+        if let Ok(main_file) = resolve_project_main_path() {
+            return run_program(&main_file, default_run_options());
+        }
+
         print_usage();
         return Err(CompilerError::RuntimeError(
-            "missing command or file path".to_string(),
+            "missing command or file path (or configure project main in grapheme.toml)".to_string(),
         ));
     }
 
@@ -187,12 +212,6 @@ fn run(args: Vec<String>) -> Result<(), CompilerError> {
         "build" => emit_build_cmd(&args[2..]),
         "plugins" => emit_plugins(&args),
         "run" => {
-            if args.len() < 3 {
-                print_usage();
-                return Err(CompilerError::RuntimeError(
-                    "run requires a file path".to_string(),
-                ));
-            }
             let (file_path, run_options) = parse_run_args(&args[2..])?;
             run_program(&file_path, run_options)
         }
@@ -815,6 +834,115 @@ fn run_program(
     }
 }
 
+fn default_run_options() -> RunOptions {
+    RunOptions {
+        bindings: vec![],
+        output_mode: RunOutputMode::Plain,
+        native_modules: false,
+        aot_stage: None,
+        strict_stage_b_container_execution: false,
+        allow_stage_b_fallback: false,
+        stream_steps: false,
+        trace_profile: TraceProfile::Lean,
+        trace_steps: None,
+        trace_projection: None,
+        trace_max_string_bytes: None,
+    }
+}
+
+fn resolve_file_path_arg_or_project_main(
+    args: &[String],
+    command: &str,
+) -> Result<(String, usize), CompilerError> {
+    if let Some(first) = args.first() {
+        if !first.starts_with("--") {
+            return Ok((first.clone(), 1));
+        }
+    }
+
+    let main = resolve_project_main_path().map_err(|_| {
+        CompilerError::RuntimeError(format!(
+            "{command} requires a file path or a project main configured in grapheme.toml"
+        ))
+    })?;
+
+    Ok((main, 0))
+}
+
+fn resolve_project_main_path() -> Result<String, CompilerError> {
+    let cwd = env::current_dir()
+        .map_err(|e| CompilerError::RuntimeError(format!("resolve current directory: {e}")))?;
+
+    resolve_project_main_path_from_dir(&cwd)
+}
+
+fn resolve_project_main_path_from_dir(start_dir: &Path) -> Result<String, CompilerError> {
+    let Some((config_path, config)) = discover_project_config(start_dir)? else {
+        return Err(CompilerError::RuntimeError(
+            "could not find grapheme.toml in current directory or parent directories".to_string(),
+        ));
+    };
+
+    if config.project.name.trim().is_empty() {
+        return Err(CompilerError::RuntimeError(format!(
+            "project name in '{}' must not be empty",
+            config_path.display()
+        )));
+    }
+
+    if let Some(schema) = &config.schema {
+        if schema.trim().is_empty() {
+            return Err(CompilerError::RuntimeError(format!(
+                "'$schema' in '{}' must not be empty",
+                config_path.display()
+            )));
+        }
+    }
+
+    if let Some(examples) = &config.examples {
+        for (namespace, path) in &examples.namespaces {
+            if namespace.trim().is_empty() || path.trim().is_empty() {
+                return Err(CompilerError::RuntimeError(format!(
+                    "examples.namespaces in '{}' must contain non-empty keys and values",
+                    config_path.display()
+                )));
+            }
+        }
+    }
+
+    let project_root = config_path
+        .parent()
+        .ok_or_else(|| CompilerError::RuntimeError("resolve project root".to_string()))?;
+
+    let main_path = project_root.join(&config.project.main);
+    Ok(main_path.to_string_lossy().to_string())
+}
+
+fn discover_project_config(start_dir: &Path) -> Result<Option<(PathBuf, GraphemeProjectToml)>, CompilerError> {
+    let mut dir = start_dir.to_path_buf();
+
+    loop {
+        let candidate = dir.join("grapheme.toml");
+        if candidate.exists() {
+            let raw = fs::read_to_string(&candidate).map_err(|e| {
+                CompilerError::RuntimeError(format!("read '{}': {e}", candidate.display()))
+            })?;
+
+            let config = toml::from_str::<GraphemeProjectToml>(&raw).map_err(|e| {
+                CompilerError::RuntimeError(format!("parse '{}': {e}", candidate.display()))
+            })?;
+
+            return Ok(Some((candidate, config)));
+        }
+
+        if !dir.pop() {
+            break;
+        }
+    }
+
+    Ok(None)
+}
+
 fn is_echo_step(op: &str) -> bool {
     op.eq_ignore_ascii_case("echo") || op.eq_ignore_ascii_case("core.echo")
 }
@@ -901,23 +1029,8 @@ fn parse_optional_usize_env(var: &str) -> Result<(bool, Option<usize>), String> 
 fn parse_run_args(
     args: &[String],
 ) -> Result<(String, RunOptions), CompilerError> {
-    if args.is_empty() {
-        return Err(CompilerError::RuntimeError("run requires a file path".to_string()));
-    }
-
-    let file_path = args[0].clone();
-    let mut bindings = Vec::new();
-    let mut output_mode = RunOutputMode::Plain;
-    let mut native_modules = false;
-    let mut aot_stage: Option<AotStageSelection> = None;
-    let mut strict_stage_b_container_execution = false;
-    let mut allow_stage_b_fallback = false;
-    let mut stream_steps = false;
-    let mut trace_profile = TraceProfile::Lean;
-    let mut trace_steps: Option<usize> = None;
-    let mut trace_projection: Option<TraceProjection> = None;
-    let mut trace_max_string_bytes: Option<usize> = None;
-    let mut i = 1;
+    let (file_path, mut i) = resolve_file_path_arg_or_project_main(args, "run")?;
+    let mut run_options = default_run_options();
 
     while i < args.len() {
         match args[i].as_str() {
@@ -936,15 +1049,17 @@ fn parse_run_args(
                     ))
                 })?;
 
-                bindings.push((module.to_lowercase(), PathBuf::from(path)));
+                run_options
+                    .bindings
+                    .push((module.to_lowercase(), PathBuf::from(path)));
                 i += 2;
             }
             "--json" => {
-                output_mode = RunOutputMode::Json;
+                run_options.output_mode = RunOutputMode::Json;
                 i += 1;
             }
             "--native-modules" => {
-                native_modules = true;
+                run_options.native_modules = true;
                 i += 1;
             }
             "--aot-stage" => {
@@ -954,19 +1069,19 @@ fn parse_run_args(
                     ));
                 }
 
-                aot_stage = Some(parse_aot_stage_selection(&args[i + 1])?);
+                run_options.aot_stage = Some(parse_aot_stage_selection(&args[i + 1])?);
                 i += 2;
             }
             "--strict-stage-b" => {
-                strict_stage_b_container_execution = true;
+                run_options.strict_stage_b_container_execution = true;
                 i += 1;
             }
             "--allow-stage-b-fallback" => {
-                allow_stage_b_fallback = true;
+                run_options.allow_stage_b_fallback = true;
                 i += 1;
             }
             "--stream-steps" => {
-                stream_steps = true;
+                run_options.stream_steps = true;
                 i += 1;
             }
             "--trace-profile" => {
@@ -976,7 +1091,7 @@ fn parse_run_args(
                     ));
                 }
 
-                trace_profile = parse_trace_profile(&args[i + 1])?;
+                run_options.trace_profile = parse_trace_profile(&args[i + 1])?;
                 i += 2;
             }
             "--trace-steps" => {
@@ -986,7 +1101,7 @@ fn parse_run_args(
                     ));
                 }
 
-                trace_steps = Some(parse_usize_flag("--trace-steps", &args[i + 1])?);
+                run_options.trace_steps = Some(parse_usize_flag("--trace-steps", &args[i + 1])?);
                 i += 2;
             }
             "--trace-projection" => {
@@ -996,7 +1111,7 @@ fn parse_run_args(
                     ));
                 }
 
-                trace_projection = Some(parse_trace_projection(&args[i + 1])?);
+                run_options.trace_projection = Some(parse_trace_projection(&args[i + 1])?);
                 i += 2;
             }
             "--trace-max-string-bytes" => {
@@ -1006,7 +1121,7 @@ fn parse_run_args(
                     ));
                 }
 
-                trace_max_string_bytes = Some(parse_usize_flag(
+                run_options.trace_max_string_bytes = Some(parse_usize_flag(
                     "--trace-max-string-bytes",
                     &args[i + 1],
                 )?);
@@ -1021,22 +1136,7 @@ fn parse_run_args(
         }
     }
 
-    Ok((
-        file_path,
-        RunOptions {
-            bindings,
-            output_mode,
-            native_modules,
-            aot_stage,
-            strict_stage_b_container_execution,
-            allow_stage_b_fallback,
-            stream_steps,
-            trace_profile,
-            trace_steps,
-            trace_projection,
-            trace_max_string_bytes,
-        },
-    ))
+    Ok((file_path, run_options))
 }
 
 fn trace_policy_from_run_options(run_options: &RunOptions) -> TracePolicy {
@@ -1104,17 +1204,10 @@ fn parse_usize_flag(flag: &str, value: &str) -> Result<usize, CompilerError> {
 }
 
 fn emit_parse_cmd(args: &[String]) -> Result<(), CompilerError> {
-    if args.is_empty() {
-        print_usage();
-        return Err(CompilerError::RuntimeError(
-            "parse requires a file path".to_string(),
-        ));
-    }
-
-    let file_path = args[0].as_str();
+    let (file_path, consumed) = resolve_file_path_arg_or_project_main(args, "parse")?;
     let mut output_mode = DiscoveryOutputMode::Yaml;
 
-    for flag in &args[1..] {
+    for flag in &args[consumed..] {
         if let Some(mode) = parse_structured_output_flag(flag) {
             output_mode = mode;
             continue;
@@ -1126,7 +1219,7 @@ fn emit_parse_cmd(args: &[String]) -> Result<(), CompilerError> {
         )));
     }
 
-    emit_parse(file_path, output_mode)
+    emit_parse(&file_path, output_mode)
 }
 
 fn emit_parse(file_path: &str, output_mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
@@ -1137,18 +1230,11 @@ fn emit_parse(file_path: &str, output_mode: DiscoveryOutputMode) -> Result<(), C
 }
 
 fn emit_compile_cmd(args: &[String]) -> Result<(), CompilerError> {
-    if args.is_empty() {
-        print_usage();
-        return Err(CompilerError::RuntimeError(
-            "compile requires a file path".to_string(),
-        ));
-    }
-
-    let file_path = args[0].as_str();
+    let (file_path, consumed) = resolve_file_path_arg_or_project_main(args, "compile")?;
     let mut emit_target = "mir".to_string();
     let mut aot_stage = AotStageSelection::StageA;
     let mut output_mode = DiscoveryOutputMode::Yaml;
-    let mut i = 1;
+    let mut i = consumed;
     while i < args.len() {
         if let Some(mode) = parse_structured_output_flag(&args[i]) {
             output_mode = mode;
@@ -1185,7 +1271,7 @@ fn emit_compile_cmd(args: &[String]) -> Result<(), CompilerError> {
         }
     }
 
-    let source = read_source(file_path)?;
+    let source = read_source(&file_path)?;
     let compilation = grapheme_compiler::compile(&source)?;
 
     if emit_target != "aot" && aot_stage != AotStageSelection::StageA {
@@ -1237,18 +1323,11 @@ fn emit_compile_cmd(args: &[String]) -> Result<(), CompilerError> {
 }
 
 fn emit_build_cmd(args: &[String]) -> Result<(), CompilerError> {
-    if args.is_empty() {
-        print_usage();
-        return Err(CompilerError::RuntimeError(
-            "build requires a file path".to_string(),
-        ));
-    }
-
-    let file_path = args[0].as_str();
+    let (file_path, consumed) = resolve_file_path_arg_or_project_main(args, "build")?;
     let mut aot_stage = AotStageSelection::StageB;
     let mut output_mode = DiscoveryOutputMode::Json;
     let mut output_path: Option<PathBuf> = None;
-    let mut i = 1;
+    let mut i = consumed;
     while i < args.len() {
         if let Some(mode) = parse_structured_output_flag(&args[i]) {
             output_mode = mode;
@@ -1284,7 +1363,7 @@ fn emit_build_cmd(args: &[String]) -> Result<(), CompilerError> {
         }
     }
 
-    let source = read_source(file_path)?;
+    let source = read_source(&file_path)?;
     let compilation = grapheme_compiler::compile(&source)?;
     let artifact = grapheme_artifact::build_artifact_from_mir(&compilation.mir, None)
         .map_err(|e| CompilerError::ArtifactEmitError(e.to_string()))?;
@@ -1307,7 +1386,7 @@ fn emit_build_cmd(args: &[String]) -> Result<(), CompilerError> {
     };
 
     let output = format_discovery(&aot, output_mode)?;
-    let out_path = output_path.unwrap_or_else(|| default_build_output_path(file_path, output_mode));
+    let out_path = output_path.unwrap_or_else(|| default_build_output_path(&file_path, output_mode));
     if let Some(parent) = out_path.parent() {
         fs::create_dir_all(parent).map_err(|e| {
             CompilerError::RuntimeError(format!(
@@ -1323,7 +1402,7 @@ fn emit_build_cmd(args: &[String]) -> Result<(), CompilerError> {
         ))
     })?;
 
-    let manifest = build_manifest_from_aot(file_path, &out_path, aot_stage, &aot);
+    let manifest = build_manifest_from_aot(&file_path, &out_path, aot_stage, &aot);
     let manifest_path = default_build_manifest_path(&out_path);
     let manifest_json = serde_json::to_string_pretty(&manifest)
         .map_err(|e| CompilerError::RuntimeError(format!("serialize build manifest: {e}")))?;
@@ -1399,12 +1478,13 @@ fn print_discovery<T: serde::Serialize>(value: &T, mode: DiscoveryOutputMode) ->
 
 fn print_usage() {
     eprintln!("usage:");
+    eprintln!("  grapheme                    # run project main from grapheme.toml");
     eprintln!("  grapheme <file.gr>");
-    eprintln!("  grapheme parse <file.gr> [--yaml|--json]");
-    eprintln!("  grapheme compile <file.gr> [--emit ast|hir|mir|artifact|aot] [--aot-stage stage_a|stage_b] [--yaml|--json]");
-    eprintln!("  grapheme build <file.gr> [--aot-stage stage_a|stage_b] [--out path] [--yaml|--json]");
+    eprintln!("  grapheme parse [<file.gr>] [--yaml|--json]");
+    eprintln!("  grapheme compile [<file.gr>] [--emit ast|hir|mir|artifact|aot] [--aot-stage stage_a|stage_b] [--yaml|--json]");
+    eprintln!("  grapheme build [<file.gr>] [--aot-stage stage_a|stage_b] [--out path] [--yaml|--json]");
     eprintln!("  grapheme plugins build [all|core|io ...]");
-    eprintln!("  grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules] [--aot-stage stage_a|stage_b] [--strict-stage-b] [--allow-stage-b-fallback] [--stream-steps]");
+    eprintln!("  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules] [--aot-stage stage_a|stage_b] [--strict-stage-b] [--allow-stage-b-fallback] [--stream-steps]");
     eprintln!("               [--trace-profile lean|debug] [--trace-steps N]");
     eprintln!("               [--trace-projection minimal|full] [--trace-max-string-bytes N]");
     eprintln!("  grapheme modules [--yaml|--json]");
@@ -1432,6 +1512,7 @@ fn print_modules_usage() {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn normalized(s: &str) -> String {
         s.replace("\r\n", "\n")
@@ -1466,6 +1547,37 @@ mod tests {
         assert!(matches!(run_options.aot_stage, Some(AotStageSelection::StageB)));
         assert!(run_options.strict_stage_b_container_execution);
         assert!(matches!(run_options.output_mode, RunOutputMode::Json));
+    }
+
+    #[test]
+    fn resolve_project_main_path_from_dir_uses_grapheme_toml_main() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = env::temp_dir().join(format!("grapheme-cli-project-main-{unique}"));
+        fs::create_dir_all(&dir).expect("create temp dir");
+
+        fs::write(
+            dir.join("grapheme.toml"),
+            r#""$schema" = "./grapheme.schema.json"
+
+[project]
+name = "demo"
+main = "examples/main.gr"
+
+[examples.namespaces]
+core = "examples"
+showcase = "examples/legacy/showcase"
+"#,
+        )
+        .expect("write project config");
+
+        let file = resolve_project_main_path_from_dir(&dir)
+            .expect("resolve project main should succeed");
+        let _ = fs::remove_dir_all(&dir);
+
+        assert!(file.ends_with("examples/main.gr"));
     }
 
     #[test]
