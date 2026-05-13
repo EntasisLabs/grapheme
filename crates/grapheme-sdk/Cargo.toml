@@ -3,6 +3,10 @@ name = "grapheme-sdk"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+wasix-runtime = ["grapheme-runtime/wasix-runtime"]
+
 [dependencies]
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }

@@ -23,6 +23,23 @@ jobs:
         run: |
           cargo test -p grapheme-runtime module_manifest::tests::manifest_ops_are_registered_or_explicitly_unsupported_for_stdlib_scope
           cargo test -p grapheme-runtime module_manifest::tests::stdlib_registered_ops_exist_in_runtime_manifests_for_stdlib_scope
+          cargo test -p grapheme-runtime execute_aot_stage_b_strict_mode_rejects_parity_fallback
 
       - name: Stdlib signature scope conformance test
         run: cargo test -p grapheme-stdlib registry::tests::signature_scope_ops_are_registered_or_explicitly_unsupported
+
+      - name: Compiler AOT Stage A contract tests
+        run: |
+          cargo test -p grapheme-compiler compile_to_aot_stage_a_carries_artifact_compatibility_metadata
+          cargo test -p grapheme-compiler stage_a_parity_harness_keeps_base_artifact_shape
+          cargo test -p grapheme-compiler stage_a_aot_snapshot_matches_golden_contract
+
+      - name: Compiler AOT Stage B contract tests
+        run: |
+          cargo test -p grapheme-compiler compile_to_aot_stage_b_includes_workflow_container_metadata
+          cargo test -p grapheme-compiler compile_to_aot_stage_b_rejects_imports_outside_host_interface
+          cargo test -p grapheme-compiler stage_b_aot_snapshot_matches_golden_contract
+
+      - name: SDK AOT strict mode tests
+        run: |
+          cargo test -p grapheme-sdk execute_aot_stage_b_strict_mode_rejects_when_container_runtime_unavailable

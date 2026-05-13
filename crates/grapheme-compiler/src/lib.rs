@@ -7,9 +7,12 @@ pub mod parser;
 pub mod pipeline;
 pub mod verifier;
 
-use grapheme_artifact::{build_artifact_from_mir, ArtifactEnvelope};
+use grapheme_artifact::{
+	build_aot_from_artifact, build_artifact_from_mir, build_stage_b_container_from_aot,
+	AotEnvelope, ArtifactEnvelope,
+};
 
-pub use compiler_api::{CompiledScript, Compiler, CompilerOptions};
+pub use compiler_api::{CompiledAotScript, CompiledScript, Compiler, CompilerOptions};
 pub use error::CompilerError;
 pub use parser::parse;
 pub use pipeline::{compile_program, CompilationArtifact, CompileOptions};
@@ -25,11 +28,198 @@ pub fn compile_to_artifact(source: &str, entrypoint: Option<&str>) -> Result<Art
 		.map_err(|e| CompilerError::ArtifactEmitError(e.to_string()))
 }
 
+pub fn compile_to_aot(source: &str, entrypoint: Option<&str>) -> Result<AotEnvelope, CompilerError> {
+	let artifact = compile_to_artifact(source, entrypoint)?;
+	build_aot_from_artifact(&artifact)
+		.map_err(|e| CompilerError::ArtifactEmitError(e.to_string()))
+}
+
+pub fn compile_to_aot_stage_b_with_container(
+	source: &str,
+	entrypoint: Option<&str>,
+	workflow_wasm: &[u8],
+	allowed_imports: &[String],
+) -> Result<AotEnvelope, CompilerError> {
+	let stage_a = compile_to_aot(source, entrypoint)?;
+	build_stage_b_container_from_aot(&stage_a, workflow_wasm, allowed_imports)
+		.map_err(|e| CompilerError::ArtifactEmitError(e.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
 		use super::*;
 		use crate::verifier::ExecutableKindPolicyMode;
 		use grapheme_artifact::mir::MirCompareOp;
+
+		#[test]
+		fn compile_to_aot_stage_a_carries_artifact_compatibility_metadata() {
+				let source = r#"
+query Hello {
+	core.echo(message: "hello-aot")
+}
+"#;
+
+				let artifact = compile_to_artifact(source, Some("Hello"))
+						.expect("artifact compile should succeed");
+				let aot = compile_to_aot(source, Some("Hello"))
+						.expect("aot compile should succeed");
+
+				assert_eq!(aot.stage, grapheme_artifact::AotStage::StageA);
+				assert_eq!(aot.base_artifact.artifact_id, artifact.artifact_id);
+				assert_eq!(
+						aot.compatibility.artifact_integrity_hash,
+						artifact.integrity_hash
+				);
+				assert_eq!(aot.payload.format, "grapheme.aot.stage_a.v1");
+				assert_eq!(aot.payload.host_interface_id, "grapheme.runtime.host.v1");
+		}
+
+		#[test]
+		fn stage_a_parity_harness_keeps_base_artifact_shape() {
+				let source = r#"
+query Hello {
+	core.echo(message: "hello-aot")
+}
+"#;
+
+				let artifact = compile_to_artifact(source, Some("Hello"))
+						.expect("artifact compile should succeed");
+				let aot = compile_to_aot(source, Some("Hello"))
+						.expect("aot compile should succeed");
+
+				assert_eq!(aot.base_artifact.entrypoint, artifact.entrypoint);
+				assert_eq!(
+						aot.base_artifact.required_capabilities,
+						artifact.required_capabilities
+				);
+				assert_eq!(
+						serde_json::to_value(&aot.base_artifact.payload)
+								.expect("serialize base artifact payload"),
+						serde_json::to_value(&artifact.payload)
+								.expect("serialize artifact payload")
+				);
+		}
+
+		#[test]
+		fn stage_a_aot_snapshot_matches_golden_contract() {
+				let source = r#"
+query Hello {
+	core.echo(message: "hello-aot")
+}
+"#;
+
+				let aot = compile_to_aot(source, Some("Hello"))
+						.expect("aot compile should succeed");
+				let snapshot = serde_json::json!({
+						"stage": serde_json::to_value(&aot.stage).expect("serialize aot stage"),
+						"payload_format": aot.payload.format,
+						"host_interface_id": aot.payload.host_interface_id,
+						"runtime_contract": aot.compatibility.runtime_contract,
+						"base_payload_format": aot.base_artifact.payload.format,
+				});
+
+				let expected: serde_json::Value = serde_json::from_str(include_str!(
+						"../tests/golden/aot-stage-a.snapshot.json"
+				))
+				.expect("parse aot snapshot golden json");
+
+				assert_eq!(snapshot, expected);
+		}
+
+		#[test]
+		fn compile_to_aot_stage_b_includes_workflow_container_metadata() {
+				let source = r#"
+query Hello {
+	core.echo(message: "hello-stage-b")
+}
+"#;
+				let imports = vec![
+						"grapheme.runtime.host.v1::state.read".to_string(),
+						"grapheme.runtime.host.v1::state.write".to_string(),
+				];
+
+				let aot = compile_to_aot_stage_b_with_container(
+						source,
+						Some("Hello"),
+						b"\\0asmstageb",
+						&imports,
+				)
+				.expect("stage_b compile should succeed");
+
+				assert_eq!(aot.stage, grapheme_artifact::AotStage::StageB);
+				assert_eq!(aot.payload.format, "grapheme.aot.stage_b.v1");
+				let container = aot
+						.payload
+						.workflow_wasm
+						.expect("stage_b should include workflow container metadata");
+				assert_eq!(container.byte_len, 11);
+				assert_eq!(container.entry_export, "_start");
+				assert_eq!(container.allowed_imports, imports);
+		}
+
+		#[test]
+		fn compile_to_aot_stage_b_rejects_imports_outside_host_interface() {
+				let source = r#"
+query Hello {
+	core.echo(message: "hello-stage-b")
+}
+"#;
+				let imports = vec!["wasi_snapshot_preview1::fd_write".to_string()];
+
+				let err = compile_to_aot_stage_b_with_container(
+						source,
+						Some("Hello"),
+						b"\\0asmstageb",
+						&imports,
+				)
+				.expect_err("stage_b compile should fail when imports escape host boundary");
+
+				assert!(err
+						.to_string()
+						.contains("outside host interface boundary"));
+		}
+
+		#[test]
+		fn stage_b_aot_snapshot_matches_golden_contract() {
+				let source = r#"
+query Hello {
+	core.echo(message: "hello-stage-b")
+}
+"#;
+				let imports = vec![
+						"grapheme.runtime.host.v1::state.read".to_string(),
+						"grapheme.runtime.host.v1::state.write".to_string(),
+				];
+
+				let aot = compile_to_aot_stage_b_with_container(
+						source,
+						Some("Hello"),
+						b"\\0asmstageb",
+						&imports,
+				)
+				.expect("stage_b compile should succeed");
+
+				let container = aot
+						.payload
+						.workflow_wasm
+						.expect("stage_b should include workflow container metadata");
+				let snapshot = serde_json::json!({
+						"stage": serde_json::to_value(&aot.stage).expect("serialize aot stage"),
+						"payload_format": aot.payload.format,
+						"host_interface_id": aot.payload.host_interface_id,
+						"runtime_contract": aot.compatibility.runtime_contract,
+						"entry_export": container.entry_export,
+						"byte_len": container.byte_len,
+						"allowed_imports": container.allowed_imports,
+				});
+
+				let expected: serde_json::Value = serde_json::from_str(include_str!(
+						"../tests/golden/aot-stage-b.snapshot.json"
+				))
+				.expect("parse stage_b snapshot golden json");
+
+				assert_eq!(snapshot, expected);
+		}
 
 		#[test]
 		fn strict_kind_policy_rejects_write_like_core_set_path_in_query() {

@@ -47,6 +47,39 @@ Planned next step:
 
 1. Invoke exported operation entrypoint and return plugin result payload.
 
+## AOT Stage B Container Boundary (Scaffold)
+
+Stage B now introduces a workflow container metadata envelope (`grapheme.aot.stage_b.v1`) on top of Stage A artifacts.
+
+Current scaffold contract:
+
+1. Stage B payload carries `workflow_wasm` metadata: byte length, sha256, entry export, allowed imports.
+2. Host interface id must match runtime contract (`grapheme.runtime.host.v1`).
+3. Allowed imports must remain inside host boundary namespace:
+
+- `grapheme.runtime.host.v1::state.read`
+- `grapheme.runtime.host.v1::state.write`
+- `grapheme.runtime.host.v1::<future-op>`
+
+Any import outside this namespace is rejected during Stage B build or execution boundary validation.
+
+Optional inline container transport:
+
+1. `workflow_wasm.inline_wasm_hex` may carry full wasm bytes inline.
+2. When present, runtime validates both `byte_len` and `sha256` against decoded bytes before execution.
+
+Runtime scaffold behavior today:
+
+1. Stage B execution routes through runtime `execute_aot` Stage B branch.
+2. Runtime emits `aot.stage_b.container_routed` lifecycle event with entry export/hash/import metadata.
+3. With `wasix-runtime` enabled and valid inline bytes present, runtime attempts direct container invocation.
+4. If container execution is unavailable or fails in scaffold mode, runtime falls back to Stage A parity execution path.
+
+Strict mode option:
+
+1. `RuntimeOptions.strict_stage_b_container_execution = true` disables Stage B parity fallback.
+2. In strict mode, unavailable direct container runtime path is treated as an artifact compatibility error.
+
 ## Recommended Export Pattern
 
 V1 recommended export strategy for plugins:

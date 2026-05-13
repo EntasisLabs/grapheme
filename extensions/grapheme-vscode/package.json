@@ -2,7 +2,7 @@
   "name": "grapheme-vscode",
   "displayName": "Grapheme Lang",
   "description": "Grapheme Lang (.gr) support powered by a prebuilt LSP binary",
-  "version": "0.1.0",
+  "version": "0.1.1-beta",
   "publisher": "grapheme-dev",
   "license": "Apache-2.0",
   "repository": {

@@ -1,6 +1,7 @@
 use grapheme_artifact::{
-    ArtifactEnvelope, Capability, CapabilityPolicy, ExecutionOutcome, ExecutionResult, MirFunction,
-    MirInst, MirLoopMergeMode, TraceSummary,
+    validate_aot_host_interface_boundary, AotEnvelope, AotStage, ArtifactEnvelope, Capability,
+    CapabilityPolicy, ExecutionOutcome, ExecutionResult, MirFunction, MirInst,
+    MirLoopMergeMode, TraceSummary,
 };
 use grapheme_artifact::mir::{MirCompareOp, MirMatchTarget};
 use grapheme_signatures::module_ops;
@@ -17,6 +18,8 @@ use crate::module_manager::{
 };
 use crate::module_manifest::ModuleAbi;
 use crate::module_registry::ModuleRegistry;
+#[cfg(feature = "wasix-runtime")]
+use crate::module_registry::ResolvedModuleCall;
 use crate::policy::PolicyGuard;
 use crate::state::{AgentState, StepContext, TracePolicy};
 #[cfg(feature = "wasix-runtime")]
@@ -33,6 +36,7 @@ pub struct RuntimeOptions {
     pub verify_integrity: bool,
     pub trace_policy: TracePolicy,
     pub stream_step_output: bool,
+    pub strict_stage_b_container_execution: bool,
     pub max_steps: Option<usize>,
     pub max_call_depth: Option<usize>,
 }
@@ -47,10 +51,17 @@ impl Default for RuntimeOptions {
             verify_integrity: true,
             trace_policy: TracePolicy::default(),
             stream_step_output: false,
+            strict_stage_b_container_execution: false,
             max_steps: Some(100_000),
             max_call_depth: Some(DEFAULT_MAX_CALL_DEPTH),
         }
     }
+}
+
+#[cfg_attr(not(feature = "wasix-runtime"), allow(dead_code))]
+enum StageBContainerExecution {
+    Executed(JsonValue),
+    Unavailable(String),
 }
 
 struct LoopFrame<'a> {
@@ -325,6 +336,162 @@ impl RuntimeEngine {
                 },
                 message: None,
             },
+        ))
+    }
+
+    pub fn execute_aot(
+        &self,
+        aot: &AotEnvelope,
+        host: &mut dyn CapabilityHost,
+    ) -> Result<(AgentState, ExecutionResult), GraphemeError> {
+        validate_aot_host_interface_boundary(aot)
+            .map_err(|e| GraphemeError::ArtifactCompatibilityError(e.to_string()))?;
+
+        match aot.stage {
+            AotStage::StageA => self.execute_artifact(&aot.base_artifact, host),
+            AotStage::StageB => self.execute_stage_b_scaffold(aot, host),
+        }
+    }
+
+    fn execute_stage_b_scaffold(
+        &self,
+        aot: &AotEnvelope,
+        host: &mut dyn CapabilityHost,
+    ) -> Result<(AgentState, ExecutionResult), GraphemeError> {
+        if let Some(container) = aot.payload.workflow_wasm.as_ref() {
+            match self.try_execute_stage_b_container(container)? {
+                StageBContainerExecution::Executed(container_output) => {
+                    let mut state = AgentState::with_trace_policy(self.options.trace_policy.clone());
+                    state.advance_in_place(
+                        0,
+                        format!("aot.stage_b::{}", container.entry_export),
+                        container_output,
+                    );
+                    let mut runtime_events = module_lifecycle_events_to_json(
+                        self.options.module_manager.lifecycle_events(),
+                    );
+                    runtime_events.push(stage_b_container_event(container));
+                    state.set_runtime_events(runtime_events);
+
+                    return Ok((
+                        state,
+                        ExecutionResult {
+                            outcome: ExecutionOutcome::Succeeded,
+                            output_sttp_node_id: None,
+                            trace_summary: TraceSummary {
+                                steps: 1,
+                                failed_step: None,
+                            },
+                            message: Some(
+                                "stage_b container executed directly via wasix backend"
+                                    .to_string(),
+                            ),
+                        },
+                    ));
+                }
+                StageBContainerExecution::Unavailable(reason) => {
+                    if self.options.strict_stage_b_container_execution {
+                        return Err(GraphemeError::ArtifactCompatibilityError(format!(
+                            "strict stage_b container execution required: {reason}"
+                        )));
+                    }
+                }
+            }
+        }
+
+        let (mut state, mut result) = self.execute_artifact(&aot.base_artifact, host)?;
+        if let Some(container) = aot.payload.workflow_wasm.as_ref() {
+            state.runtime_events.push(stage_b_container_event(container));
+        }
+        if result.message.is_none() {
+            result.message = Some(
+                "stage_b scaffold executed via parity path until wasm container runtime lowering is enabled"
+                    .to_string(),
+            );
+        }
+        Ok((state, result))
+    }
+}
+
+fn stage_b_container_event(container: &grapheme_artifact::AotWorkflowWasmContainer) -> JsonValue {
+    serde_json::json!({
+        "kind": "aot.stage_b.container_routed",
+        "entry_export": container.entry_export,
+        "byte_len": container.byte_len,
+        "sha256": container.sha256,
+        "allowed_imports": container.allowed_imports,
+    })
+}
+
+#[cfg(feature = "wasix-runtime")]
+impl RuntimeEngine {
+    fn try_execute_stage_b_container(
+        &self,
+        container: &grapheme_artifact::AotWorkflowWasmContainer,
+    ) -> Result<StageBContainerExecution, GraphemeError> {
+        let Some(inline_wasm_hex) = container.inline_wasm_hex.as_ref() else {
+            return Ok(StageBContainerExecution::Unavailable(
+                "stage_b container metadata has no inline_wasm_hex bytes".to_string(),
+            ));
+        };
+
+        let wasm_bytes = hex::decode(inline_wasm_hex).map_err(|e| {
+            GraphemeError::ArtifactCompatibilityError(format!(
+                "stage_b inline_wasm_hex is not valid hex: {e}"
+            ))
+        })?;
+
+        let mut wasm_path = std::env::temp_dir();
+        let now_nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| GraphemeError::RuntimeError(format!("system clock error: {e}")))?
+            .as_nanos();
+        wasm_path.push(format!("grapheme-aot-stage-b-{now_nanos}.wasm"));
+
+        std::fs::write(&wasm_path, &wasm_bytes).map_err(|e| {
+            GraphemeError::RuntimeError(format!(
+                "write stage_b wasm container '{}': {e}",
+                wasm_path.display()
+            ))
+        })?;
+
+        let resolved = ResolvedModuleCall {
+            module_id: "workflow".to_string(),
+            op: container.entry_export.clone(),
+            abi: ModuleAbi::WasixV1,
+            wasm_path: Some(wasm_path.clone()),
+            generation_id: None,
+            content_hash: Some(container.sha256.clone()),
+        };
+
+        let args = serde_json::json!({
+            "entry_export": container.entry_export,
+            "allowed_imports": container.allowed_imports,
+        });
+
+        let output = self
+            .wasix_backend
+            .execute_call(&wasm_path, &resolved, &args);
+
+        let _ = std::fs::remove_file(&wasm_path);
+
+        match output {
+            Ok(value) => Ok(StageBContainerExecution::Executed(value)),
+            Err(err) => Ok(StageBContainerExecution::Unavailable(format!(
+                "wasix backend could not execute stage_b container: {err}"
+            ))),
+        }
+    }
+}
+
+#[cfg(not(feature = "wasix-runtime"))]
+impl RuntimeEngine {
+    fn try_execute_stage_b_container(
+        &self,
+        _container: &grapheme_artifact::AotWorkflowWasmContainer,
+    ) -> Result<StageBContainerExecution, GraphemeError> {
+        Ok(StageBContainerExecution::Unavailable(
+            "wasix-runtime feature is not enabled".to_string(),
         ))
     }
 }
@@ -1362,8 +1529,9 @@ mod tests {
     use super::*;
     use crate::module_manager::{CompatibilityMode, LoadModuleRequest};
     use grapheme_artifact::{
-        build_artifact_from_mir, Capability, MirBlock, MirFunction, MirFunctionKind, MirInst,
-        MirIntentConfig, MirLoopConfig, MirLoopMergeMode, MirProgram, MirTerminator,
+        build_aot_from_artifact, build_artifact_from_mir, build_stage_b_container_from_aot,
+        Capability, MirBlock, MirFunction, MirFunctionKind, MirInst, MirIntentConfig,
+        MirLoopConfig, MirLoopMergeMode, MirProgram, MirTerminator,
     };
     use serde_json::{json, Map, Value as JsonValue};
     use std::fs;
@@ -1400,6 +1568,13 @@ mod tests {
             .join("tests")
             .join("golden")
             .join("module-lifecycle-events.snapshot.json")
+    }
+
+    fn stage_b_strict_mode_snapshot_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("golden")
+            .join("aot-stage-b-strict-mode.snapshot.json")
     }
 
     #[test]
@@ -2059,6 +2234,86 @@ mod tests {
 
         assert!(missing.contains(&"get".to_string()));
         assert!(!missing.contains(&"post".to_string()));
+    }
+
+    #[test]
+    fn execute_aot_stage_b_records_container_routing_event() {
+        let artifact = loop_artifact(1, MirLoopMergeMode::Replace);
+        let stage_a = build_aot_from_artifact(&artifact).expect("stage_a build should succeed");
+        let imports = vec![
+            "grapheme.runtime.host.v1::state.read".to_string(),
+            "grapheme.runtime.host.v1::state.write".to_string(),
+        ];
+        let stage_b = build_stage_b_container_from_aot(&stage_a, b"\0asmstageb", &imports)
+            .expect("stage_b build should succeed");
+
+        let runtime = RuntimeEngine::new(RuntimeOptions::default());
+        let mut host = TestHost {
+            mode: HostMode::StepIndexNumber,
+        };
+
+        let (state, result) = runtime
+            .execute_aot(&stage_b, &mut host)
+            .expect("stage_b runtime execution should succeed");
+
+        assert!(matches!(result.outcome, ExecutionOutcome::Succeeded));
+        assert!(result
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("stage_b scaffold executed via parity path")
+            || result
+                .message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("stage_b container executed directly via wasix backend"));
+
+        let stage_b_event = state.runtime_events.iter().find(|event| {
+            event
+                .get("kind")
+                .and_then(|v| v.as_str())
+                == Some("aot.stage_b.container_routed")
+        });
+        assert!(stage_b_event.is_some());
+    }
+
+    #[cfg(not(feature = "wasix-runtime"))]
+    #[test]
+    fn execute_aot_stage_b_strict_mode_rejects_parity_fallback() {
+        let artifact = loop_artifact(1, MirLoopMergeMode::Replace);
+        let stage_a = build_aot_from_artifact(&artifact).expect("stage_a build should succeed");
+        let imports = vec![
+            "grapheme.runtime.host.v1::state.read".to_string(),
+            "grapheme.runtime.host.v1::state.write".to_string(),
+        ];
+        let stage_b = build_stage_b_container_from_aot(&stage_a, b"\0asmstageb", &imports)
+            .expect("stage_b build should succeed");
+
+        let mut options = RuntimeOptions::default();
+        options.strict_stage_b_container_execution = true;
+        let runtime = RuntimeEngine::new(options);
+        let mut host = TestHost {
+            mode: HostMode::StepIndexNumber,
+        };
+
+        let err = runtime
+            .execute_aot(&stage_b, &mut host)
+            .expect_err("strict mode should reject parity fallback when wasix runtime is unavailable");
+
+        assert!(matches!(err, GraphemeError::ArtifactCompatibilityError(_)));
+        assert!(err
+            .to_string()
+            .contains("strict stage_b container execution required"));
+
+        let snapshot = json!({
+            "error_kind": "artifact_compatibility_error",
+            "message": err.to_string(),
+        });
+        let expected = fs::read_to_string(stage_b_strict_mode_snapshot_path())
+            .expect("read stage_b strict mode snapshot golden")
+            .parse::<JsonValue>()
+            .expect("parse stage_b strict mode snapshot golden json");
+        assert_eq!(snapshot, expected);
     }
 
     fn loop_artifact(max: u32, merge: MirLoopMergeMode) -> ArtifactEnvelope {

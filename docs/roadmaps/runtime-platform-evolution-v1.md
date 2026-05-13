@@ -9,7 +9,7 @@ Progress snapshot (2026-05-12):
 1. Track 1 (Embedded Runtime SDK): complete
 2. Track 2 (Database Capability Modules): complete for v1 acceptance scope
 3. Track 3 (Wasm Hot Module Loading): complete for v1 acceptance scope
-4. Track 4 (AOT to Wasm): not started
+4. Track 4 (AOT to Wasm): in progress (Stage A scaffold landed)
 
 Current value-first execution lane:
 
@@ -182,7 +182,7 @@ Remaining high-value closure checklist:
 
 ## Track 4: AOT to Wasm
 
-Status: not started (intentionally gated)
+Status: in progress (Stage A scaffold)
 
 Goal:
 
@@ -205,6 +205,33 @@ Acceptance criteria:
 1. AOT output executes deterministically under bounded policy.
 2. Same workflow result parity against interpreted path for reference cases.
 3. Packaging is deployable to common Wasm runtimes with policy adapters.
+
+Progress implemented:
+
+1. Stage A AOT envelope and compatibility metadata are defined in artifact contracts.
+2. Compiler now exposes Stage A AOT compile entrypoints (source -> artifact -> AOT envelope).
+3. Stage A parity harness tests verify base artifact shape parity and metadata propagation.
+4. SDK parity execution harness validates interpreted artifact vs Stage A base artifact output equivalence for representative workflows.
+5. CLI compile emit supports `aot` output, and SDK exposes AOT compile/execute/format helpers for inspection workflows.
+6. AOT Stage A contract tests are wired into CI conformance workflow.
+7. Stage B scaffold landed: artifact/compiler/SDK now support a workflow Wasm container metadata envelope (`grapheme.aot.stage_b.v1`).
+8. Host-interface boundary validation is now enforced for AOT execution (`grapheme.runtime.host.v1::*` import scope only for Stage B metadata).
+
+Remaining Stage A closure checklist:
+
+1. Stage A closure complete; continue into Stage B workflow Wasm container design.
+
+Stage B initial scaffold status:
+
+1. Added Stage B AOT contract shape and container metadata hashing/size contract.
+2. Added compiler and SDK helpers to construct Stage B envelopes from Stage A + container bytes.
+3. Added runtime-native `execute_aot` Stage B branch with container routing marker event (`aot.stage_b.container_routed`).
+4. Added boundary validation tests for allowed host imports and execution-time rejection paths.
+5. Stage B metadata now carries optional inline workflow bytes (`inline_wasm_hex`) with hash/length validation at contract boundary.
+6. Runtime now attempts direct Stage B container invocation via WASIX backend when feature-enabled; falls back to parity path if container execution is unavailable.
+7. Added strict Stage B execution option (`strict_stage_b_container_execution`) to reject parity fallback when direct container runtime is unavailable.
+8. Conformance now includes strict Stage B fallback rejection tests in runtime + SDK.
+9. Next: promote strict mode from optional to default once lowering emits production-valid workflow Wasm.
 
 Start gate (must be true before Track 4 execution):
 

@@ -1,4 +1,4 @@
-use grapheme_artifact::{ArtifactEnvelope, ExecutionResult};
+use grapheme_artifact::{build_stage_b_container_from_aot, AotEnvelope, ArtifactEnvelope, ExecutionResult};
 use grapheme_compiler::verifier::LintWarning;
 use grapheme_compiler::{CompiledScript, Compiler, CompilerError, CompilerOptions};
 use grapheme_runtime::{
@@ -37,6 +37,8 @@ pub enum GraphemeSdkError {
     Compiler(#[from] CompilerError),
     #[error(transparent)]
     Runtime(#[from] RuntimeError),
+    #[error("aot contract error: {0}")]
+    Contract(String),
     #[error("serialize output: {0}")]
     Serialization(String),
 }
@@ -83,6 +85,11 @@ impl GraphemeEngineBuilder {
 
     pub fn with_stream_step_output(mut self, enabled: bool) -> Self {
         self.runtime_options.stream_step_output = enabled;
+        self
+    }
+
+    pub fn with_strict_stage_b_container_execution(mut self, enabled: bool) -> Self {
+        self.runtime_options.strict_stage_b_container_execution = enabled;
         self
     }
 
@@ -155,11 +162,31 @@ impl GraphemeEngine {
         self.execute_compiled(&compiled)
     }
 
+    pub fn compile_source_to_aot(&self, source: &str) -> Result<AotEnvelope, GraphemeSdkError> {
+        let compiled = Compiler::compile_source_to_aot(source, CompilerOptions::default())?;
+        Ok(compiled.aot)
+    }
+
+    pub fn compile_source_to_aot_stage_b(
+        &self,
+        source: &str,
+        workflow_wasm: &[u8],
+        allowed_imports: &[String],
+    ) -> Result<AotEnvelope, GraphemeSdkError> {
+        let stage_a = self.compile_source_to_aot(source)?;
+        build_stage_b_container_from_aot(&stage_a, workflow_wasm, allowed_imports)
+            .map_err(|e| GraphemeSdkError::Contract(e.to_string()))
+    }
+
     pub fn execute_artifact(
         &self,
         artifact: &ArtifactEnvelope,
     ) -> Result<ExecuteResultPayload, GraphemeSdkError> {
         self.execute_artifact_with_lints(artifact, Vec::new())
+    }
+
+    pub fn execute_aot(&self, aot: &AotEnvelope) -> Result<ExecuteResultPayload, GraphemeSdkError> {
+        self.execute_aot_with_lints(aot, Vec::new())
     }
 
     pub fn execute_compiled(
@@ -181,6 +208,15 @@ impl GraphemeEngine {
             StructuredMode::Json => serde_json::to_string_pretty(result)
                 .map_err(|e| GraphemeSdkError::Serialization(e.to_string())),
             StructuredMode::Yaml => serde_yaml::to_string(result)
+                .map_err(|e| GraphemeSdkError::Serialization(e.to_string())),
+        }
+    }
+
+    pub fn format_aot(&self, aot: &AotEnvelope, mode: StructuredMode) -> Result<String, GraphemeSdkError> {
+        match mode {
+            StructuredMode::Json => serde_json::to_string_pretty(aot)
+                .map_err(|e| GraphemeSdkError::Serialization(e.to_string())),
+            StructuredMode::Yaml => serde_yaml::to_string(aot)
                 .map_err(|e| GraphemeSdkError::Serialization(e.to_string())),
         }
     }
@@ -215,6 +251,49 @@ impl GraphemeEngine {
             final_state: state.to_json(),
             lint_warnings,
         })
+    }
+
+    fn execute_aot_with_lints(
+        &self,
+        aot: &AotEnvelope,
+        lint_warnings: Vec<LintWarning>,
+    ) -> Result<ExecuteResultPayload, GraphemeSdkError> {
+        let mut options = self.runtime_options.clone();
+        for (module, path) in &self.module_bindings {
+            options
+                .module_registry
+                .set_wasm_path(module.as_str(), path.clone());
+        }
+
+        let runtime = RuntimeEngine::new(options);
+        let (state, execution) = if let Some(factory) = &self.host_factory {
+            let mut host = factory();
+            runtime
+                .execute_aot(aot, host.as_mut())
+                .map_err(map_runtime_aot_error)?
+        } else {
+            let mut host = StdlibHost {
+                capability_observer: self.capability_observer.clone(),
+                capability_interceptor: self.capability_interceptor.clone(),
+            };
+            runtime
+                .execute_aot(aot, &mut host)
+                .map_err(map_runtime_aot_error)?
+        };
+
+        Ok(ExecuteResultPayload {
+            artifact_id: aot.base_artifact.artifact_id.clone(),
+            execution,
+            final_state: state.to_json(),
+            lint_warnings,
+        })
+    }
+}
+
+fn map_runtime_aot_error(err: RuntimeError) -> GraphemeSdkError {
+    match err {
+        RuntimeError::ArtifactCompatibilityError(message) => GraphemeSdkError::Contract(message),
+        other => GraphemeSdkError::Runtime(other),
     }
 }
 
@@ -508,4 +587,208 @@ query SurrealAllowed {
                         Some("surreal_connection_unresolved")
                 );
         }
+
+    #[test]
+    fn execute_aot_matches_base_artifact_execution_parity() {
+        let source = r#"import core from "grapheme/core"
+
+query HelloAotParity {
+    core.echo(message: "hello-aot-parity") {
+        state { current }
+    }
+}
+"#;
+
+        let engine = GraphemeEngine::builder().build();
+        let compiled = Compiler::compile_source_to_aot(source, CompilerOptions::default())
+            .expect("compile to aot should succeed");
+
+        let interpreted = engine
+            .execute_artifact(&compiled.artifact)
+            .expect("interpreted execution should succeed");
+        let staged = engine
+            .execute_aot(&compiled.aot)
+            .expect("aot-backed execution should succeed");
+
+        assert!(matches!(
+            (&interpreted.execution.outcome, &staged.execution.outcome),
+            (ExecutionOutcome::Succeeded, ExecutionOutcome::Succeeded)
+                | (ExecutionOutcome::RetryableFailure, ExecutionOutcome::RetryableFailure)
+                | (ExecutionOutcome::FatalFailure, ExecutionOutcome::FatalFailure)
+        ));
+        assert_eq!(interpreted.final_state, staged.final_state);
+    }
+
+    #[test]
+    fn format_aot_supports_yaml_and_json() {
+        let source = r#"import core from "grapheme/core"
+
+query HelloAot {
+    core.echo(message: "hello-aot") {
+        state { current }
+    }
+}
+"#;
+
+        let engine = GraphemeEngine::builder().build();
+        let aot = engine
+            .compile_source_to_aot(source)
+            .expect("compile source to aot should succeed");
+
+        let yaml = engine
+            .format_aot(&aot, StructuredMode::Yaml)
+            .expect("yaml aot formatting should succeed");
+        let json = engine
+            .format_aot(&aot, StructuredMode::Json)
+            .expect("json aot formatting should succeed");
+
+        assert!(yaml.contains("stage: stage_a"));
+        assert!(json.contains("\"stage\": \"stage_a\""));
+    }
+
+    #[test]
+    fn compile_source_to_aot_stage_b_emits_container_metadata() {
+        let source = r#"import core from "grapheme/core"
+
+query HelloAot {
+    core.echo(message: "hello-aot") {
+        state { current }
+    }
+}
+"#;
+
+        let engine = GraphemeEngine::builder().build();
+        let imports = vec![
+            "grapheme.runtime.host.v1::state.read".to_string(),
+            "grapheme.runtime.host.v1::state.write".to_string(),
+        ];
+        let aot = engine
+            .compile_source_to_aot_stage_b(source, b"\0asmstageb", &imports)
+            .expect("compile source to stage_b aot should succeed");
+
+        assert!(matches!(aot.stage, grapheme_artifact::AotStage::StageB));
+        assert_eq!(aot.payload.format, "grapheme.aot.stage_b.v1");
+        assert!(aot.payload.workflow_wasm.is_some());
+    }
+
+    #[test]
+    fn execute_aot_rejects_stage_b_outside_host_boundary() {
+        let source = r#"import core from "grapheme/core"
+
+query HelloAot {
+    core.echo(message: "hello-aot") {
+        state { current }
+    }
+}
+"#;
+
+        let engine = GraphemeEngine::builder().build();
+        let mut stage_a = engine
+            .compile_source_to_aot(source)
+            .expect("compile source to aot should succeed");
+
+        stage_a.stage = grapheme_artifact::AotStage::StageB;
+        stage_a.payload.format = "grapheme.aot.stage_b.v1".to_string();
+        stage_a.payload.workflow_wasm = Some(grapheme_artifact::AotWorkflowWasmContainer {
+            byte_len: 8,
+            sha256: "sha256:deadbeef".to_string(),
+            entry_export: "_start".to_string(),
+            allowed_imports: vec!["wasi_snapshot_preview1::fd_write".to_string()],
+            inline_wasm_hex: None,
+        });
+
+        let err = engine
+            .execute_aot(&stage_a)
+            .expect_err("stage_b boundary escape should be rejected");
+
+        assert!(matches!(err, GraphemeSdkError::Contract(_)));
+        assert!(err.to_string().contains("outside host interface boundary"));
+    }
+
+    #[test]
+    fn execute_aot_stage_b_routes_through_runtime_stage_b_path() {
+        let source = r#"import core from "grapheme/core"
+
+query HelloAot {
+    core.echo(message: "hello-aot") {
+        state { current }
+    }
+}
+"#;
+
+        let engine = GraphemeEngine::builder().build();
+        let imports = vec![
+            "grapheme.runtime.host.v1::state.read".to_string(),
+            "grapheme.runtime.host.v1::state.write".to_string(),
+        ];
+        let stage_b = engine
+            .compile_source_to_aot_stage_b(source, b"\0asmstageb", &imports)
+            .expect("compile source to stage_b should succeed");
+
+        let result = engine
+            .execute_aot(&stage_b)
+            .expect("stage_b execution should succeed");
+
+        assert!(result
+            .execution
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("stage_b scaffold executed via parity path")
+            || result
+                .execution
+                .message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("stage_b container executed directly via wasix backend"));
+
+        let stage_b_event_found = result
+            .final_state
+            .get("runtime_events")
+            .and_then(|events| events.as_array())
+            .map(|events| {
+                events.iter().any(|event| {
+                    event
+                        .get("kind")
+                        .and_then(|v| v.as_str())
+                        == Some("aot.stage_b.container_routed")
+                })
+            })
+            .unwrap_or(false);
+
+        assert!(stage_b_event_found);
+    }
+
+    #[cfg(not(feature = "wasix-runtime"))]
+    #[test]
+    fn execute_aot_stage_b_strict_mode_rejects_when_container_runtime_unavailable() {
+        let source = r#"import core from "grapheme/core"
+
+query HelloAot {
+    core.echo(message: "hello-aot") {
+        state { current }
+    }
+}
+"#;
+
+        let engine = GraphemeEngine::builder()
+            .with_strict_stage_b_container_execution(true)
+            .build();
+        let imports = vec![
+            "grapheme.runtime.host.v1::state.read".to_string(),
+            "grapheme.runtime.host.v1::state.write".to_string(),
+        ];
+        let stage_b = engine
+            .compile_source_to_aot_stage_b(source, b"\0asmstageb", &imports)
+            .expect("compile source to stage_b should succeed");
+
+        let err = engine
+            .execute_aot(&stage_b)
+            .expect_err("strict mode should reject fallback when container runtime is unavailable");
+
+        assert!(matches!(err, GraphemeSdkError::Contract(_)));
+        assert!(err
+            .to_string()
+            .contains("strict stage_b container execution required"));
+    }
 }
