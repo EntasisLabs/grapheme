@@ -1,0 +1,34 @@
+mutation UpdatePreferences {
+  SeedPreferences
+  |> ApplyPreferences
+}
+
+iterator SeedPreferences on Any {
+  set {
+    user: "agent",
+    status: "draft",
+    preferences: {
+      mode: "draft",
+      notifications: false,
+      theme: "light"
+    }
+  }
+}
+
+iterator ApplyPreferences on Any {
+  core.merge(
+    left: $current,
+    right: {
+      preferences: {
+        mode: "safe",
+        notifications: true,
+        theme: "midnight"
+      },
+      audit: {
+        updated_by: "mutation.UpdatePreferences",
+        reason: "explicit user hardening"
+      }
+    }
+  )
+  |> transition $current.status -> updated { message: "preferences updated" }
+}

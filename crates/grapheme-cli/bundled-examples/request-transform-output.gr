@@ -1,0 +1,10 @@
+import http from "grapheme/http"
+import core from "grapheme/core"
+
+query RequestTransformOutputDemo {
+  set { url: "https://httpbin.org/get" }
+  |> http.get(url: $current.url)
+  |> core.pick(fields: ["status", "method", "url", "body"])
+  |> core.map(identifier: "body", field: "args")
+  |> core.echo()
+}

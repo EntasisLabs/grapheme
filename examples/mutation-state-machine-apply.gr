@@ -1,0 +1,40 @@
+import core from "grapheme/core"
+
+enum ApprovalStatus { draft, reviewing, approved, rejected }
+
+state_machine ApprovalLifecycle on ApprovalStatus {
+  transition draft -> reviewing
+  transition reviewing -> approved
+  transition reviewing -> rejected
+  terminal approved
+  terminal rejected
+}
+
+struct ApprovalState {
+  status: ApprovalStatus
+  request_id: String
+  owner: String
+  attempts: Float
+  state?: Json
+  note?: String
+}
+
+glyph Main {
+  SeedApproval
+  |> ApproveRequest
+  |> core.pick(fields: ["request_id", "owner", "status", "state", "note"])
+}
+
+query SeedApproval on Any -> ApprovalState {
+  ApprovalState {
+    status: "reviewing",
+    request_id: "req-42",
+    owner: "platform",
+    attempts: 1.0
+  }
+}
+
+mutation ApproveRequest on ApprovalState -> ApprovalState {
+  apply state { actor: "policy-engine", mutation: "ApproveRequest" }
+  |> transition $current.status -> approved { note: "approved via explicit mutation + apply" }
+}

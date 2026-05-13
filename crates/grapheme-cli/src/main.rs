@@ -78,6 +78,12 @@ struct PluginBuildSpec {
     output_rel: &'static str,
 }
 
+struct BundledExample {
+    name: &'static str,
+    relative_path: &'static str,
+    content: &'static str,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct GraphemeProjectToml {
     #[serde(rename = "$schema", default)]
@@ -167,6 +173,64 @@ const STAGE_B_DEFAULT_ALLOWED_IMPORTS: &[&str] = &[
 ];
 const STAGE_B_DEFAULT_WORKFLOW_WASM_BYTES: &[u8] = b"\0asmstageb";
 
+const BUNDLED_EXAMPLES: &[BundledExample] = &[
+    BundledExample {
+        name: "main",
+        relative_path: "examples/main.gr",
+        content: include_str!("../bundled-examples/main.gr"),
+    },
+    BundledExample {
+        name: "hello-world",
+        relative_path: "examples/hello-world.gr",
+        content: include_str!("../bundled-examples/hello-world.gr"),
+    },
+    BundledExample {
+        name: "core-merge",
+        relative_path: "examples/core-merge.gr",
+        content: include_str!("../bundled-examples/core-merge.gr"),
+    },
+    BundledExample {
+        name: "core-filter",
+        relative_path: "examples/core-filter.gr",
+        content: include_str!("../bundled-examples/core-filter.gr"),
+    },
+    BundledExample {
+        name: "core-validate-schema",
+        relative_path: "examples/core-validate-schema.gr",
+        content: include_str!("../bundled-examples/core-validate-schema.gr"),
+    },
+    BundledExample {
+        name: "request-transform-output",
+        relative_path: "examples/request-transform-output.gr",
+        content: include_str!("../bundled-examples/request-transform-output.gr"),
+    },
+    BundledExample {
+        name: "mutation-update-preferences",
+        relative_path: "examples/mutation-update-preferences.gr",
+        content: include_str!("../bundled-examples/mutation-update-preferences.gr"),
+    },
+    BundledExample {
+        name: "mutation-state-machine-apply",
+        relative_path: "examples/mutation-state-machine-apply.gr",
+        content: include_str!("../bundled-examples/mutation-state-machine-apply.gr"),
+    },
+    BundledExample {
+        name: "resilience-composition",
+        relative_path: "examples/resilience-composition.gr",
+        content: include_str!("../bundled-examples/resilience-composition.gr"),
+    },
+    BundledExample {
+        name: "subscription-heartbeat-readable",
+        relative_path: "examples/subscription-heartbeat-readable.gr",
+        content: include_str!("../bundled-examples/subscription-heartbeat-readable.gr"),
+    },
+    BundledExample {
+        name: "websearch-report",
+        relative_path: "examples/websearch-report.gr",
+        content: include_str!("../bundled-examples/websearch-report.gr"),
+    },
+];
+
 fn main() {
     let args: Vec<String> = env::args().collect();
 
@@ -200,6 +264,7 @@ fn run(args: Vec<String>) -> Result<(), CompilerError> {
         && args[1] != "build"
         && args[1] != "run"
         && args[1] != "plugins"
+        && args[1] != "examples"
         && args[1] != "modules"
     {
         return emit_parse(&args[1], DiscoveryOutputMode::Yaml);
@@ -212,6 +277,7 @@ fn run(args: Vec<String>) -> Result<(), CompilerError> {
         "compile" => emit_compile_cmd(&args[2..]),
         "build" => emit_build_cmd(&args[2..]),
         "plugins" => emit_plugins(&args),
+        "examples" => emit_examples_cmd(&args[2..]),
         "run" => {
             let (file_path, run_options) = parse_run_args(&args[2..])?;
             run_program(&file_path, run_options)
@@ -249,6 +315,89 @@ fn emit_plugins(args: &[String]) -> Result<(), CompilerError> {
             other
         ))),
     }
+}
+
+fn emit_examples_cmd(args: &[String]) -> Result<(), CompilerError> {
+    if args.is_empty() || args[0] == "list" {
+        for ex in BUNDLED_EXAMPLES {
+            println!("{}\t{}", ex.name, ex.relative_path);
+        }
+        return Ok(());
+    }
+
+    match args[0].as_str() {
+        "show" => {
+            if args.len() != 2 {
+                return Err(CompilerError::RuntimeError(
+                    "examples show requires an example name".to_string(),
+                ));
+            }
+            let ex = find_bundled_example(&args[1])?;
+            print!("{}", ex.content);
+            Ok(())
+        }
+        "init" => {
+            let mut out_dir = PathBuf::from(".");
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--out" => {
+                        if i + 1 >= args.len() {
+                            return Err(CompilerError::RuntimeError(
+                                "examples init --out requires a directory".to_string(),
+                            ));
+                        }
+                        out_dir = PathBuf::from(&args[i + 1]);
+                        i += 2;
+                    }
+                    other => {
+                        return Err(CompilerError::RuntimeError(format!(
+                            "unknown examples init flag '{}'",
+                            other
+                        )));
+                    }
+                }
+            }
+
+            for ex in BUNDLED_EXAMPLES {
+                let target = out_dir.join(ex.relative_path);
+                if let Some(parent) = target.parent() {
+                    fs::create_dir_all(parent).map_err(|e| {
+                        CompilerError::RuntimeError(format!(
+                            "create examples directory '{}': {e}",
+                            parent.display()
+                        ))
+                    })?;
+                }
+                fs::write(&target, ex.content).map_err(|e| {
+                    CompilerError::RuntimeError(format!(
+                        "write bundled example '{}': {e}",
+                        target.display()
+                    ))
+                })?;
+            }
+
+            println!(
+                "Initialized {} bundled examples into {}",
+                BUNDLED_EXAMPLES.len(),
+                out_dir.display()
+            );
+            Ok(())
+        }
+        other => Err(CompilerError::RuntimeError(format!(
+            "unknown examples subcommand '{}'; expected list|show|init",
+            other
+        ))),
+    }
+}
+
+fn find_bundled_example(name: &str) -> Result<&'static BundledExample, CompilerError> {
+    BUNDLED_EXAMPLES.iter().find(|ex| ex.name == name).ok_or_else(|| {
+        CompilerError::RuntimeError(format!(
+            "unknown bundled example '{}'; run 'grapheme examples list'",
+            name
+        ))
+    })
 }
 
 fn build_plugins(targets: &[String]) -> Result<(), CompilerError> {
@@ -1586,6 +1735,9 @@ fn print_usage() {
     eprintln!("  grapheme compile [<file.gr>] [--emit ast|hir|mir|artifact|aot] [--aot-stage stage_a|stage_b] [--yaml|--json]");
     eprintln!("  grapheme build [<file.gr>] [--aot-stage stage_a|stage_b] [--out path] [--yaml|--json]");
     eprintln!("  grapheme plugins build [all|core|io ...]");
+    eprintln!("  grapheme examples [list]");
+    eprintln!("  grapheme examples show <name>");
+    eprintln!("  grapheme examples init [--out dir]");
     eprintln!("  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules] [--aot-stage stage_a|stage_b] [--strict-stage-b] [--allow-stage-b-fallback] [--stream-steps]");
     eprintln!("               [--trace-profile lean|debug] [--trace-steps N]");
     eprintln!("               [--trace-projection minimal|full] [--trace-max-string-bytes N]");

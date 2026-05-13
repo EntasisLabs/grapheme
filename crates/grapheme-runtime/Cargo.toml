@@ -2,6 +2,10 @@
 name = "grapheme-runtime"
 version = "0.1.0"
 edition = "2021"
+description = "Policy-governed Grapheme runtime engine"
+license = "Apache-2.0"
+repository = "https://github.com/entasislabs/grapheme"
+homepage = "https://github.com/entasislabs/grapheme"
 
 [features]
 default = []
@@ -13,13 +17,13 @@ serde_json = "1.0"
 sha2 = "0.10"
 hex = "0.4"
 thiserror = "1.0"
-grapheme-artifact = { path = "../grapheme-artifact" }
-grapheme-signatures = { path = "../grapheme-signatures" }
+grapheme-artifact = { path = "../grapheme-artifact", version = "0.1.0" }
+grapheme-signatures = { path = "../grapheme-signatures", version = "0.1.0" }
 wasmer = { version = "7.2.0-alpha.2", optional = true, default-features = false }
 wasmer-types = { version = "7.2.0-alpha.2", optional = true }
 wasmer-wasix = { version = "0.702.0-alpha.2", optional = true, default-features = false, features = ["sys-default"] }
 tokio = { version = "1", optional = true, features = ["rt-multi-thread"] }
 
 [dev-dependencies]
-grapheme-stdlib = { path = "../grapheme-stdlib" }
+grapheme-stdlib = { path = "../grapheme-stdlib", version = "0.1.0" }
 wat = "1"

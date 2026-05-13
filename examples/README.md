@@ -21,6 +21,9 @@ Run these first:
 - `core-filter.gr`
 - `core-validate-schema.gr`
 - `mutation-update-preferences.gr`
+- `mutation-state-machine-apply.gr`
+- `resilience-composition.gr`
+- `subscription-heartbeat-readable.gr`
 - `http-get.gr`
 - `request-transform-output.gr`
 - `websearch-materials.gr`

@@ -1,0 +1,12 @@
+import core from "grapheme/core"
+
+query CoreFilterDemo {
+  set {
+    items: [
+      { id: 1, status: "active" },
+      { id: 2, status: "inactive" },
+      { id: 3, status: "active" }
+    ]
+  }
+  |> core.filter(items: $current.items, field: "status", equals: "active")
+}

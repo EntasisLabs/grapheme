@@ -114,3 +114,4 @@ Bundle output directory:
 
 - Extension packaging currently works with `package.json` `files` allowlist.
 - `vsce` may still warn about file count/bundling; this is an optimization concern, not a release blocker.
+- CLI now supports bundled example extraction (`grapheme examples init --out .`) for cargo-installed environments.

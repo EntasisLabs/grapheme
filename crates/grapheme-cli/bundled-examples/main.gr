@@ -1,0 +1,14 @@
+import core from "grapheme/core"
+
+glyph Main {
+  A
+  |> core.echo(message: "done")
+}
+
+query A {
+  set {
+    project: "agentql",
+    message: "Grapheme canonical main entrypoint"
+  }
+  |> core.echo(message: $current.message)
+}

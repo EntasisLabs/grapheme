@@ -51,6 +51,28 @@ cargo run --
 
 Both commands resolve `project.main` from `grapheme.toml` (currently `examples/main.gr`).
 
+### Install CLI with Cargo
+
+Install from local workspace:
+
+```bash
+cargo install --path crates/grapheme-cli
+```
+
+Install from git (private or public repository):
+
+```bash
+cargo install --git https://github.com/entasislabs/grapheme.git grapheme
+```
+
+When installed outside this repository, scaffold bundled examples:
+
+```bash
+grapheme examples list
+grapheme examples init --out .
+grapheme run examples/main.gr
+```
+
 ### Run with native modules
 
 ```bash

@@ -1,0 +1,14 @@
+subscription HeartbeatReadable {
+  set {
+    service: "agent-runtime",
+    status: "active",
+    sequence: 0.0
+  }
+  |> HeartbeatLoop
+}
+
+iterator HeartbeatLoop on Any @core_default @loop(max: 5, merge: "append") {
+  inc_field(field: "sequence")
+  |> core.merge(left: $current, right: { event: "heartbeat" })
+  |> core.pick(fields: ["event", "service", "status", "sequence"])
+}

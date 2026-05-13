@@ -2,5 +2,9 @@
 name = "grapheme-signatures"
 version = "0.1.0"
 edition = "2021"
+description = "Shared operation signatures and effects metadata for Grapheme"
+license = "Apache-2.0"
+repository = "https://github.com/entasislabs/grapheme"
+homepage = "https://github.com/entasislabs/grapheme"
 
 [dependencies]
