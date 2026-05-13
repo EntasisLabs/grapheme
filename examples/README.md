@@ -24,7 +24,17 @@ Run these first:
 - `secrets-handle.gr`
 - `secrets-sign.gr`
 - `sql-query.gr`
+- `sql-query-params.gr`
+- `sql-transaction.gr`
+- `sql-transaction-rollback.gr`
 - `surreal-select.gr`
+- `surreal-query.gr`
+- `surreal-select-filtered.gr`
+- `surreal-query-vars.gr`
+- `surreal-health.gr`
+- `surreal-create.gr`
+- `surreal-update.gr`
+- `surreal-delete.gr`
 
 Pipeline tip:
 
@@ -46,4 +56,11 @@ Compatibility and verifier fixtures remain in `examples/fixtures/`.
 
 ```bash
 cargo run -- run examples/<file>.gr --native-modules
+```
+
+For SQL examples, allow the selected connection id in policy:
+
+```bash
+GRAPHEME_ALLOWED_SQL_CONNECTIONS=sqlite::memory: \
+	cargo run -- run examples/sql-query-params.gr --json
 ```

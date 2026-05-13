@@ -550,8 +550,22 @@ fn emit_modules_examples(module: &str, mode: DiscoveryOutputMode) -> Result<(), 
         ],
         "tcp" => &["examples/tcp-connect.gr"],
         "smtp" => &["examples/smtp-send.gr"],
-        "sql" => &["examples/sql-query.gr"],
-        "surreal" => &["examples/surreal-select.gr"],
+        "sql" => &[
+            "examples/sql-query.gr",
+            "examples/sql-query-params.gr",
+            "examples/sql-transaction.gr",
+            "examples/sql-transaction-rollback.gr",
+        ],
+        "surreal" => &[
+            "examples/surreal-select.gr",
+            "examples/surreal-query.gr",
+            "examples/surreal-select-filtered.gr",
+            "examples/surreal-query-vars.gr",
+            "examples/surreal-health.gr",
+            "examples/surreal-create.gr",
+            "examples/surreal-update.gr",
+            "examples/surreal-delete.gr",
+        ],
         "io" => &["examples/io-list.gr"],
         "memory" => &["examples/memory-roundtrip.gr"],
         "secrets" => &["examples/secrets-handle.gr", "examples/secrets-sign.gr"],
@@ -1305,7 +1319,10 @@ mod tests {
         let payload = json!({
             "module_id": "sql",
             "examples": [
-                "examples/sql-query.gr"
+                "examples/sql-query.gr",
+                "examples/sql-query-params.gr",
+                "examples/sql-transaction.gr",
+                "examples/sql-transaction-rollback.gr"
             ]
         });
 
@@ -1320,7 +1337,10 @@ mod tests {
         let payload = json!({
             "module_id": "sql",
             "examples": [
-                "examples/sql-query.gr"
+                "examples/sql-query.gr",
+                "examples/sql-query-params.gr",
+                "examples/sql-transaction.gr",
+                "examples/sql-transaction-rollback.gr"
             ]
         });
 
@@ -1335,7 +1355,14 @@ mod tests {
         let payload = json!({
             "module_id": "surreal",
             "examples": [
-                "examples/surreal-select.gr"
+                "examples/surreal-select.gr",
+                "examples/surreal-query.gr",
+                "examples/surreal-select-filtered.gr",
+                "examples/surreal-query-vars.gr",
+                "examples/surreal-health.gr",
+                "examples/surreal-create.gr",
+                "examples/surreal-update.gr",
+                "examples/surreal-delete.gr"
             ]
         });
 
@@ -1350,7 +1377,14 @@ mod tests {
         let payload = json!({
             "module_id": "surreal",
             "examples": [
-                "examples/surreal-select.gr"
+                "examples/surreal-select.gr",
+                "examples/surreal-query.gr",
+                "examples/surreal-select-filtered.gr",
+                "examples/surreal-query-vars.gr",
+                "examples/surreal-health.gr",
+                "examples/surreal-create.gr",
+                "examples/surreal-update.gr",
+                "examples/surreal-delete.gr"
             ]
         });
 

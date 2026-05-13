@@ -61,6 +61,7 @@ cargo run -- run examples/core-merge.gr --native-modules --json
 
 ## Next Steps
 
+- Embedded SDK guide: `docs/sdk.md`
 - Architecture overview: `docs/architecture.md`
 - CLI command reference: `docs/cli.md`
 - Runtime policy guardrails: `docs/runtime-policy.md`

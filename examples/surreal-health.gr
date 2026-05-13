@@ -1,0 +1,7 @@
+import surreal from "grapheme/surreal"
+
+query SurrealHealth {
+  surreal.health(connection: "local") {
+    state { current }
+  }
+}

@@ -1,0 +1,12 @@
+import surreal from "grapheme/surreal"
+
+query SurrealSelectFiltered {
+  surreal.select(
+    connection: "local",
+    thing_or_table: "person",
+    where: "active = true",
+    limit: 10
+  ) {
+    state { current }
+  }
+}

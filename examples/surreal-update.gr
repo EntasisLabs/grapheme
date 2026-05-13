@@ -1,0 +1,14 @@
+import surreal from "grapheme/surreal"
+
+query SurrealUpdate {
+  surreal.update(
+    connection: "local",
+    thing_or_table: "person:demo",
+    data: {
+      active: false,
+      tier: "platinum"
+    }
+  ) {
+    state { current }
+  }
+}

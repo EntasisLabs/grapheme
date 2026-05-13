@@ -1,0 +1,11 @@
+import sql from "grapheme/sql"
+
+query SqlQueryParams {
+  sql.query(
+    connection: "sqlite::memory:",
+    sql: "select ?1 as id, ?2 as label, ?3 as enabled, ?4 as ratio, ?5 as empty",
+    params: [7, "alpha", true, 3.14, null]
+  ) {
+    state { current }
+  }
+}

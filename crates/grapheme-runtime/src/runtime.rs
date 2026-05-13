@@ -3,13 +3,18 @@ use grapheme_artifact::{
     MirInst, MirLoopMergeMode, TraceSummary,
 };
 use grapheme_artifact::mir::{MirCompareOp, MirMatchTarget};
+use grapheme_signatures::module_ops;
 use serde_json::{Map, Value as JsonValue};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use crate::error::RuntimeError as GraphemeError;
 use crate::host::{CapabilityCall, CapabilityHost, HostCallError};
+use crate::module_manager::{
+    ActivationResult, LoadModuleRequest, ModuleLifecycleEvent, ModuleLifecycleEventKind,
+    ModuleLoadError, ModuleManager,
+};
 use crate::module_manifest::ModuleAbi;
 use crate::module_registry::ModuleRegistry;
 use crate::policy::PolicyGuard;
@@ -24,6 +29,7 @@ pub struct RuntimeOptions {
     pub capability_policy: CapabilityPolicy,
     pub policy_guard: PolicyGuard,
     pub module_registry: ModuleRegistry,
+    pub module_manager: ModuleManager,
     pub verify_integrity: bool,
     pub trace_policy: TracePolicy,
     pub stream_step_output: bool,
@@ -37,6 +43,7 @@ impl Default for RuntimeOptions {
             capability_policy: CapabilityPolicy::default(),
             policy_guard: PolicyGuard::default(),
             module_registry: ModuleRegistry::default(),
+            module_manager: ModuleManager::new(),
             verify_integrity: true,
             trace_policy: TracePolicy::default(),
             stream_step_output: false,
@@ -168,6 +175,93 @@ impl RuntimeEngine {
         }
     }
 
+    pub fn activate_module_generation(
+        &mut self,
+        request: LoadModuleRequest,
+    ) -> Result<ActivationResult, ModuleLoadError> {
+        if !self.options.module_registry.has_module(&request.module_id) {
+            return Err(ModuleLoadError::UnknownModule {
+                module_id: request.module_id,
+            });
+        }
+
+        self.validate_activation_contract(&request.module_id)?;
+
+        let module_id = request.module_id.clone();
+        let activation = self.options.module_manager.load_and_activate(request)?;
+        let active = self
+            .options
+            .module_manager
+            .active_generation_record(&module_id)
+            .ok_or_else(|| ModuleLoadError::NoActiveGeneration {
+                module_id: module_id.clone(),
+            })?;
+
+        self.options.module_registry.set_wasm_generation(
+            &module_id,
+            active.wasm_path,
+            active.generation_id,
+            active.content_hash,
+        );
+
+        Ok(activation)
+    }
+
+    fn validate_activation_contract(&self, module_id: &str) -> Result<(), ModuleLoadError> {
+        let manifest = self
+            .options
+            .module_registry
+            .manifest_for(module_id)
+            .ok_or_else(|| ModuleLoadError::UnknownModule {
+                module_id: module_id.to_string(),
+            })?;
+
+        validate_required_signature_ops(module_id, &manifest.exported_ops)
+            .map_err(|missing_ops| ModuleLoadError::MissingRequiredOps {
+                module_id: module_id.to_string(),
+                missing_ops,
+            })?;
+
+        validate_required_capabilities_admitted(
+            module_id,
+            &manifest.required_capabilities,
+            &self.options.capability_policy,
+        )
+        .map_err(|denied_capabilities| ModuleLoadError::PolicyDeniedCapabilities {
+            module_id: module_id.to_string(),
+            denied_capabilities,
+        })?;
+
+        Ok(())
+    }
+
+    pub fn rollback_module_generation(
+        &mut self,
+        module_id: &str,
+    ) -> Result<ActivationResult, ModuleLoadError> {
+        let rollback = self.options.module_manager.rollback(module_id)?;
+        let active = self
+            .options
+            .module_manager
+            .active_generation_record(module_id)
+            .ok_or_else(|| ModuleLoadError::NoActiveGeneration {
+                module_id: module_id.to_string(),
+            })?;
+
+        self.options.module_registry.set_wasm_generation(
+            module_id,
+            active.wasm_path,
+            active.generation_id,
+            active.content_hash,
+        );
+
+        Ok(rollback)
+    }
+
+    pub fn module_lifecycle_events(&self) -> &[ModuleLifecycleEvent] {
+        self.options.module_manager.lifecycle_events()
+    }
+
     pub fn execute_artifact(
         &self,
         artifact: &ArtifactEnvelope,
@@ -191,6 +285,9 @@ impl RuntimeEngine {
             })?;
 
         let mut state = AgentState::with_trace_policy(self.options.trace_policy.clone());
+        // Pin module resolution state for the full execution so future activations
+        // do not affect in-flight workflows.
+        let pinned_module_registry = self.options.module_registry.clone();
         let mut step_index = 0usize;
         let mut remaining_steps = self.options.max_steps;
         let max_call_depth = self.options.max_call_depth.unwrap_or(usize::MAX);
@@ -198,6 +295,7 @@ impl RuntimeEngine {
         if let Some(result) = self.execute_function(
             functions,
             &function_index,
+            &pinned_module_registry,
             entrypoint_index,
             host,
             &mut state,
@@ -206,8 +304,15 @@ impl RuntimeEngine {
             0,
             max_call_depth,
         )? {
+            state.set_runtime_events(module_lifecycle_events_to_json(
+                self.options.module_manager.lifecycle_events(),
+            ));
             return Ok((state, result));
         }
+
+        state.set_runtime_events(module_lifecycle_events_to_json(
+            self.options.module_manager.lifecycle_events(),
+        ));
 
         Ok((
             state,
@@ -224,6 +329,79 @@ impl RuntimeEngine {
     }
 }
 
+fn module_lifecycle_events_to_json(events: &[ModuleLifecycleEvent]) -> Vec<JsonValue> {
+    events
+        .iter()
+        .map(|event| {
+            serde_json::json!({
+                "kind": module_lifecycle_event_name(event.kind),
+                "module_id": event.module_id,
+                "generation_id": event.generation_id,
+                "version": event.version,
+                "content_hash": event.content_hash,
+                "reason": event.reason,
+            })
+        })
+        .collect()
+}
+
+fn module_lifecycle_event_name(kind: ModuleLifecycleEventKind) -> &'static str {
+    match kind {
+        ModuleLifecycleEventKind::Loaded => "module.loaded",
+        ModuleLifecycleEventKind::Validated => "module.validated",
+        ModuleLifecycleEventKind::Activated => "module.activated",
+        ModuleLifecycleEventKind::ActivationFailed => "module.activation_failed",
+        ModuleLifecycleEventKind::Draining => "module.draining",
+        ModuleLifecycleEventKind::Retired => "module.retired",
+        ModuleLifecycleEventKind::Rollback => "module.rollback",
+    }
+}
+
+fn validate_required_signature_ops(
+    module_id: &str,
+    exported_ops: &[crate::module_manifest::ExportedOp],
+) -> Result<(), Vec<String>> {
+    let required_ops = module_ops(module_id);
+    if required_ops.is_empty() {
+        return Ok(());
+    }
+
+    let exported = exported_ops
+        .iter()
+        .map(|op| op.op.as_str())
+        .collect::<HashSet<_>>();
+
+    let missing = required_ops
+        .into_iter()
+        .map(|spec| spec.op.to_string())
+        .filter(|op| !exported.contains(op.as_str()))
+        .collect::<Vec<_>>();
+
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(missing)
+    }
+}
+
+fn validate_required_capabilities_admitted(
+    _module_id: &str,
+    required_capabilities: &[String],
+    policy: &CapabilityPolicy,
+) -> Result<(), Vec<String>> {
+    let denied = required_capabilities
+        .iter()
+        .filter(|cap| !policy.is_allowed(&Capability((*cap).clone())))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if denied.is_empty() {
+        Ok(())
+    } else {
+        Err(denied)
+    }
+}
+
 impl Default for RuntimeEngine {
     fn default() -> Self {
         Self::new(RuntimeOptions::default())
@@ -235,6 +413,7 @@ impl RuntimeEngine {
         &self,
         functions: &[MirFunction],
         function_index: &HashMap<String, usize>,
+        module_registry: &ModuleRegistry,
         function_idx: usize,
         host: &mut dyn CapabilityHost,
         state: &mut AgentState,
@@ -266,6 +445,7 @@ impl RuntimeEngine {
             let result = self.execute_function_once(
                 functions,
                 function_index,
+                module_registry,
                 function_idx,
                 host,
                 state,
@@ -298,6 +478,7 @@ impl RuntimeEngine {
                         return self.invoke_target(
                             functions,
                             function_index,
+                            module_registry,
                             host,
                             state,
                             step_index,
@@ -324,6 +505,7 @@ impl RuntimeEngine {
         &self,
         functions: &[MirFunction],
         function_index: &HashMap<String, usize>,
+        module_registry: &ModuleRegistry,
         function_idx: usize,
         host: &mut dyn CapabilityHost,
         state: &mut AgentState,
@@ -365,6 +547,7 @@ impl RuntimeEngine {
                             return self.invoke_target(
                                 functions,
                                 function_index,
+                                module_registry,
                                 host,
                                 state,
                                 step_index,
@@ -427,6 +610,7 @@ impl RuntimeEngine {
                                 if let Some(result) = self.invoke_target(
                                     functions,
                                     function_index,
+                                    module_registry,
                                     host,
                                     state,
                                     step_index,
@@ -442,9 +626,7 @@ impl RuntimeEngine {
                                 continue;
                             }
 
-                            let resolved = self
-                                .options
-                                .module_registry
+                            let resolved = module_registry
                                 .resolve_call(module.as_deref(), op, &capability.0)
                                 .ok_or_else(|| {
                                     GraphemeError::RuntimeError(format!(
@@ -592,6 +774,7 @@ impl RuntimeEngine {
                                 if let Some(result) = self.invoke_target(
                                     functions,
                                     function_index,
+                                    module_registry,
                                     host,
                                     state,
                                     step_index,
@@ -651,6 +834,7 @@ impl RuntimeEngine {
                                 if let Some(result) = self.invoke_target(
                                     functions,
                                     function_index,
+                                    module_registry,
                                     host,
                                     state,
                                     step_index,
@@ -685,6 +869,7 @@ impl RuntimeEngine {
         &self,
         functions: &[MirFunction],
         function_index: &HashMap<String, usize>,
+        module_registry: &ModuleRegistry,
         host: &mut dyn CapabilityHost,
         state: &mut AgentState,
         step_index: &mut usize,
@@ -727,6 +912,7 @@ impl RuntimeEngine {
         if let Some(result) = self.execute_function(
             functions,
             function_index,
+            module_registry,
             target_index,
             host,
             state,
@@ -1174,11 +1360,15 @@ fn json_value_to_inline_string(value: &JsonValue) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::module_manager::{CompatibilityMode, LoadModuleRequest};
     use grapheme_artifact::{
         build_artifact_from_mir, Capability, MirBlock, MirFunction, MirFunctionKind, MirInst,
         MirIntentConfig, MirLoopConfig, MirLoopMergeMode, MirProgram, MirTerminator,
     };
     use serde_json::{json, Map, Value as JsonValue};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     struct TestHost {
         mode: HostMode,
@@ -1188,6 +1378,7 @@ mod tests {
         StepIndexNumber,
         VerboseObject,
         LongString,
+        Fatal,
     }
 
     impl CapabilityHost for TestHost {
@@ -1199,8 +1390,16 @@ mod tests {
                     "payload": "abcdefghijklmnopqrstuvwxyz",
                 })),
                 HostMode::LongString => Ok(JsonValue::String("abcdefghijklmnopqrstuvwxyz".to_string())),
+                HostMode::Fatal => Err(HostCallError::Fatal("injected runtime failure".to_string())),
             }
         }
+    }
+
+    fn runtime_events_snapshot_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("golden")
+            .join("module-lifecycle-events.snapshot.json")
     }
 
     #[test]
@@ -1402,6 +1601,464 @@ mod tests {
 
         assert!(matches!(result.outcome, ExecutionOutcome::Succeeded));
         state
+    }
+
+    fn write_temp_wasm(tag: &str, bytes: &[u8]) -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        path.push(format!("grapheme-runtime-{tag}-{ts}.wasm"));
+        fs::write(&path, bytes).expect("write temp wasm bytes");
+        path
+    }
+
+    #[test]
+    fn activation_updates_registry_generation_metadata() {
+        let wasm = write_temp_wasm("activate-runtime", b"runtime-wasm-a");
+        let mut runtime = RuntimeEngine::new(RuntimeOptions::default());
+
+        let activation = runtime
+            .activate_module_generation(LoadModuleRequest {
+                module_id: "http".to_string(),
+                wasm_path: wasm.clone(),
+                compatibility_mode: CompatibilityMode::Strict,
+                abi: ModuleAbi::WasixV1,
+                version: Some("1.0.0".to_string()),
+            })
+            .expect("activation should succeed");
+
+        let resolved = runtime
+            .options
+            .module_registry
+            .resolve_call(Some("http"), "get", "http.get")
+            .expect("http.get should resolve");
+
+        assert_eq!(resolved.generation_id, Some(activation.generation_id));
+        assert_eq!(resolved.content_hash.as_deref(), Some(activation.content_hash.as_str()));
+
+        let _ = fs::remove_file(wasm);
+    }
+
+    #[test]
+    fn activation_rejects_module_when_required_capabilities_are_denied() {
+        let wasm = write_temp_wasm("activate-policy-denied", b"runtime-wasm-policy-denied");
+        let mut options = RuntimeOptions::default();
+        options
+            .capability_policy
+            .denied
+            .push(Capability("http.get.allowed_domain".to_string()));
+        let mut runtime = RuntimeEngine::new(options);
+
+        let err = runtime
+            .activate_module_generation(LoadModuleRequest {
+                module_id: "http".to_string(),
+                wasm_path: wasm.clone(),
+                compatibility_mode: CompatibilityMode::Strict,
+                abi: ModuleAbi::WasixV1,
+                version: Some("1.0.0".to_string()),
+            })
+            .expect_err("activation should be denied by capability policy");
+
+        assert!(matches!(
+            err,
+            ModuleLoadError::PolicyDeniedCapabilities { .. }
+        ));
+
+        let _ = fs::remove_file(wasm);
+    }
+
+    #[test]
+    fn rollback_restores_prior_registry_generation_metadata() {
+        let wasm_a = write_temp_wasm("rollback-runtime-a", b"runtime-wasm-a");
+        let wasm_b = write_temp_wasm("rollback-runtime-b", b"runtime-wasm-b");
+        let mut runtime = RuntimeEngine::new(RuntimeOptions::default());
+
+        let first = runtime
+            .activate_module_generation(LoadModuleRequest {
+                module_id: "http".to_string(),
+                wasm_path: wasm_a.clone(),
+                compatibility_mode: CompatibilityMode::Strict,
+                abi: ModuleAbi::WasixV1,
+                version: Some("1.0.0".to_string()),
+            })
+            .expect("first activation should succeed");
+
+        runtime
+            .activate_module_generation(LoadModuleRequest {
+                module_id: "http".to_string(),
+                wasm_path: wasm_b.clone(),
+                compatibility_mode: CompatibilityMode::Strict,
+                abi: ModuleAbi::WasixV1,
+                version: Some("1.1.0".to_string()),
+            })
+            .expect("second activation should succeed");
+
+        let rolled_back = runtime
+            .rollback_module_generation("http")
+            .expect("rollback should succeed");
+        assert_eq!(rolled_back.generation_id, first.generation_id);
+
+        let resolved = runtime
+            .options
+            .module_registry
+            .resolve_call(Some("http"), "get", "http.get")
+            .expect("http.get should resolve");
+        assert_eq!(resolved.generation_id, Some(first.generation_id));
+
+        assert!(runtime
+            .module_lifecycle_events()
+            .iter()
+            .any(|e| e.kind == crate::module_manager::ModuleLifecycleEventKind::Rollback));
+
+        let _ = fs::remove_file(wasm_a);
+        let _ = fs::remove_file(wasm_b);
+    }
+
+    #[test]
+    fn execution_state_includes_module_lifecycle_events() {
+        let wasm = write_temp_wasm("events-runtime", b"runtime-wasm-events");
+        let mut runtime = RuntimeEngine::new(RuntimeOptions::default());
+
+        runtime
+            .activate_module_generation(LoadModuleRequest {
+                module_id: "http".to_string(),
+                wasm_path: wasm.clone(),
+                compatibility_mode: CompatibilityMode::Strict,
+                abi: ModuleAbi::WasixV1,
+                version: Some("1.0.0".to_string()),
+            })
+            .expect("activation should succeed");
+
+        let artifact = loop_artifact(1, MirLoopMergeMode::Replace);
+        let mut host = TestHost {
+            mode: HostMode::StepIndexNumber,
+        };
+
+        let (state, result) = runtime
+            .execute_artifact(&artifact, &mut host)
+            .expect("runtime execution succeeds");
+
+        assert!(matches!(result.outcome, ExecutionOutcome::Succeeded));
+        assert!(!state.runtime_events.is_empty());
+        assert!(state.runtime_events.iter().any(|event| {
+            event.get("kind").and_then(|v| v.as_str()) == Some("module.activated")
+                && event.get("module_id").and_then(|v| v.as_str()) == Some("http")
+        }));
+
+        let _ = fs::remove_file(wasm);
+    }
+
+    #[test]
+    fn pinned_module_registry_snapshot_isolated_from_later_activation() {
+        let wasm_a = write_temp_wasm("pin-runtime-a", b"runtime-pin-a");
+        let wasm_b = write_temp_wasm("pin-runtime-b", b"runtime-pin-b");
+        let mut runtime = RuntimeEngine::new(RuntimeOptions::default());
+
+        let first = runtime
+            .activate_module_generation(LoadModuleRequest {
+                module_id: "http".to_string(),
+                wasm_path: wasm_a.clone(),
+                compatibility_mode: CompatibilityMode::Strict,
+                abi: ModuleAbi::WasixV1,
+                version: Some("1.0.0".to_string()),
+            })
+            .expect("first activation should succeed");
+
+        let pinned = runtime.options.module_registry.clone();
+
+        let second = runtime
+            .activate_module_generation(LoadModuleRequest {
+                module_id: "http".to_string(),
+                wasm_path: wasm_b.clone(),
+                compatibility_mode: CompatibilityMode::Strict,
+                abi: ModuleAbi::WasixV1,
+                version: Some("1.1.0".to_string()),
+            })
+            .expect("second activation should succeed");
+
+        let pinned_resolved = pinned
+            .resolve_call(Some("http"), "get", "http.get")
+            .expect("pinned http.get should resolve");
+        let current_resolved = runtime
+            .options
+            .module_registry
+            .resolve_call(Some("http"), "get", "http.get")
+            .expect("current http.get should resolve");
+
+        assert_eq!(pinned_resolved.generation_id, Some(first.generation_id));
+        assert_eq!(current_resolved.generation_id, Some(second.generation_id));
+
+        let _ = fs::remove_file(wasm_a);
+        let _ = fs::remove_file(wasm_b);
+    }
+
+    #[test]
+    fn execution_a_and_b_split_generation_resolution_after_activation() {
+        let wasm_a = write_temp_wasm("split-runtime-a", b"runtime-split-a");
+        let wasm_b = write_temp_wasm("split-runtime-b", b"runtime-split-b");
+        let mut runtime = RuntimeEngine::new(RuntimeOptions::default());
+
+        let first = runtime
+            .activate_module_generation(LoadModuleRequest {
+                module_id: "http".to_string(),
+                wasm_path: wasm_a.clone(),
+                compatibility_mode: CompatibilityMode::Strict,
+                abi: ModuleAbi::WasixV1,
+                version: Some("1.0.0".to_string()),
+            })
+            .expect("first activation should succeed");
+
+        // Execution A starts now and pins the pre-activation registry snapshot.
+        let execution_a_snapshot = runtime.options.module_registry.clone();
+
+        let second = runtime
+            .activate_module_generation(LoadModuleRequest {
+                module_id: "http".to_string(),
+                wasm_path: wasm_b.clone(),
+                compatibility_mode: CompatibilityMode::Strict,
+                abi: ModuleAbi::WasixV1,
+                version: Some("1.1.0".to_string()),
+            })
+            .expect("second activation should succeed");
+
+        // Execution B starts after activation and resolves through current active generation.
+        let execution_b_registry = runtime.options.module_registry.clone();
+
+        let resolved_a = execution_a_snapshot
+            .resolve_call(Some("http"), "get", "http.get")
+            .expect("execution A should resolve http.get");
+        let resolved_b = execution_b_registry
+            .resolve_call(Some("http"), "get", "http.get")
+            .expect("execution B should resolve http.get");
+
+        assert_eq!(resolved_a.generation_id, Some(first.generation_id));
+        assert_eq!(resolved_b.generation_id, Some(second.generation_id));
+
+        let _ = fs::remove_file(wasm_a);
+        let _ = fs::remove_file(wasm_b);
+    }
+
+    #[test]
+    fn failed_activation_does_not_replace_active_generation() {
+        let wasm_a = write_temp_wasm("runtime-fail-activation-a", b"runtime-fail-a");
+        let wasm_b = write_temp_wasm("runtime-fail-activation-b", b"runtime-fail-b");
+        let mut runtime = RuntimeEngine::new(RuntimeOptions::default());
+
+        let first = runtime
+            .activate_module_generation(LoadModuleRequest {
+                module_id: "http".to_string(),
+                wasm_path: wasm_a.clone(),
+                compatibility_mode: CompatibilityMode::Strict,
+                abi: ModuleAbi::WasixV1,
+                version: Some("1.0.0".to_string()),
+            })
+            .expect("first activation should succeed");
+
+        let err = runtime
+            .activate_module_generation(LoadModuleRequest {
+                module_id: "http".to_string(),
+                wasm_path: wasm_b.clone(),
+                compatibility_mode: CompatibilityMode::Strict,
+                abi: ModuleAbi::MirV1,
+                version: Some("2.0.0".to_string()),
+            })
+            .expect_err("incompatible ABI activation should fail");
+
+        assert!(matches!(err, ModuleLoadError::AbiIncompatible { .. }));
+
+        let resolved = runtime
+            .options
+            .module_registry
+            .resolve_call(Some("http"), "get", "http.get")
+            .expect("http.get should resolve");
+        assert_eq!(resolved.generation_id, Some(first.generation_id));
+
+        let _ = fs::remove_file(wasm_a);
+        let _ = fs::remove_file(wasm_b);
+    }
+
+    #[test]
+    fn runtime_event_payload_contract_is_stable() {
+        let wasm_a = write_temp_wasm("runtime-events-contract-a", b"runtime-contract-a");
+        let wasm_b = write_temp_wasm("runtime-events-contract-b", b"runtime-contract-b");
+        let mut runtime = RuntimeEngine::new(RuntimeOptions::default());
+
+        runtime
+            .activate_module_generation(LoadModuleRequest {
+                module_id: "http".to_string(),
+                wasm_path: wasm_a.clone(),
+                compatibility_mode: CompatibilityMode::Strict,
+                abi: ModuleAbi::WasixV1,
+                version: Some("1.0.0".to_string()),
+            })
+            .expect("first activation should succeed");
+
+        let _ = runtime
+            .activate_module_generation(LoadModuleRequest {
+                module_id: "http".to_string(),
+                wasm_path: wasm_b.clone(),
+                compatibility_mode: CompatibilityMode::Strict,
+                abi: ModuleAbi::MirV1,
+                version: Some("2.0.0".to_string()),
+            })
+            .expect_err("incompatible activation should fail");
+
+        let artifact = loop_artifact(1, MirLoopMergeMode::Replace);
+        let mut host = TestHost {
+            mode: HostMode::StepIndexNumber,
+        };
+        let (state, result) = runtime
+            .execute_artifact(&artifact, &mut host)
+            .expect("runtime execution succeeds");
+
+        assert!(matches!(result.outcome, ExecutionOutcome::Succeeded));
+        assert!(state.runtime_events.iter().all(|event| {
+            event.get("kind").is_some()
+                && event.get("module_id").is_some()
+                && event.get("generation_id").is_some()
+                && event.get("version").is_some()
+                && event.get("content_hash").is_some()
+                && event.get("reason").is_some()
+        }));
+        assert!(state.runtime_events.iter().all(|event| {
+            event
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .map(|kind| kind.starts_with("module."))
+                .unwrap_or(false)
+        }));
+        assert!(state.runtime_events.iter().any(|event| {
+            event.get("kind").and_then(|v| v.as_str()) == Some("module.activation_failed")
+                && event.get("reason").and_then(|v| v.as_str()) == Some("abi_incompatible")
+        }));
+
+        let _ = fs::remove_file(wasm_a);
+        let _ = fs::remove_file(wasm_b);
+    }
+
+    #[test]
+    fn rollback_restores_prior_generation_after_runtime_failure_window() {
+        let wasm_a = write_temp_wasm("runtime-window-a", b"runtime-window-a");
+        let wasm_b = write_temp_wasm("runtime-window-b", b"runtime-window-b");
+        let mut runtime = RuntimeEngine::new(RuntimeOptions::default());
+
+        let first = runtime
+            .activate_module_generation(LoadModuleRequest {
+                module_id: "http".to_string(),
+                wasm_path: wasm_a.clone(),
+                compatibility_mode: CompatibilityMode::Strict,
+                abi: ModuleAbi::WasixV1,
+                version: Some("1.0.0".to_string()),
+            })
+            .expect("first activation should succeed");
+
+        runtime
+            .activate_module_generation(LoadModuleRequest {
+                module_id: "http".to_string(),
+                wasm_path: wasm_b.clone(),
+                compatibility_mode: CompatibilityMode::Strict,
+                abi: ModuleAbi::WasixV1,
+                version: Some("1.1.0".to_string()),
+            })
+            .expect("second activation should succeed");
+
+        let mut host = TestHost { mode: HostMode::Fatal };
+        let artifact = loop_artifact(1, MirLoopMergeMode::Replace);
+        let (_state, execution) = runtime
+            .execute_artifact(&artifact, &mut host)
+            .expect("execution should complete with failure envelope");
+        assert!(matches!(execution.outcome, ExecutionOutcome::FatalFailure));
+
+        let rolled_back = runtime
+            .rollback_module_generation("http")
+            .expect("rollback should succeed after failure window");
+        assert_eq!(rolled_back.generation_id, first.generation_id);
+
+        let resolved = runtime
+            .options
+            .module_registry
+            .resolve_call(Some("http"), "get", "http.get")
+            .expect("http.get should resolve after rollback");
+        assert_eq!(resolved.generation_id, Some(first.generation_id));
+
+        let _ = fs::remove_file(wasm_a);
+        let _ = fs::remove_file(wasm_b);
+    }
+
+    #[test]
+    fn module_lifecycle_event_snapshot_matches_golden_contract() {
+        let wasm_a = write_temp_wasm("runtime-snapshot-a", b"runtime-snapshot-a");
+        let wasm_b = write_temp_wasm("runtime-snapshot-b", b"runtime-snapshot-b");
+        let mut runtime = RuntimeEngine::new(RuntimeOptions::default());
+
+        runtime
+            .activate_module_generation(LoadModuleRequest {
+                module_id: "http".to_string(),
+                wasm_path: wasm_a.clone(),
+                compatibility_mode: CompatibilityMode::Strict,
+                abi: ModuleAbi::WasixV1,
+                version: Some("1.0.0".to_string()),
+            })
+            .expect("first activation should succeed");
+
+        let _ = runtime
+            .activate_module_generation(LoadModuleRequest {
+                module_id: "http".to_string(),
+                wasm_path: wasm_b.clone(),
+                compatibility_mode: CompatibilityMode::Strict,
+                abi: ModuleAbi::MirV1,
+                version: Some("2.0.0".to_string()),
+            })
+            .expect_err("incompatible activation should fail");
+
+        let artifact = loop_artifact(1, MirLoopMergeMode::Replace);
+        let mut host = TestHost {
+            mode: HostMode::StepIndexNumber,
+        };
+        let (state, result) = runtime
+            .execute_artifact(&artifact, &mut host)
+            .expect("runtime execution succeeds");
+        assert!(matches!(result.outcome, ExecutionOutcome::Succeeded));
+
+        let kinds = state
+            .runtime_events
+            .iter()
+            .filter_map(|e| e.get("kind").and_then(|v| v.as_str()))
+            .map(ToOwned::to_owned)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let snapshot = json!({
+            "required_fields": ["kind", "module_id", "generation_id", "version", "content_hash", "reason"],
+            "kinds": kinds,
+        });
+
+        let expected = fs::read_to_string(runtime_events_snapshot_path())
+            .expect("read lifecycle snapshot golden")
+            .parse::<JsonValue>()
+            .expect("parse lifecycle snapshot golden json");
+        assert_eq!(snapshot, expected);
+
+        let _ = fs::remove_file(wasm_a);
+        let _ = fs::remove_file(wasm_b);
+    }
+
+    #[test]
+    fn required_signature_ops_validation_reports_missing_exports() {
+        let exported_ops = vec![crate::module_manifest::ExportedOp {
+            op: "post".to_string(),
+            input_schema_ref: None,
+            output_schema_ref: None,
+            effect: crate::module_manifest::EffectKind::Network,
+        }];
+
+        let missing = validate_required_signature_ops("http", &exported_ops)
+            .expect_err("missing signature ops should be reported");
+
+        assert!(missing.contains(&"get".to_string()));
+        assert!(!missing.contains(&"post".to_string()));
     }
 
     fn loop_artifact(max: u32, merge: MirLoopMergeMode) -> ArtifactEnvelope {

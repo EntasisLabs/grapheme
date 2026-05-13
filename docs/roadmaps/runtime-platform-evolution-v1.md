@@ -1,8 +1,20 @@
 # Grapheme Runtime Platform Evolution v1
 
-Status: proposed
+Status: in progress
 Owner: runtime + compiler + cli
 Horizon: 4-6 sprints
+
+Progress snapshot (2026-05-12):
+
+1. Track 1 (Embedded Runtime SDK): complete
+2. Track 2 (Database Capability Modules): complete for v1 acceptance scope
+3. Track 3 (Wasm Hot Module Loading): complete for v1 acceptance scope
+4. Track 4 (AOT to Wasm): not started
+
+Current value-first execution lane:
+
+1. Start Track 4 planning + Stage A implementation.
+2. Keep optional DB live-backend integration runs as non-blocking confidence work.
 
 ## Why This Exists
 
@@ -24,6 +36,13 @@ Recommended order:
 3. Database capabilities third.
 4. AOT-to-Wasm fourth.
 
+Current execution order (actual):
+
+1. Embedded SDK first.
+2. Database capabilities second.
+3. Hot module loading next.
+4. AOT-to-Wasm last.
+
 Reasoning:
 
 - SDK work hardens public runtime boundaries and removes CLI coupling.
@@ -32,6 +51,8 @@ Reasoning:
 - AOT benefits from stable module/ABI/runtime contracts.
 
 ## Track 1: Embedded Runtime SDK
+
+Status: complete
 
 Goal:
 
@@ -51,7 +72,15 @@ Acceptance criteria:
 2. Runtime behavior matches CLI `run` parity for policy and traces.
 3. SDK has structured output modes suitable for LLM orchestration (`yaml` default, `json` optional).
 
+Implementation notes:
+
+1. SDK crate exists at `crates/grapheme-sdk`.
+2. CLI `run` path is a thin adapter over SDK execution and formatting.
+3. Builder supports policy, tracing, module bindings, execution limits, and host interception hooks.
+
 ## Track 2: Database Capability Modules
+
+Status: complete for v1 acceptance scope
 
 Goal:
 
@@ -104,7 +133,13 @@ Acceptance criteria:
 2. Policies can independently gate SQL and Surreal operations.
 3. Conformance tests verify registry ↔ manifests ↔ signatures parity.
 
+Remaining high-value closure checklist:
+
+1. Optional: add live-backend integration runs (ephemeral Postgres/Surreal services) for deeper end-to-end confidence.
+
 ## Track 3: Wasm Hot Module Loading
+
+Status: complete for v1 acceptance scope
 
 Goal:
 
@@ -130,7 +165,24 @@ Acceptance criteria:
 2. Incompatible updates are rejected pre-activation.
 3. Activation and rollback events are traceable.
 
+Progress implemented:
+
+1. Module manager generation model and lifecycle/event types exist in runtime.
+2. Runtime activation and rollback APIs update active module generation metadata.
+3. Per-execution module registry pinning is in place so in-flight executions are isolated.
+4. Lifecycle events are now surfaced into execution state output.
+5. Activation-time compatibility checks now include signature-op coverage and capability policy admission validation.
+6. Draining-to-retired lifecycle behavior is implemented with deterministic retirement criteria and tests.
+7. Lifecycle event payload contract is stabilized with namespaced event kinds (`module.*`) and schema assertions in runtime tests.
+8. Explicit split-generation proof is covered: execution A pinned to generation N while execution B resolves generation N+1 after activation.
+
+Remaining high-value closure checklist:
+
+1. Optional: extend split-proof coverage to multi-threaded stress runs and activation throughput benchmarks.
+
 ## Track 4: AOT to Wasm
+
+Status: not started (intentionally gated)
 
 Goal:
 
@@ -154,6 +206,10 @@ Acceptance criteria:
 2. Same workflow result parity against interpreted path for reference cases.
 3. Packaging is deployable to common Wasm runtimes with policy adapters.
 
+Start gate (must be true before Track 4 execution):
+
+1. Trace/event schema stability is locked for runtime + SDK outputs.
+
 ## Cross-Cutting Workstreams
 
 1. Contract governance:
@@ -174,8 +230,9 @@ Acceptance criteria:
 
 1. Sprint 1: SDK foundation and CLI adapter extraction.
 2. Sprint 2: Module manager generations + compatibility checks.
-3. Sprint 3: DB capability modules (`sql` and `surreal`) with policy gating.
-4. Sprint 4-5: AOT pipeline stage A/B and parity tests.
+3. Sprint 3: Track 3 hardening (failure injection, split pinning proof, lifecycle contract snapshots).
+4. Sprint 4: Track 2 hardening (DB integration/policy/rollback/load tests).
+5. Sprint 5-6: AOT pipeline stage A/B and parity tests (after Track 2 gates).
 
 ## Out of Scope (v1)
 

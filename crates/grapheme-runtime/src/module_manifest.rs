@@ -12,7 +12,7 @@ pub struct ModuleManifest {
     pub limits: ResourceLimits,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModuleAbi {
     MirV1,

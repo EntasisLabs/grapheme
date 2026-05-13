@@ -1,4 +1,4 @@
-use crate::{core, csv, html, http, json as json_mod, research, smtp, sql, tcp, web, yaml};
+use crate::{core, csv, html, http, json as json_mod, research, smtp, sql, surreal, tcp, web, yaml};
 use serde_json::{json, Value as JsonValue};
 
 struct RegisteredModule {
@@ -300,33 +300,21 @@ fn dispatch_sql(op: &str, args: &JsonValue) -> Option<JsonValue> {
         "query" => Some(sql::query(args)),
         "execute" => Some(sql::execute(args)),
         "health" => Some(sql::health(args)),
-        "transaction" => Some(not_implemented_payload("sql", op, args)),
+        "transaction" => Some(sql::transaction(args)),
         _ => None,
     }
 }
 
 fn dispatch_surreal(op: &str, args: &JsonValue) -> Option<JsonValue> {
     match op {
-        "query" | "select" | "create" | "update" | "delete" | "health" => {
-            Some(not_implemented_payload("surreal", op, args))
-        }
+        "query" => Some(surreal::query(args)),
+        "select" => Some(surreal::select(args)),
+        "create" => Some(surreal::create(args)),
+        "update" => Some(surreal::update(args)),
+        "delete" => Some(surreal::delete(args)),
+        "health" => Some(surreal::health(args)),
         _ => None,
     }
-}
-
-fn not_implemented_payload(module: &str, op: &str, args: &JsonValue) -> JsonValue {
-    json!({
-        "ok": false,
-        "error": {
-            "kind": "not_implemented",
-            "code": "capability_not_implemented",
-            "message": format!("{}.{} is planned in RFC-0003 and not implemented yet", module, op),
-            "retryable": false
-        },
-        "module": module,
-        "op": op,
-        "received": args
-    })
 }
 
 fn dispatch_html(op: &str, args: &JsonValue) -> Option<JsonValue> {
@@ -779,40 +767,54 @@ mod tests {
     }
 
     #[test]
-    fn sql_transaction_remains_deterministic_not_implemented() {
+    fn sql_transaction_executes_registered_path() {
         let out = dispatch("sql", "transaction", &json!({
-            "connection": "local",
-            "steps": []
+            "connection": "sqlite::memory:",
+            "steps": [
+                {
+                    "sql": "select 1",
+                    "mode": "query"
+                }
+            ]
         }))
         .expect("sql.transaction should be registered");
 
         assert_eq!(
-            out.get("error")
-                .and_then(|v| v.get("code"))
-                .and_then(|v| v.as_str()),
-            Some("capability_not_implemented")
+            out.get("ok").and_then(|v| v.as_bool()),
+            Some(true)
         );
     }
 
     #[test]
-    fn surreal_stub_returns_deterministic_not_implemented_error_shape() {
+    fn surreal_select_executes_registered_path() {
         let out = dispatch("surreal", "select", &json!({
-            "connection": "local",
+            "connection": "missing_surreal_conn",
             "thing_or_table": "doc"
         }))
         .expect("surreal.select should be registered");
 
         assert_eq!(
             out.get("error")
-                .and_then(|v| v.get("kind"))
+                .and_then(|v| v.get("code"))
                 .and_then(|v| v.as_str()),
-            Some("not_implemented")
+            Some("surreal_connection_unresolved")
         );
+    }
+
+    #[test]
+    fn surreal_create_executes_registered_path() {
+        let out = dispatch("surreal", "create", &json!({
+            "connection": "missing_surreal_conn",
+            "thing_or_table": "doc",
+            "data": {"id": 1}
+        }))
+        .expect("surreal.create should be registered");
+
         assert_eq!(
             out.get("error")
-                .and_then(|v| v.get("retryable"))
-                .and_then(|v| v.as_bool()),
-            Some(false)
+                .and_then(|v| v.get("code"))
+                .and_then(|v| v.as_str()),
+            Some("surreal_connection_unresolved")
         );
     }
 }

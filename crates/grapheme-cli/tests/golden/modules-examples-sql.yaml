@@ -1,3 +1,6 @@
 examples:
 - examples/sql-query.gr
+- examples/sql-query-params.gr
+- examples/sql-transaction.gr
+- examples/sql-transaction-rollback.gr
 module_id: sql

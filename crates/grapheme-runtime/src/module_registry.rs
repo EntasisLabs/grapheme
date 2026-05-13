@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::module_manifest::{core_v1_manifests, ModuleAbi, ModuleManifest};
+use crate::module_manifest::{core_v1_manifests, ExportedOp, ModuleAbi, ModuleManifest};
 
 #[derive(Debug, Clone)]
 pub struct ModuleBinding {
     pub manifest: ModuleManifest,
     pub wasm_path: Option<PathBuf>,
+    pub generation_id: Option<u64>,
+    pub content_hash: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -20,6 +22,8 @@ pub struct ResolvedModuleCall {
     pub op: String,
     pub abi: ModuleAbi,
     pub wasm_path: Option<PathBuf>,
+    pub generation_id: Option<u64>,
+    pub content_hash: Option<String>,
 }
 
 impl ModuleRegistry {
@@ -32,6 +36,8 @@ impl ModuleRegistry {
                 ModuleBinding {
                     manifest,
                     wasm_path: None,
+                    generation_id: None,
+                    content_hash: None,
                 },
             );
         }
@@ -42,6 +48,38 @@ impl ModuleRegistry {
     pub fn set_wasm_path(&mut self, module_id: &str, wasm_path: PathBuf) {
         if let Some(binding) = self.bindings.get_mut(module_id) {
             binding.wasm_path = Some(wasm_path);
+            binding.generation_id = None;
+            binding.content_hash = None;
+        }
+    }
+
+    pub fn has_module(&self, module_id: &str) -> bool {
+        self.bindings.contains_key(module_id)
+    }
+
+    pub fn manifest_for(&self, module_id: &str) -> Option<ModuleManifest> {
+        self.bindings
+            .get(&module_id.to_lowercase())
+            .map(|binding| binding.manifest.clone())
+    }
+
+    pub fn exported_ops_for(&self, module_id: &str) -> Option<Vec<ExportedOp>> {
+        self.bindings
+            .get(&module_id.to_lowercase())
+            .map(|binding| binding.manifest.exported_ops.clone())
+    }
+
+    pub fn set_wasm_generation(
+        &mut self,
+        module_id: &str,
+        wasm_path: PathBuf,
+        generation_id: u64,
+        content_hash: String,
+    ) {
+        if let Some(binding) = self.bindings.get_mut(module_id) {
+            binding.wasm_path = Some(wasm_path);
+            binding.generation_id = Some(generation_id);
+            binding.content_hash = Some(content_hash);
         }
     }
 
@@ -62,6 +100,8 @@ impl ModuleRegistry {
             op: op.to_string(),
             abi: effective_abi(binding),
             wasm_path: binding.wasm_path.clone(),
+            generation_id: binding.generation_id,
+            content_hash: binding.content_hash.clone(),
         })
     }
 }

@@ -1,0 +1,15 @@
+import surreal from "grapheme/surreal"
+
+query SurrealCreate {
+  surreal.create(
+    connection: "local",
+    thing_or_table: "person:demo",
+    data: {
+      name: "Ada",
+      active: true,
+      tier: "gold"
+    }
+  ) {
+    state { current }
+  }
+}

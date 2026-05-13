@@ -118,6 +118,11 @@ pub struct AgentState {
     /// The full history of step results in this pipeline
     pub pipeline: Vec<StepResult>,
 
+    /// Runtime lifecycle events (for example module activation/rollback) captured
+    /// during or before this execution.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runtime_events: Vec<JsonValue>,
+
     /// Modules the AI has proposed but which haven't been approved yet
     pub proposed: Vec<ProposedModule>,
 
@@ -150,6 +155,7 @@ impl AgentState {
             diff:     None,
             errors:   vec![],
             pipeline: vec![],
+            runtime_events: vec![],
             proposed: vec![],
             trace_policy,
         }
@@ -295,6 +301,10 @@ impl AgentState {
     /// Serialize the state to JSON for returning to the AI agent
     pub fn to_json(&self) -> JsonValue {
         serde_json::to_value(self).unwrap_or(JsonValue::Null)
+    }
+
+    pub fn set_runtime_events(&mut self, events: Vec<JsonValue>) {
+        self.runtime_events = events;
     }
 }
 

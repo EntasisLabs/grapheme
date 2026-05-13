@@ -1,0 +1,28 @@
+name: Conformance
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Runtime manifest/stdlib conformance tests
+        run: |
+          cargo test -p grapheme-runtime module_manifest::tests::manifest_ops_are_registered_or_explicitly_unsupported_for_stdlib_scope
+          cargo test -p grapheme-runtime module_manifest::tests::stdlib_registered_ops_exist_in_runtime_manifests_for_stdlib_scope
+
+      - name: Stdlib signature scope conformance test
+        run: cargo test -p grapheme-stdlib registry::tests::signature_scope_ops_are_registered_or_explicitly_unsupported

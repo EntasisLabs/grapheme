@@ -6,6 +6,7 @@ pub mod json;
 pub mod registry;
 pub mod research;
 pub mod sql;
+pub mod surreal;
 pub mod smtp;
 pub mod tcp;
 pub mod web;

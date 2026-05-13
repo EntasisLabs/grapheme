@@ -5,12 +5,13 @@ This directory is the canonical documentation set for Grapheme.
 ## Start Here
 
 1. `docs/getting-started.md`
-2. `docs/language-contract.md`
-3. `docs/architecture.md`
-4. `docs/cli.md`
-5. `docs/runtime-policy.md`
-6. `docs/modules.md`
-7. `docs/native-modules.md`
+2. `docs/sdk.md`
+3. `docs/language-contract.md`
+4. `docs/architecture.md`
+5. `docs/cli.md`
+6. `docs/runtime-policy.md`
+7. `docs/modules.md`
+8. `docs/native-modules.md`
 
 ## Runtime Contracts
 
