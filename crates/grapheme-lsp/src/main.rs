@@ -1,3 +1,8 @@
+//! Grapheme language server binary.
+//!
+//! Implements diagnostics, completion, formatting, and symbol/navigation features
+//! for Grapheme source files over LSP.
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};

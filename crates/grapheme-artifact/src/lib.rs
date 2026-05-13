@@ -1,3 +1,8 @@
+//! Artifact and AOT contract types for Grapheme.
+//!
+//! This crate defines the serialized envelopes shared between compiler and runtime:
+//! MIR artifacts, Stage A/Stage B AOT envelopes, and execution result summaries.
+
 pub mod artifact;
 pub mod capability;
 pub mod mir;

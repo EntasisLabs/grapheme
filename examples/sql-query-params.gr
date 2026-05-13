@@ -1,11 +1,14 @@
 import sql from "grapheme/sql"
 
 query SqlQueryParams {
-  sql.query(
+  set {
     connection: "sqlite::memory:",
-    sql: "select ?1 as id, ?2 as label, ?3 as enabled, ?4 as ratio, ?5 as empty",
+    statement: "select ?1 as id, ?2 as label, ?3 as enabled, ?4 as ratio, ?5 as empty",
     params: [7, "alpha", true, 3.14, null]
-  ) {
-    state { current }
   }
+  |> sql.query(
+    connection: $current.connection,
+    sql: $current.statement,
+    params: $current.params
+  )
 }

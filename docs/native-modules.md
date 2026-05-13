@@ -118,7 +118,7 @@ query ExplicitChain {
 }
 ```
 
-See additional recipes in `examples/transform-cookbook/`.
+See additional recipes in `examples/legacy/transform-cookbook/`.
 
 ## Native Docs Module
 

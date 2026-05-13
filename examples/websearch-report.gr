@@ -1,16 +1,25 @@
 query Research on Any {
-  websearch.research_report(
-    query: "How to cook an egg?",
-    max_results: 3,
-    per_source_chars: 1500,
-    report_chars: 8800,
-    md_options: {
-      output_format: "markdown",
-      include_document_structure: true,
-      extract_metadata: true,
-      strip_tags: ["script", "style", "nav", "footer", "aside"],
-      exclude_selectors: [".cookie-banner", "#cookie", ".advertisement"]
+  set {
+    request: {
+      query: "How to cook an egg?",
+      max_results: 3,
+      per_source_chars: 1500,
+      report_chars: 8800,
+      md_options: {
+        output_format: "markdown",
+        include_document_structure: true,
+        extract_metadata: true,
+        strip_tags: ["script", "style", "nav", "footer", "aside"],
+        exclude_selectors: [".cookie-banner", "#cookie", ".advertisement"]
+      }
     }
+  }
+  |> websearch.research_report(
+    query: $current.request.query,
+    max_results: $current.request.max_results,
+    per_source_chars: $current.request.per_source_chars,
+    report_chars: $current.request.report_chars,
+    md_options: $current.request.md_options
   )
   |> core.echo(message: $current.report)
 }

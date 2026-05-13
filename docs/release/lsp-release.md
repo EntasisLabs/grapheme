@@ -1,5 +1,9 @@
 # Grapheme LSP and VSIX Release Guide
 
+Release governance gates and docs versioning policy:
+
+- `docs/release/release-gates-and-doc-versioning.md`
+
 This repository supports both CI-based and manual release flows for:
 
 1. `grapheme-lsp` platform binaries

@@ -1,3 +1,8 @@
+//! Embedded Grapheme SDK for in-process compile and execution workflows.
+//!
+//! The SDK wraps compiler and runtime crates with an ergonomic builder API,
+//! structured output formatting, and AOT helper entrypoints.
+
 use grapheme_artifact::{build_stage_b_container_from_aot, AotEnvelope, ArtifactEnvelope, ExecutionResult};
 use grapheme_compiler::verifier::LintWarning;
 use grapheme_compiler::{CompiledScript, Compiler, CompilerError, CompilerOptions};
@@ -17,20 +22,29 @@ type CapabilityObserver = Arc<dyn Fn(&CapabilityCall) + Send + Sync>;
 type CapabilityInterceptor =
     Arc<dyn Fn(&CapabilityCall) -> Option<Result<JsonValue, HostCallError>> + Send + Sync>;
 
+/// Structured output mode for SDK formatting helpers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StructuredMode {
+    /// YAML output.
     Yaml,
+    /// JSON output.
     Json,
 }
 
+/// Top-level execute payload returned by SDK execution entrypoints.
 #[derive(Debug, Clone, Serialize)]
 pub struct ExecuteResultPayload {
+    /// Executed artifact id.
     pub artifact_id: String,
+    /// Runtime execution result summary.
     pub execution: ExecutionResult,
+    /// Final runtime state as JSON.
     pub final_state: JsonValue,
+    /// Non-fatal compiler warnings collected during compile path.
     pub lint_warnings: Vec<LintWarning>,
 }
 
+/// Errors returned by SDK compile/execute/format operations.
 #[derive(Debug, Error)]
 pub enum GraphemeSdkError {
     #[error(transparent)]
@@ -43,6 +57,7 @@ pub enum GraphemeSdkError {
     Serialization(String),
 }
 
+/// Builder for configuring `GraphemeEngine` runtime behavior.
 pub struct GraphemeEngineBuilder {
     runtime_options: RuntimeOptions,
     module_bindings: HashMap<String, PathBuf>,
@@ -58,6 +73,7 @@ impl Default for GraphemeEngineBuilder {
 }
 
 impl GraphemeEngineBuilder {
+    /// Create a new builder with runtime defaults.
     pub fn new() -> Self {
         Self {
             runtime_options: RuntimeOptions::default(),
@@ -68,47 +84,56 @@ impl GraphemeEngineBuilder {
         }
     }
 
+    /// Set policy guard for runtime admission checks.
     pub fn with_policy_guard(mut self, guard: PolicyGuard) -> Self {
         self.runtime_options.policy_guard = guard;
         self
     }
 
+    /// Set trace policy shaping runtime pipeline history.
     pub fn with_trace_policy(mut self, policy: TracePolicy) -> Self {
         self.runtime_options.trace_policy = policy;
         self
     }
 
+    /// Enable or disable artifact integrity verification.
     pub fn with_verify_integrity(mut self, enabled: bool) -> Self {
         self.runtime_options.verify_integrity = enabled;
         self
     }
 
+    /// Enable or disable streaming plain step output.
     pub fn with_stream_step_output(mut self, enabled: bool) -> Self {
         self.runtime_options.stream_step_output = enabled;
         self
     }
 
+    /// Enable or disable strict Stage B container execution mode.
     pub fn with_strict_stage_b_container_execution(mut self, enabled: bool) -> Self {
         self.runtime_options.strict_stage_b_container_execution = enabled;
         self
     }
 
+    /// Set optional maximum step count.
     pub fn with_max_steps(mut self, max_steps: Option<usize>) -> Self {
         self.runtime_options.max_steps = max_steps;
         self
     }
 
+    /// Set optional maximum nested call depth.
     pub fn with_max_call_depth(mut self, max_call_depth: Option<usize>) -> Self {
         self.runtime_options.max_call_depth = max_call_depth;
         self
     }
 
+    /// Bind a module id to a Wasm path for runtime resolution.
     pub fn with_module_path(mut self, module: &str, path: impl Into<PathBuf>) -> Self {
         self.module_bindings
             .insert(module.to_lowercase(), path.into());
         self
     }
 
+    /// Register an observer called for each capability invocation.
     pub fn with_capability_observer<F>(mut self, observer: F) -> Self
     where
         F: Fn(&CapabilityCall) + Send + Sync + 'static,
@@ -117,6 +142,7 @@ impl GraphemeEngineBuilder {
         self
     }
 
+    /// Register an interceptor that can override capability call results.
     pub fn with_capability_interceptor<F>(mut self, interceptor: F) -> Self
     where
         F: Fn(&CapabilityCall) -> Option<Result<JsonValue, HostCallError>> + Send + Sync + 'static,
@@ -125,6 +151,7 @@ impl GraphemeEngineBuilder {
         self
     }
 
+    /// Provide a custom host factory for full capability dispatch control.
     pub fn with_host_factory<F>(mut self, host_factory: F) -> Self
     where
         F: Fn() -> Box<dyn CapabilityHost + Send> + Send + Sync + 'static,
@@ -133,6 +160,7 @@ impl GraphemeEngineBuilder {
         self
     }
 
+    /// Build the configured `GraphemeEngine`.
     pub fn build(self) -> GraphemeEngine {
         GraphemeEngine {
             runtime_options: self.runtime_options,
@@ -144,6 +172,7 @@ impl GraphemeEngineBuilder {
     }
 }
 
+/// High-level embedded engine for compile/execute and AOT helper flows.
 pub struct GraphemeEngine {
     runtime_options: RuntimeOptions,
     module_bindings: HashMap<String, PathBuf>,
@@ -153,20 +182,24 @@ pub struct GraphemeEngine {
 }
 
 impl GraphemeEngine {
+    /// Create a builder for `GraphemeEngine`.
     pub fn builder() -> GraphemeEngineBuilder {
         GraphemeEngineBuilder::new()
     }
 
+    /// Compile and execute source in one call.
     pub fn execute_source(&self, source: &str) -> Result<ExecuteResultPayload, GraphemeSdkError> {
         let compiled = Compiler::compile_source(source, CompilerOptions::default())?;
         self.execute_compiled(&compiled)
     }
 
+    /// Compile source into a Stage A AOT envelope.
     pub fn compile_source_to_aot(&self, source: &str) -> Result<AotEnvelope, GraphemeSdkError> {
         let compiled = Compiler::compile_source_to_aot(source, CompilerOptions::default())?;
         Ok(compiled.aot)
     }
 
+    /// Compile source into Stage B AOT using provided workflow bytes/imports.
     pub fn compile_source_to_aot_stage_b(
         &self,
         source: &str,
@@ -178,6 +211,7 @@ impl GraphemeEngine {
             .map_err(|e| GraphemeSdkError::Contract(e.to_string()))
     }
 
+    /// Execute a prebuilt artifact envelope.
     pub fn execute_artifact(
         &self,
         artifact: &ArtifactEnvelope,
@@ -185,10 +219,12 @@ impl GraphemeEngine {
         self.execute_artifact_with_lints(artifact, Vec::new())
     }
 
+    /// Execute a prebuilt AOT envelope.
     pub fn execute_aot(&self, aot: &AotEnvelope) -> Result<ExecuteResultPayload, GraphemeSdkError> {
         self.execute_aot_with_lints(aot, Vec::new())
     }
 
+    /// Execute a compiled script produced by compiler APIs.
     pub fn execute_compiled(
         &self,
         compiled: &CompiledScript,
@@ -199,6 +235,7 @@ impl GraphemeEngine {
         )
     }
 
+    /// Format execute results as YAML or JSON.
     pub fn format_result(
         &self,
         result: &ExecuteResultPayload,
@@ -212,6 +249,7 @@ impl GraphemeEngine {
         }
     }
 
+    /// Format an AOT envelope as YAML or JSON.
     pub fn format_aot(&self, aot: &AotEnvelope, mode: StructuredMode) -> Result<String, GraphemeSdkError> {
         match mode {
             StructuredMode::Json => serde_json::to_string_pretty(aot)

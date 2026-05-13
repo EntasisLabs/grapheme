@@ -2,21 +2,9 @@ import http from "grapheme/http"
 import core from "grapheme/core"
 
 query RequestTransformOutputDemo {
-  http.get(url: "https://httpbin.org/get") {
-    state { current }
-  }
-  |> core.pick(
-    fields: ["status", "method", "url", "body"]
-  ) {
-    state { current }
-  }
-|> core.map(
-    identifier: "body"
-    ,field: "args"
-){
-  state {current pipeline}
-}
-  |> core.echo() {
-    state { current pipeline }
-  }
+  set { url: "https://httpbin.org/get" }
+  |> http.get(url: $current.url)
+  |> core.pick(fields: ["status", "method", "url", "body"])
+  |> core.map(identifier: "body", field: "args")
+  |> core.echo()
 }

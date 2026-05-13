@@ -83,7 +83,7 @@ Acceptance:
 - crates/grapheme-compiler/src/verifier.rs
 - crates/grapheme-compiler/src/lib.rs
 - crates/grapheme-lsp/src/main.rs
-- examples/showcase/job-coordinator-lifecycle.gr
+- examples/legacy/showcase/job-coordinator-lifecycle.gr
 
 ## Test Plan
 

@@ -262,7 +262,7 @@ Recursive policy shift (current draft behavior):
 
 Control-flow design draft for loops and recursion:
 
-- `docs/language-control-flow-v1.md`
+- `docs/language/control-flow-v1.md`
 
 ## Compatibility Guidance
 

@@ -22,5 +22,5 @@ Short, practical examples for common transform pipelines.
 Run any recipe with:
 
 ```bash
-cargo run -- run examples/transform-cookbook/<file>.gr --native-modules --json
+cargo run -- run examples/legacy/transform-cookbook/<file>.gr --native-modules --json
 ```

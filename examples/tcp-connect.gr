@@ -1,7 +1,6 @@
 import tcp from "grapheme/tcp"
 
 query TcpConnectDemo {
-  tcp.connect(target: "127.0.0.1:8080") {
-    state { current }
-  }
+  set { target: "127.0.0.1:8080" }
+  |> tcp.connect(target: $current.target)
 }

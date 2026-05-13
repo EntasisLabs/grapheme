@@ -1,15 +1,18 @@
 import surreal from "grapheme/surreal"
 
 query SurrealCreate {
-  surreal.create(
+  set {
     connection: "local",
-    thing_or_table: "person:demo",
+    target: "person:demo",
     data: {
       name: "Ada",
       active: true,
       tier: "gold"
     }
-  ) {
-    state { current }
   }
+  |> surreal.create(
+    connection: $current.connection,
+    thing_or_table: $current.target,
+    data: $current.data
+  )
 }

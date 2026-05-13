@@ -2,6 +2,15 @@
 
 Use the SDK crate to compile and execute workflows in-process without shelling out to the CLI.
 
+This path is for Rust embedders building Grapheme into services, agents, or internal tooling.
+
+## Recommended Reading Order
+
+1. This page (`docs/sdk.md`)
+2. `docs/architecture.md`
+3. `docs/runtime-policy.md`
+4. `docs/governance/rustdoc-readiness.md`
+
 Crate:
 
 - `crates/grapheme-sdk`

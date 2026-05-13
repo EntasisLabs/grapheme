@@ -1,3 +1,8 @@
+//! Grapheme runtime engine and policy-governed capability execution.
+//!
+//! This crate executes verified artifact/AOT envelopes against a capability host,
+//! enforces runtime policy, and tracks module lifecycle events.
+
 pub mod error;
 pub mod host;
 pub mod module_manager;

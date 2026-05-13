@@ -102,4 +102,4 @@ Current private baseline matrix:
 
 Design draft:
 
-- `docs/language-typed-records-v1.md`
+- `docs/language/typed-records-v1.md`

@@ -1,3 +1,8 @@
+//! Canonical module operation signatures used by runtime and tooling.
+//!
+//! This crate provides typed op metadata (args/effects/schema refs) consumed by
+//! runtime manifest checks, editor tooling, and conformance tests.
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArgType {
     String,

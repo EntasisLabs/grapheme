@@ -1,3 +1,8 @@
+//! Grapheme compiler pipeline.
+//!
+//! This crate parses Grapheme source and lowers it through AST/HIR/MIR,
+//! then emits verified artifact and AOT envelopes.
+
 pub mod ast;
 pub mod compiler_api;
 pub mod error;
@@ -17,23 +22,27 @@ pub use error::CompilerError;
 pub use parser::parse;
 pub use pipeline::{compile_program, CompilationArtifact, CompileOptions};
 
+/// Parse and compile Grapheme source into a verified compilation artifact.
 pub fn compile(source: &str) -> Result<CompilationArtifact, CompilerError> {
 	let ast = parse(source)?;
 	compile_program(ast, CompileOptions::default())
 }
 
+/// Compile source and emit an artifact envelope.
 pub fn compile_to_artifact(source: &str, entrypoint: Option<&str>) -> Result<ArtifactEnvelope, CompilerError> {
 	let compilation = compile(source)?;
 	build_artifact_from_mir(&compilation.mir, entrypoint)
 		.map_err(|e| CompilerError::ArtifactEmitError(e.to_string()))
 }
 
+/// Compile source and emit a Stage A AOT envelope.
 pub fn compile_to_aot(source: &str, entrypoint: Option<&str>) -> Result<AotEnvelope, CompilerError> {
 	let artifact = compile_to_artifact(source, entrypoint)?;
 	build_aot_from_artifact(&artifact)
 		.map_err(|e| CompilerError::ArtifactEmitError(e.to_string()))
 }
 
+/// Compile source and emit a Stage B AOT envelope with workflow container metadata.
 pub fn compile_to_aot_stage_b_with_container(
 	source: &str,
 	entrypoint: Option<&str>,

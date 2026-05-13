@@ -1,7 +1,6 @@
 import surreal from "grapheme/surreal"
 
 query SurrealSelectStub {
-  surreal.select(connection: "local", thing_or_table: "person") {
-    state { current }
-  }
+  set { connection: "local", target: "person" }
+  |> surreal.select(connection: $current.connection, thing_or_table: $current.target)
 }

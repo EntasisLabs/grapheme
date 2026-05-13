@@ -1,14 +1,17 @@
 import surreal from "grapheme/surreal"
 
 query SurrealUpdate {
-  surreal.update(
+  set {
     connection: "local",
-    thing_or_table: "person:demo",
+    target: "person:demo",
     data: {
       active: false,
       tier: "platinum"
     }
-  ) {
-    state { current }
   }
+  |> surreal.update(
+    connection: $current.connection,
+    thing_or_table: $current.target,
+    data: $current.data
+  )
 }

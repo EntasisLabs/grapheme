@@ -1,7 +1,7 @@
 import sql from "grapheme/sql"
 
 query SqlTransactionRollbackDemo {
-  sql.transaction(
+  set {
     connection: "sqlite::memory:",
     steps: [
       {
@@ -18,7 +18,6 @@ query SqlTransactionRollbackDemo {
         sql: "this is invalid sql and forces rollback"
       }
     ]
-  ) {
-    state { current }
   }
+  |> sql.transaction(connection: $current.connection, steps: $current.steps)
 }

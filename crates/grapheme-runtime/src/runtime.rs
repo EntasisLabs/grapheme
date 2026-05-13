@@ -27,17 +27,28 @@ use crate::wasix_backend::WasixBackend;
 
 const DEFAULT_MAX_CALL_DEPTH: usize = 16;
 
+/// Runtime configuration for policy, module resolution, and execution limits.
 #[derive(Debug, Clone)]
 pub struct RuntimeOptions {
+    /// Capability admission policy used by verifier/runtime contract checks.
     pub capability_policy: CapabilityPolicy,
+    /// Environment and host-allowlist policy guard.
     pub policy_guard: PolicyGuard,
+    /// Module manifest/binding registry used for capability dispatch.
     pub module_registry: ModuleRegistry,
+    /// Runtime module generation manager for activation/rollback.
     pub module_manager: ModuleManager,
+    /// When true, validates artifact integrity hash before execution.
     pub verify_integrity: bool,
+    /// Trace shaping policy for `AgentState` pipeline history.
     pub trace_policy: TracePolicy,
+    /// Stream plain-mode step output as steps execute.
     pub stream_step_output: bool,
+    /// Enforce Stage B direct container execution without parity fallback.
     pub strict_stage_b_container_execution: bool,
+    /// Optional max executed steps across full run.
     pub max_steps: Option<usize>,
+    /// Optional max call depth for nested function execution.
     pub max_call_depth: Option<usize>,
 }
 
@@ -51,10 +62,28 @@ impl Default for RuntimeOptions {
             verify_integrity: true,
             trace_policy: TracePolicy::default(),
             stream_step_output: false,
-            strict_stage_b_container_execution: false,
+            strict_stage_b_container_execution: default_strict_stage_b_container_execution(),
             max_steps: Some(100_000),
             max_call_depth: Some(DEFAULT_MAX_CALL_DEPTH),
         }
+    }
+}
+
+fn default_strict_stage_b_container_execution() -> bool {
+    if let Some(explicit) = parse_bool_env("GRAPHEME_STRICT_STAGE_B") {
+        return explicit;
+    }
+
+    // Production policy: release builds default to strict Stage B container-first execution.
+    !cfg!(debug_assertions)
+}
+
+fn parse_bool_env(var: &str) -> Option<bool> {
+    let value = std::env::var(var).ok()?;
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
     }
 }
 
@@ -178,6 +207,7 @@ pub struct RuntimeEngine {
 }
 
 impl RuntimeEngine {
+    /// Construct a runtime engine from explicit options.
     pub fn new(options: RuntimeOptions) -> Self {
         Self {
             options,
@@ -186,6 +216,7 @@ impl RuntimeEngine {
         }
     }
 
+    /// Activate a new module generation and switch registry bindings to it.
     pub fn activate_module_generation(
         &mut self,
         request: LoadModuleRequest,
@@ -246,6 +277,7 @@ impl RuntimeEngine {
         Ok(())
     }
 
+    /// Roll back the active module generation for a module.
     pub fn rollback_module_generation(
         &mut self,
         module_id: &str,
@@ -269,10 +301,12 @@ impl RuntimeEngine {
         Ok(rollback)
     }
 
+    /// Return collected module lifecycle events captured by the runtime.
     pub fn module_lifecycle_events(&self) -> &[ModuleLifecycleEvent] {
         self.options.module_manager.lifecycle_events()
     }
 
+    /// Execute a verified artifact envelope using the provided capability host.
     pub fn execute_artifact(
         &self,
         artifact: &ArtifactEnvelope,
@@ -339,6 +373,7 @@ impl RuntimeEngine {
         ))
     }
 
+    /// Execute an AOT envelope (Stage A or Stage B) using the provided host.
     pub fn execute_aot(
         &self,
         aot: &AotEnvelope,
@@ -1570,6 +1605,7 @@ mod tests {
             .join("module-lifecycle-events.snapshot.json")
     }
 
+    #[cfg_attr(feature = "wasix-runtime", allow(dead_code))]
     fn stage_b_strict_mode_snapshot_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests")
@@ -2314,6 +2350,50 @@ mod tests {
             .parse::<JsonValue>()
             .expect("parse stage_b strict mode snapshot golden json");
         assert_eq!(snapshot, expected);
+    }
+
+    #[cfg(feature = "wasix-runtime")]
+    #[test]
+    fn execute_aot_stage_b_direct_path_with_wasix_feature() {
+        let workflow_wasm = wat::parse_str(
+            r#"(module
+                (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
+                (memory 1)
+                (export "memory" (memory 0))
+                (func $_start)
+                (export "_start" (func $_start))
+            )"#,
+        )
+        .expect("compile WAT to WASM bytes");
+
+        let artifact = loop_artifact(1, MirLoopMergeMode::Replace);
+        let stage_a = build_aot_from_artifact(&artifact).expect("stage_a build should succeed");
+        let imports = vec![
+            "grapheme.runtime.host.v1::state.read".to_string(),
+            "grapheme.runtime.host.v1::state.write".to_string(),
+        ];
+        let stage_b = build_stage_b_container_from_aot(&stage_a, &workflow_wasm, &imports)
+            .expect("stage_b build should succeed");
+
+        let mut options = RuntimeOptions::default();
+        options.strict_stage_b_container_execution = true;
+        let runtime = RuntimeEngine::new(options);
+        let mut host = TestHost {
+            mode: HostMode::StepIndexNumber,
+        };
+
+        let (state, result) = match runtime.execute_aot(&stage_b, &mut host) {
+            Ok(outcome) => outcome,
+            Err(err) => panic!("stage_b direct path should succeed with wasix feature: {err}"),
+        };
+
+        assert!(matches!(result.outcome, ExecutionOutcome::Succeeded));
+        assert!(result
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("stage_b container executed directly via wasix backend"));
+        assert!(state.current.is_null());
     }
 
     fn loop_artifact(max: u32, merge: MirLoopMergeMode) -> ArtifactEnvelope {

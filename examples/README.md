@@ -4,6 +4,12 @@ This directory now prioritizes a small, high-signal set of canonical examples fo
 
 Canonical examples prefer the newer language sugar when behavior is stateful/branching (`set`, `transition`, inline `if/match`, bare iterator invocation).
 
+Authoring convention:
+
+- seed request/state with `set` at query start
+- pass values through explicit `$current.*` refs
+- keep pipelines linear and avoid legacy `state { current }` wrappers in normal examples
+
 ## Canonical Stdlib Set
 
 Run these first:

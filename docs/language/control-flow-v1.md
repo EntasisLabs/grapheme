@@ -6,7 +6,7 @@ Status: design proposal, not implemented yet.
 
 Implementation checklist:
 
-- `docs/language-control-flow-v1-implementation.md`
+- `docs/language/control-flow-v1-implementation.md`
 
 ## Goals
 

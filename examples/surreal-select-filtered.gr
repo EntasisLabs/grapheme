@@ -1,12 +1,16 @@
 import surreal from "grapheme/surreal"
 
 query SurrealSelectFiltered {
-  surreal.select(
+  set {
     connection: "local",
-    thing_or_table: "person",
+    target: "person",
     where: "active = true",
     limit: 10
-  ) {
-    state { current }
   }
+  |> surreal.select(
+    connection: $current.connection,
+    thing_or_table: $current.target,
+    where: $current.where,
+    limit: $current.limit
+  )
 }

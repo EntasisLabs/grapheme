@@ -1,5 +1,14 @@
 # Getting Started
 
+Grapheme is an AI workflow language and governed runtime platform.
+
+## Choose Your Path
+
+- Language author: start here, then read `docs/language-contract.md`, then `docs/cli.md`.
+- Runtime operator: start here, then read `docs/runtime-policy.md`, `docs/modules.md`, and `docs/native-modules.md`.
+- SDK embedder (Rust): skim this page, then read `docs/sdk.md` and `docs/architecture.md`.
+- Editor user: use `docs/lsp/quickstart.md` and `extensions/grapheme-vscode/README.md`.
+
 ## Prerequisites
 
 - Rust stable toolchain
@@ -61,7 +70,9 @@ cargo run -- run examples/core-merge.gr --native-modules --json
 
 ## Next Steps
 
+- Language contract: `docs/language-contract.md`
 - Embedded SDK guide: `docs/sdk.md`
 - Architecture overview: `docs/architecture.md`
 - CLI command reference: `docs/cli.md`
 - Runtime policy guardrails: `docs/runtime-policy.md`
+- Full docs index: `docs/README.md`

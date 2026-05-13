@@ -2,7 +2,7 @@
 
 This is the implementation checklist for the approved v1 control-flow scope.
 
-Related proposal: `docs/language-control-flow-v1.md`
+Related proposal: `docs/language/control-flow-v1.md`
 
 ## V1.5 Progress Snapshot
 

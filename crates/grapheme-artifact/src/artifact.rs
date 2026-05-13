@@ -4,94 +4,144 @@ use thiserror::Error;
 
 use crate::mir::MirProgram;
 
+/// Errors returned while building or validating artifact/AOT envelopes.
 #[derive(Debug, Error)]
 pub enum ArtifactError {
     #[error("artifact error: {0}")]
     Message(String),
 }
 
+/// Canonical artifact envelope produced from MIR.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtifactEnvelope {
+    /// Stable identifier derived from MIR payload hash.
     pub artifact_id: String,
+    /// Artifact schema/compiler version tag.
     pub artifact_version: String,
+    /// MIR function name used as runtime entrypoint.
     pub entrypoint: String,
+    /// Capability ids required by this artifact.
     pub required_capabilities: Vec<String>,
+    /// Location of payload bytes (currently inline).
     pub payload_ref: String,
+    /// SHA-256 integrity hash of payload.
     pub integrity_hash: String,
+    /// Typed artifact payload.
     pub payload: ArtifactPayload,
 }
 
+/// Artifact payload content and format metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtifactPayload {
+    /// Payload format identifier.
     pub format: String,
+    /// Lowered MIR program.
     pub mir: MirProgram,
 }
 
+/// AOT lowering stage marker.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AotStage {
+    /// Stage A: host-runtime-parity envelope.
     StageA,
+    /// Stage B: includes workflow Wasm container metadata.
     StageB,
 }
 
+/// Compiler/runtime compatibility metadata attached to AOT envelopes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AotCompatibilityMetadata {
+    /// Compiler version that produced this AOT envelope.
     pub compiler_version: String,
+    /// Source artifact version.
     pub artifact_version: String,
+    /// Source artifact integrity hash.
     pub artifact_integrity_hash: String,
+    /// Runtime contract this AOT payload targets.
     pub runtime_contract: String,
 }
 
+/// AOT payload metadata and optional Stage B workflow container.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AotPayload {
+    /// Payload format identifier.
     pub format: String,
+    /// Host interface id expected by this payload.
     pub host_interface_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Stage B workflow Wasm metadata, absent for Stage A.
     pub workflow_wasm: Option<AotWorkflowWasmContainer>,
 }
 
+/// Stage B workflow Wasm metadata and inline byte transport.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AotWorkflowWasmContainer {
+    /// Workflow Wasm byte length.
     pub byte_len: u64,
+    /// Workflow Wasm SHA-256 digest (`sha256:<hex>`).
     pub sha256: String,
+    /// Entry export executed by runtime.
     pub entry_export: String,
+    /// Allowed host imports constrained to runtime contract namespace.
     pub allowed_imports: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Optional inline Wasm bytes encoded as hex.
     pub inline_wasm_hex: Option<String>,
 }
 
+/// Top-level AOT envelope used by SDK/CLI/runtime execution paths.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AotEnvelope {
+    /// Stable AOT identifier derived from artifact hash.
     pub aot_id: String,
+    /// AOT schema/compiler version tag.
     pub aot_version: String,
+    /// Lowering stage.
     pub stage: AotStage,
+    /// Base source artifact.
     pub base_artifact: ArtifactEnvelope,
+    /// Compiler/runtime compatibility fields.
     pub compatibility: AotCompatibilityMetadata,
+    /// Stage-specific payload metadata.
     pub payload: AotPayload,
 }
 
+/// Runtime execution response payload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionResult {
+    /// Terminal outcome classification.
     pub outcome: ExecutionOutcome,
+    /// Optional emitted STTP node id.
     pub output_sttp_node_id: Option<String>,
+    /// Trace step summary.
     pub trace_summary: TraceSummary,
+    /// Optional human-readable execution message.
     pub message: Option<String>,
 }
 
+/// Normalized execution outcome classification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionOutcome {
+    /// Execution completed successfully.
     Succeeded,
+    /// Execution failed in a potentially retryable way.
     RetryableFailure,
+    /// Execution failed fatally.
     FatalFailure,
 }
 
+/// Compact step-count trace summary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraceSummary {
+    /// Total steps executed.
     pub steps: usize,
+    /// Failing step index, if any.
     pub failed_step: Option<usize>,
 }
 
+/// Build a canonical artifact envelope from a MIR program.
 pub fn build_artifact_from_mir(
     mir: &MirProgram,
     entrypoint: Option<&str>,
@@ -127,6 +177,7 @@ pub fn build_artifact_from_mir(
     })
 }
 
+/// Build a Stage A AOT envelope from an artifact envelope.
 pub fn build_aot_from_artifact(artifact: &ArtifactEnvelope) -> Result<AotEnvelope, ArtifactError> {
     if artifact.payload.format != "grapheme.mir.v1" {
         return Err(ArtifactError::Message(format!(
@@ -159,6 +210,7 @@ pub fn build_aot_from_artifact(artifact: &ArtifactEnvelope) -> Result<AotEnvelop
     })
 }
 
+/// Build a Stage B envelope by attaching workflow container metadata to Stage A.
 pub fn build_stage_b_container_from_aot(
     stage_a: &AotEnvelope,
     workflow_wasm: &[u8],
@@ -207,6 +259,7 @@ pub fn build_stage_b_container_from_aot(
     Ok(stage_b)
 }
 
+/// Validate host-interface boundary and stage-specific AOT payload invariants.
 pub fn validate_aot_host_interface_boundary(aot: &AotEnvelope) -> Result<(), ArtifactError> {
     if aot.payload.host_interface_id != aot.compatibility.runtime_contract {
         return Err(ArtifactError::Message(format!(

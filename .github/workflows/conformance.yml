@@ -43,3 +43,27 @@ jobs:
       - name: SDK AOT strict mode tests
         run: |
           cargo test -p grapheme-sdk execute_aot_stage_b_strict_mode_rejects_when_container_runtime_unavailable
+
+      - name: CLI AOT build manifest snapshot contract
+        run: |
+          cargo test -p grapheme --bin grapheme golden_aot_build_manifest_snapshot_contract
+
+      - name: Rustdoc build verification
+        run: |
+          cargo doc --workspace --no-deps
+
+  conformance-wasix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Runtime Stage B direct path tests (wasix-runtime)
+        run: |
+          cargo test -p grapheme-runtime --features wasix-runtime execute_aot_stage_b_direct_path_with_wasix_feature

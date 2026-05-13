@@ -1,7 +1,7 @@
 import sql from "grapheme/sql"
 
 query SqlTransactionDemo {
-  sql.transaction(
+  set {
     connection: "sqlite::memory:",
     steps: [
       {
@@ -19,7 +19,6 @@ query SqlTransactionDemo {
         params: [1]
       }
     ]
-  ) {
-    state { current }
   }
+  |> sql.transaction(connection: $current.connection, steps: $current.steps)
 }

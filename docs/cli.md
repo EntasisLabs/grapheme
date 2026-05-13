@@ -6,22 +6,26 @@ The CLI binary is `grapheme` (crate `crates/grapheme-cli`).
 
 ```bash
 grapheme <file.gr>
-grapheme parse <file.gr>
-grapheme compile <file.gr> --emit ast|hir|mir|artifact
+grapheme parse <file.gr> [--yaml|--json]
+grapheme compile <file.gr> [--emit ast|hir|mir|artifact|aot] [--aot-stage stage_a|stage_b] [--yaml|--json]
+grapheme build <file.gr> [--aot-stage stage_a|stage_b] [--out path] [--yaml|--json]
 grapheme plugins build [all|core|docs|io|http|memory|tcp|smtp|secrets ...]
-grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules] [--stream-steps]
-grapheme modules
-grapheme modules search <query>
-grapheme modules info <module>
-grapheme modules types <module>
-grapheme modules examples <module>
+grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules] [--aot-stage stage_a|stage_b] [--strict-stage-b] [--allow-stage-b-fallback] [--stream-steps]
+                    [--trace-profile lean|debug] [--trace-steps N]
+                    [--trace-projection minimal|full] [--trace-max-string-bytes N]
+grapheme modules [--yaml|--json]
+grapheme modules search <query> [--yaml|--json]
+grapheme modules ops <query> [--yaml|--json]
+grapheme modules info <module> [--yaml|--json]
+grapheme modules types <module> [--yaml|--json]
+grapheme modules examples <module> [--yaml|--json]
 ```
 
 ## Commands
 
 ### `parse`
 
-Parses source and prints AST JSON.
+Parses source and prints AST output. Default output format is YAML; use `--json` for JSON.
 
 ```bash
 cargo run -- parse examples/hello-world.gr
@@ -36,6 +40,33 @@ cargo run -- compile examples/hello-world.gr --emit ast
 cargo run -- compile examples/hello-world.gr --emit hir
 cargo run -- compile examples/hello-world.gr --emit mir
 cargo run -- compile examples/hello-world.gr --emit artifact
+cargo run -- compile examples/hello-world.gr --emit aot --aot-stage stage_a --json
+cargo run -- compile examples/hello-world.gr --emit aot --aot-stage stage_b --json
+```
+
+Notes:
+
+- `--aot-stage` is only valid with `--emit aot`.
+- For `compile`, default emit target is `mir`.
+- For `compile`, default output format is YAML.
+
+### `build`
+
+Compiles source to AOT and writes output files to disk.
+
+Default behavior:
+
+- default AOT stage is `stage_b`
+- default output format is JSON
+- default output path is `<file>.aot.<json|yaml>`
+- also writes `<output>.manifest.json`
+
+Examples:
+
+```bash
+cargo run -- build examples/hello-world.gr
+cargo run -- build examples/hello-world.gr --aot-stage stage_a --out build/hello-stage-a.aot.json --json
+cargo run -- build examples/hello-world.gr --aot-stage stage_b --out build/hello-stage-b.aot.yaml --yaml
 ```
 
 ### `run`
@@ -53,7 +84,7 @@ By default, plain mode prints actual emitted outputs (for example `core.echo` me
 Opt-in step trace streaming with prefixes like `[iter 1 | depth 1 | echo]`:
 
 ```bash
-cargo run -- run examples/fibonacci-computed.gr --native-modules --stream-steps
+cargo run -- run examples/legacy/fibonacci-computed.gr --native-modules --stream-steps
 ```
 
 Structured JSON output:
@@ -78,6 +109,25 @@ cargo run -- run examples/core-merge.gr --native-modules
 
 `--native-modules` auto-builds/auto-binds known Wasm plugins except `http`, `tcp`, and `smtp`, which are host-backed by default for real socket access in the current runtime.
 
+AOT execution mode:
+
+```bash
+cargo run -- run examples/hello-world.gr --aot-stage stage_a --json
+cargo run -- run examples/hello-world.gr --aot-stage stage_b --json
+```
+
+Stage B strict/fallback behavior:
+
+- Stage B runs default to strict container-first mode.
+- `--strict-stage-b` forces strict mode explicitly.
+- `--allow-stage-b-fallback` opts out of strict mode for Stage B runs and allows parity fallback.
+
+Trace tuning:
+
+```bash
+cargo run -- run examples/core-merge.gr --native-modules --trace-profile debug --trace-steps 512 --trace-projection full --trace-max-string-bytes 2048
+```
+
 ### `plugins build`
 
 Builds plugin crates for `wasm32-wasip1` and copies canonical outputs to `plugins/*.wasm`.
@@ -89,7 +139,9 @@ cargo run -- plugins build core io http
 
 ### `modules`
 
-Prints runtime module manifests as JSON.
+Prints runtime module manifests.
+
+Default output format is YAML; use `--json` for JSON.
 
 ```bash
 cargo run -- modules
@@ -99,6 +151,12 @@ Search manifests by module id or op name:
 
 ```bash
 cargo run -- modules search http
+```
+
+Search operations across modules:
+
+```bash
+cargo run -- modules ops get
 ```
 
 Show one manifest:

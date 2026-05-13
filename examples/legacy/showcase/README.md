@@ -71,11 +71,11 @@ These remain valuable, but are not part of the primary demo path:
 Run any showcase:
 
 ```bash
-cargo run -- run examples/showcase/<file>.gr --native-modules
+cargo run -- run examples/legacy/showcase/<file>.gr --native-modules
 ```
 
 Optional step-level trace:
 
 ```bash
-cargo run -- run examples/showcase/<file>.gr --native-modules --stream-steps
+cargo run -- run examples/legacy/showcase/<file>.gr --native-modules --stream-steps
 ```

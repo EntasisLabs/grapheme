@@ -231,7 +231,8 @@ Stage B initial scaffold status:
 6. Runtime now attempts direct Stage B container invocation via WASIX backend when feature-enabled; falls back to parity path if container execution is unavailable.
 7. Added strict Stage B execution option (`strict_stage_b_container_execution`) to reject parity fallback when direct container runtime is unavailable.
 8. Conformance now includes strict Stage B fallback rejection tests in runtime + SDK.
-9. Next: promote strict mode from optional to default once lowering emits production-valid workflow Wasm.
+9. Runtime release builds now default strict Stage B container-first policy; migration override available via `GRAPHEME_STRICT_STAGE_B=true|false`.
+10. Next: remove remaining scaffold assumptions once lowering emits production-valid workflow Wasm end-to-end.
 
 Start gate (must be true before Track 4 execution):
 

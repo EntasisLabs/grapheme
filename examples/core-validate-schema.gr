@@ -1,13 +1,14 @@
 import core from "grapheme/core"
 
 query CoreValidateSchemaDemo {
-  ValidateCandidate
+  set { candidate: { name: "Ada", role: "Engineer" } }
+  |> ValidateCandidate
 }
 
 iterator ValidateCandidate on Any {
   core.validate_schema(
     required: ["name", "role", "team"],
-    data: { name: "Ada", role: "Engineer" }
+    data: $current.candidate
   )
   |> if $current.ok == true then transition $current.status -> valid else transition $current.status -> invalid { missing: $current.missing }
 }

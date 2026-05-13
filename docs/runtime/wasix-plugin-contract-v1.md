@@ -79,6 +79,7 @@ Strict mode option:
 
 1. `RuntimeOptions.strict_stage_b_container_execution = true` disables Stage B parity fallback.
 2. In strict mode, unavailable direct container runtime path is treated as an artifact compatibility error.
+3. Runtime defaults to strict mode in release builds, and can be overridden via `GRAPHEME_STRICT_STAGE_B=true|false`.
 
 ## Recommended Export Pattern
 

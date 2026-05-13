@@ -1,5 +1,6 @@
 query HttpGetGoogleMarkdown {
-  http.get(url: "https://www.google.com")
+  set { url: "https://www.google.com" }
+  |> http.get(url: $current.url)
   |> html.to_md()
   |> core.echo(message: $current.text)
 }

@@ -1,7 +1,6 @@
 import core from "grapheme/core"
 
 query HelloWorld {
-  core.echo(message: "LETS GO?!!!!!") {
-    state { current }
-  }
+  set { message: "LETS GO?!!!!!" }
+  |> core.echo(message: $current.message)
 }

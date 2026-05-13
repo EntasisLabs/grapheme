@@ -1,10 +1,17 @@
 # Grapheme
 
-Grapheme is an AI workflow language and runtime toolchain.
+Grapheme is an AI workflow language and governed runtime platform.
 
 It compiles `.gr` programs into verified MIR artifacts and executes capability calls through a governed runtime with host-backed and Wasix-backed module paths.
 
 Status: production-hardening phase.
+
+## Choose Your Path
+
+- Language author: `docs/getting-started.md` -> `docs/language-contract.md` -> `docs/cli.md`
+- Runtime operator: `docs/runtime-policy.md` -> `docs/modules.md` -> `docs/native-modules.md`
+- SDK embedder (Rust): `docs/sdk.md` -> `docs/architecture.md` -> `docs/governance/rustdoc-readiness.md`
+- Editor user (LSP/VS Code): `docs/lsp/quickstart.md` -> `extensions/grapheme-vscode/README.md`
 
 ## Why Grapheme
 
@@ -44,15 +51,15 @@ cargo run -- run examples/core-merge.gr --native-modules
 ### Explore the new showcase set
 
 ```bash
-cargo run -- run examples/showcase/release-control-tower-compact.gr --native-modules
-cargo run -- run examples/showcase/blue-green-cutover.gr --native-modules
-cargo run -- run examples/showcase/feature-flag-progressive-rollout.gr --native-modules
+cargo run -- run examples/legacy/showcase/release-control-tower-compact.gr --native-modules
+cargo run -- run examples/legacy/showcase/blue-green-cutover.gr --native-modules
+cargo run -- run examples/legacy/showcase/feature-flag-progressive-rollout.gr --native-modules
 ```
 
 Optional machine-readable output:
 
 ```bash
-cargo run -- run examples/showcase/feature-flag-progressive-rollout.gr --native-modules --json
+cargo run -- run examples/legacy/showcase/feature-flag-progressive-rollout.gr --native-modules --json
 ```
 
 ## Repository Layout
@@ -60,7 +67,7 @@ cargo run -- run examples/showcase/feature-flag-progressive-rollout.gr --native-
 - `crates/grapheme-compiler`: parser + lowering (AST/HIR/MIR) + verifier integration.
 - `crates/grapheme-artifact`: artifact envelope and MIR contracts.
 - `crates/grapheme-runtime`: runtime engine, capability dispatch, policy enforcement, Wasix path.
-- `crates/grapheme-cli`: `grapheme` CLI (`parse`, `compile`, `run`, `modules`).
+- `crates/grapheme-cli`: `grapheme` CLI (`parse`, `compile`, `build`, `run`, `modules`).
 - `crates/grapheme-lsp`: language server for `.gr` authoring.
 - `plugins/*-rs`: plugin implementations compiled to Wasm.
 - `extensions/grapheme-vscode`: VS Code extension wiring for LSP workflow.
@@ -95,7 +102,7 @@ GRAPHEME_ALLOWED_HTTP_DOMAINS=example.com \
 - Main index: `docs/README.md`
 - Getting started: `docs/getting-started.md`
 - Language contract: `docs/language-contract.md`
-- Showcase examples: `examples/showcase/README.md`
+- Showcase examples: `examples/legacy/showcase/README.md`
 - General examples index: `examples/README.md`
 
 ## Tooling and Release

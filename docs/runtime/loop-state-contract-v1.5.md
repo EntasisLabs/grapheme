@@ -131,4 +131,4 @@ Canonical loop-related outcome codes:
 
 - `docs/runtime/runtime-state-flow.md`
 - `docs/runtime/wit-contract-v1.5.md`
-- `docs/language-control-flow-v1-implementation.md`
+- `docs/language/control-flow-v1-implementation.md`

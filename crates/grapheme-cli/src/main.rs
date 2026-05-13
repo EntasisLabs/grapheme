@@ -1,9 +1,15 @@
+//! Grapheme command-line interface.
+//!
+//! Provides parse/compile/build/run/modules command surfaces over compiler,
+//! artifact, runtime, and SDK crates.
+
 /// ─────────────────────────────────────────────────────────────
 ///  Grapheme  —  CLI
 ///  Usage:
 ///    grapheme <file.gr>
 ///    grapheme parse <file.gr>
 ///    grapheme compile <file.gr> --emit ast|hir|mir|artifact|aot
+///    grapheme build <file.gr> [--aot-stage stage_a|stage_b] [--out path]
 ///    grapheme plugins build [all|core|io ...]
 ///    grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules]
 ///                          [--aot-stage stage_a|stage_b] [--strict-stage-b]
@@ -44,6 +50,7 @@ struct RunOptions {
     native_modules: bool,
     aot_stage: Option<AotStageSelection>,
     strict_stage_b_container_execution: bool,
+    allow_stage_b_fallback: bool,
     stream_steps: bool,
     trace_profile: TraceProfile,
     trace_steps: Option<usize>,
@@ -68,6 +75,16 @@ struct PluginBuildSpec {
     manifest_rel: &'static str,
     wasm_binary_name: &'static str,
     output_rel: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct AotBuildManifest {
+    source: String,
+    output: String,
+    stage: String,
+    aot_id: String,
+    runtime_contract: String,
+    host_interface_id: String,
 }
 
 const PLUGIN_BUILD_SPECS: &[PluginBuildSpec] = &[
@@ -154,6 +171,7 @@ fn run(args: Vec<String>) -> Result<(), CompilerError> {
     if args.len() == 2
         && args[1] != "parse"
         && args[1] != "compile"
+        && args[1] != "build"
         && args[1] != "run"
         && args[1] != "plugins"
         && args[1] != "modules"
@@ -166,6 +184,7 @@ fn run(args: Vec<String>) -> Result<(), CompilerError> {
             emit_parse_cmd(&args[2..])
         }
         "compile" => emit_compile_cmd(&args[2..]),
+        "build" => emit_build_cmd(&args[2..]),
         "plugins" => emit_plugins(&args),
         "run" => {
             if args.len() < 3 {
@@ -625,6 +644,7 @@ fn run_program(
         .map_err(|e| CompilerError::RuntimeError(format!("resolve current directory: {e}")))?;
 
     let trace_policy = trace_policy_from_run_options(&run_options);
+    let strict_stage_b_container_execution = resolve_stage_b_strict_mode(&run_options);
 
     let mut module_bindings = run_options.bindings;
 
@@ -654,7 +674,7 @@ fn run_program(
     let mut engine_builder = GraphemeEngine::builder()
         .with_policy_guard(policy_guard_from_env())
         .with_trace_policy(trace_policy)
-        .with_strict_stage_b_container_execution(run_options.strict_stage_b_container_execution)
+        .with_strict_stage_b_container_execution(strict_stage_b_container_execution)
         .with_stream_step_output(
             run_options.output_mode == RunOutputMode::Plain && run_options.stream_steps,
         );
@@ -891,6 +911,7 @@ fn parse_run_args(
     let mut native_modules = false;
     let mut aot_stage: Option<AotStageSelection> = None;
     let mut strict_stage_b_container_execution = false;
+    let mut allow_stage_b_fallback = false;
     let mut stream_steps = false;
     let mut trace_profile = TraceProfile::Lean;
     let mut trace_steps: Option<usize> = None;
@@ -938,6 +959,10 @@ fn parse_run_args(
             }
             "--strict-stage-b" => {
                 strict_stage_b_container_execution = true;
+                i += 1;
+            }
+            "--allow-stage-b-fallback" => {
+                allow_stage_b_fallback = true;
                 i += 1;
             }
             "--stream-steps" => {
@@ -1004,6 +1029,7 @@ fn parse_run_args(
             native_modules,
             aot_stage,
             strict_stage_b_container_execution,
+            allow_stage_b_fallback,
             stream_steps,
             trace_profile,
             trace_steps,
@@ -1063,6 +1089,12 @@ fn parse_aot_stage_selection(value: &str) -> Result<AotStageSelection, CompilerE
             value
         ))),
     }
+}
+
+fn resolve_stage_b_strict_mode(run_options: &RunOptions) -> bool {
+    let stage_b_selected = matches!(run_options.aot_stage, Some(AotStageSelection::StageB));
+    run_options.strict_stage_b_container_execution
+        || (stage_b_selected && !run_options.allow_stage_b_fallback)
 }
 
 fn parse_usize_flag(flag: &str, value: &str) -> Result<usize, CompilerError> {
@@ -1204,6 +1236,140 @@ fn emit_compile_cmd(args: &[String]) -> Result<(), CompilerError> {
     Ok(())
 }
 
+fn emit_build_cmd(args: &[String]) -> Result<(), CompilerError> {
+    if args.is_empty() {
+        print_usage();
+        return Err(CompilerError::RuntimeError(
+            "build requires a file path".to_string(),
+        ));
+    }
+
+    let file_path = args[0].as_str();
+    let mut aot_stage = AotStageSelection::StageB;
+    let mut output_mode = DiscoveryOutputMode::Json;
+    let mut output_path: Option<PathBuf> = None;
+    let mut i = 1;
+    while i < args.len() {
+        if let Some(mode) = parse_structured_output_flag(&args[i]) {
+            output_mode = mode;
+            i += 1;
+            continue;
+        }
+
+        match args[i].as_str() {
+            "--aot-stage" => {
+                if i + 1 >= args.len() {
+                    return Err(CompilerError::RuntimeError(
+                        "--aot-stage requires stage_a|stage_b".to_string(),
+                    ));
+                }
+                aot_stage = parse_aot_stage_selection(&args[i + 1])?;
+                i += 2;
+            }
+            "--out" => {
+                if i + 1 >= args.len() {
+                    return Err(CompilerError::RuntimeError(
+                        "--out requires a path".to_string(),
+                    ));
+                }
+                output_path = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            other => {
+                return Err(CompilerError::RuntimeError(format!(
+                    "unknown build flag '{}'",
+                    other
+                )));
+            }
+        }
+    }
+
+    let source = read_source(file_path)?;
+    let compilation = grapheme_compiler::compile(&source)?;
+    let artifact = grapheme_artifact::build_artifact_from_mir(&compilation.mir, None)
+        .map_err(|e| CompilerError::ArtifactEmitError(e.to_string()))?;
+    let stage_a = grapheme_artifact::build_aot_from_artifact(&artifact)
+        .map_err(|e| CompilerError::ArtifactEmitError(e.to_string()))?;
+    let aot = match aot_stage {
+        AotStageSelection::StageA => stage_a,
+        AotStageSelection::StageB => {
+            let imports = STAGE_B_DEFAULT_ALLOWED_IMPORTS
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>();
+            grapheme_artifact::build_stage_b_container_from_aot(
+                &stage_a,
+                STAGE_B_DEFAULT_WORKFLOW_WASM_BYTES,
+                &imports,
+            )
+            .map_err(|e| CompilerError::ArtifactEmitError(e.to_string()))?
+        }
+    };
+
+    let output = format_discovery(&aot, output_mode)?;
+    let out_path = output_path.unwrap_or_else(|| default_build_output_path(file_path, output_mode));
+    if let Some(parent) = out_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| {
+            CompilerError::RuntimeError(format!(
+                "create output directory '{}': {e}",
+                parent.display()
+            ))
+        })?;
+    }
+    fs::write(&out_path, output).map_err(|e| {
+        CompilerError::RuntimeError(format!(
+            "write build output '{}': {e}",
+            out_path.display()
+        ))
+    })?;
+
+    let manifest = build_manifest_from_aot(file_path, &out_path, aot_stage, &aot);
+    let manifest_path = default_build_manifest_path(&out_path);
+    let manifest_json = serde_json::to_string_pretty(&manifest)
+        .map_err(|e| CompilerError::RuntimeError(format!("serialize build manifest: {e}")))?;
+    fs::write(&manifest_path, manifest_json).map_err(|e| {
+        CompilerError::RuntimeError(format!(
+            "write build manifest '{}': {e}",
+            manifest_path.display()
+        ))
+    })?;
+
+    println!("Built {}", out_path.display());
+    println!("Built {}", manifest_path.display());
+    Ok(())
+}
+
+fn default_build_output_path(file_path: &str, mode: DiscoveryOutputMode) -> PathBuf {
+    let ext = match mode {
+        DiscoveryOutputMode::Json => "json",
+        DiscoveryOutputMode::Yaml => "yaml",
+    };
+    PathBuf::from(format!("{file_path}.aot.{ext}"))
+}
+
+fn default_build_manifest_path(output_path: &PathBuf) -> PathBuf {
+    PathBuf::from(format!("{}.manifest.json", output_path.display()))
+}
+
+fn build_manifest_from_aot(
+    source: &str,
+    output_path: &PathBuf,
+    stage: AotStageSelection,
+    aot: &grapheme_artifact::AotEnvelope,
+) -> AotBuildManifest {
+    AotBuildManifest {
+        source: source.to_string(),
+        output: output_path.display().to_string(),
+        stage: match stage {
+            AotStageSelection::StageA => "stage_a".to_string(),
+            AotStageSelection::StageB => "stage_b".to_string(),
+        },
+        aot_id: aot.aot_id.clone(),
+        runtime_contract: aot.compatibility.runtime_contract.clone(),
+        host_interface_id: aot.payload.host_interface_id.clone(),
+    }
+}
+
 fn read_source(path: &str) -> Result<String, CompilerError> {
     fs::read_to_string(path)
     .map_err(|e| CompilerError::RuntimeError(format!("error reading {path}: {e}")))
@@ -1236,8 +1402,9 @@ fn print_usage() {
     eprintln!("  grapheme <file.gr>");
     eprintln!("  grapheme parse <file.gr> [--yaml|--json]");
     eprintln!("  grapheme compile <file.gr> [--emit ast|hir|mir|artifact|aot] [--aot-stage stage_a|stage_b] [--yaml|--json]");
+    eprintln!("  grapheme build <file.gr> [--aot-stage stage_a|stage_b] [--out path] [--yaml|--json]");
     eprintln!("  grapheme plugins build [all|core|io ...]");
-    eprintln!("  grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules] [--aot-stage stage_a|stage_b] [--strict-stage-b] [--stream-steps]");
+    eprintln!("  grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules] [--aot-stage stage_a|stage_b] [--strict-stage-b] [--allow-stage-b-fallback] [--stream-steps]");
     eprintln!("               [--trace-profile lean|debug] [--trace-steps N]");
     eprintln!("               [--trace-projection minimal|full] [--trace-max-string-bytes N]");
     eprintln!("  grapheme modules [--yaml|--json]");
@@ -1302,10 +1469,104 @@ mod tests {
     }
 
     #[test]
+    fn resolve_stage_b_strict_mode_defaults_to_strict_for_stage_b_runs() {
+        let run_options = RunOptions {
+            bindings: vec![],
+            output_mode: RunOutputMode::Plain,
+            native_modules: false,
+            aot_stage: Some(AotStageSelection::StageB),
+            strict_stage_b_container_execution: false,
+            allow_stage_b_fallback: false,
+            stream_steps: false,
+            trace_profile: TraceProfile::Lean,
+            trace_steps: None,
+            trace_projection: None,
+            trace_max_string_bytes: None,
+        };
+
+        assert!(resolve_stage_b_strict_mode(&run_options));
+    }
+
+    #[test]
+    fn resolve_stage_b_strict_mode_allows_explicit_fallback_opt_out() {
+        let run_options = RunOptions {
+            bindings: vec![],
+            output_mode: RunOutputMode::Plain,
+            native_modules: false,
+            aot_stage: Some(AotStageSelection::StageB),
+            strict_stage_b_container_execution: false,
+            allow_stage_b_fallback: true,
+            stream_steps: false,
+            trace_profile: TraceProfile::Lean,
+            trace_steps: None,
+            trace_projection: None,
+            trace_max_string_bytes: None,
+        };
+
+        assert!(!resolve_stage_b_strict_mode(&run_options));
+    }
+
+    #[test]
     fn parse_aot_stage_selection_rejects_unknown_value() {
         let err = parse_aot_stage_selection("stage_c")
             .expect_err("invalid aot stage should fail");
         assert!(err.to_string().contains("expected stage_a|stage_b"));
+    }
+
+    #[test]
+    fn default_build_output_path_uses_expected_suffixes() {
+        let json = default_build_output_path("examples/hello.gr", DiscoveryOutputMode::Json);
+        let yaml = default_build_output_path("examples/hello.gr", DiscoveryOutputMode::Yaml);
+
+        assert_eq!(json.to_string_lossy(), "examples/hello.gr.aot.json");
+        assert_eq!(yaml.to_string_lossy(), "examples/hello.gr.aot.yaml");
+    }
+
+    #[test]
+    fn default_build_manifest_path_uses_output_suffix() {
+        let out = PathBuf::from("examples/hello.gr.aot.json");
+        let manifest = default_build_manifest_path(&out);
+        assert_eq!(
+            manifest.to_string_lossy(),
+            "examples/hello.gr.aot.json.manifest.json"
+        );
+    }
+
+    #[test]
+    fn golden_aot_build_manifest_snapshot_contract() {
+        let source = r#"import core from "grapheme/core"
+
+query Hello {
+    core.echo(message: "hello-aot") {
+        state { current }
+    }
+}
+"#;
+
+        let artifact = grapheme_compiler::compile_to_artifact(source, Some("Hello"))
+            .expect("artifact compile should succeed");
+        let stage_a = grapheme_artifact::build_aot_from_artifact(&artifact)
+            .expect("stage_a build should succeed");
+        let imports = STAGE_B_DEFAULT_ALLOWED_IMPORTS
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
+        let stage_b = grapheme_artifact::build_stage_b_container_from_aot(
+            &stage_a,
+            STAGE_B_DEFAULT_WORKFLOW_WASM_BYTES,
+            &imports,
+        )
+        .expect("stage_b build should succeed");
+
+        let out = PathBuf::from("build/hello.aot.json");
+        let manifest = build_manifest_from_aot("examples/hello.gr", &out, AotStageSelection::StageB, &stage_b);
+        let rendered = serde_json::to_string_pretty(&manifest)
+            .expect("serialize build manifest snapshot");
+        let expected = include_str!("../tests/golden/aot-build-manifest.snapshot.json");
+        assert_eq!(
+            normalized(&rendered).trim_end(),
+            normalized(expected).trim_end()
+        );
     }
 
     #[test]

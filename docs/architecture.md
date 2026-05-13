@@ -1,5 +1,13 @@
 # Architecture
 
+Grapheme is an AI workflow language and governed runtime platform with a strict compile/execute boundary.
+
+## Audience and Navigation
+
+- Language author: read this page, then `docs/language-contract.md` and `docs/cli.md`.
+- Runtime operator: read this page, then `docs/runtime-policy.md` and `docs/runtime/module-capability-v1.md`.
+- SDK embedder: read this page, then `docs/sdk.md` and crate rustdocs.
+
 ## High-Level Model
 
 Grapheme is structured around a strict compile/execute split:
