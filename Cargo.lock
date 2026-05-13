@@ -2320,7 +2320,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "grapheme"
+name = "grapheme-artifact"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "grapheme-cli"
 version = "0.2.0"
 dependencies = [
  "grapheme-artifact",
@@ -2332,17 +2343,6 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "toml 0.8.23",
-]
-
-[[package]]
-name = "grapheme-artifact"
-version = "0.1.0"
-dependencies = [
- "hex",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 1.0.69",
 ]
 
 [[package]]

@@ -56,13 +56,13 @@ Both commands resolve `project.main` from `grapheme.toml` (currently `examples/m
 Install from local workspace:
 
 ```bash
-cargo install --path crates/grapheme-cli
+cargo install --path crates/grapheme-cli --locked
 ```
 
 Install from git (private or public repository):
 
 ```bash
-cargo install --git https://github.com/entasislabs/grapheme.git grapheme
+cargo install --git https://github.com/entasislabs/grapheme.git grapheme-cli --bin grapheme
 ```
 
 When installed outside this repository, scaffold bundled examples:

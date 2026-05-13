@@ -1,6 +1,6 @@
 # CLI Reference
 
-The CLI binary is `grapheme` (crate `crates/grapheme-cli`).
+The CLI binary is `grapheme` (package `grapheme-cli`, crate path `crates/grapheme-cli`).
 
 ## Usage
 
