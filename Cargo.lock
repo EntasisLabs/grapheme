@@ -2321,7 +2321,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "grapheme-artifact",
  "grapheme-compiler",
@@ -2360,7 +2360,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-lsp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "grapheme-compiler",
  "grapheme-signatures",

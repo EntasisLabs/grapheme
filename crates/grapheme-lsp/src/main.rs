@@ -21,6 +21,7 @@ struct Backend {
 
 #[derive(Clone, Copy)]
 enum DefinitionKind {
+    Glyph,
     Query,
     Mutation,
     Iterator,
@@ -96,7 +97,7 @@ impl LanguageServer for Backend {
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
                 name: "grapheme-lsp".to_string(),
-                version: Some("0.1.0".to_string()),
+                version: Some(env!("CARGO_PKG_VERSION").to_string()),
             }),
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -552,6 +553,7 @@ impl LanguageServer for Backend {
                 };
 
                 let detail = Some(match def.kind {
+                    DefinitionKind::Glyph => "glyph".to_string(),
                     DefinitionKind::Query => "query".to_string(),
                     DefinitionKind::Mutation => "mutation".to_string(),
                     DefinitionKind::Iterator => "iterator".to_string(),
@@ -812,6 +814,16 @@ fn is_ident(value: &str) -> bool {
 fn keyword_completion_items() -> Vec<CompletionItem> {
     vec![
         CompletionItem {
+            label: "glyph".to_string(),
+            kind: Some(CompletionItemKind::KEYWORD),
+            insert_text: Some("glyph ${1:Main} {\n  ${2}\n}".to_string()),
+            insert_text_format: Some(InsertTextFormat::SNIPPET),
+            documentation: Some(Documentation::String(
+                "Create an explicit composition entrypoint root.".to_string(),
+            )),
+            ..CompletionItem::default()
+        },
+        CompletionItem {
             label: "query".to_string(),
             kind: Some(CompletionItemKind::KEYWORD),
             insert_text: Some("query ${1:Name} {\n  ${2}\n}".to_string()),
@@ -942,6 +954,17 @@ fn index_definitions(text: &str) -> Vec<DefinitionIndex> {
             out.push(DefinitionIndex {
                 name,
                 kind: DefinitionKind::Query,
+                line: idx as u32,
+                start_char,
+                end_char,
+            });
+            continue;
+        }
+
+        if let Some((name, start_char, end_char)) = parse_definition_name(trimmed, "glyph", line) {
+            out.push(DefinitionIndex {
+                name,
+                kind: DefinitionKind::Glyph,
                 line: idx as u32,
                 start_char,
                 end_char,
@@ -1678,7 +1701,7 @@ fn add_line_semantic_tokens(line: &str, line_num: u32, out: &mut SemanticTokenBu
 }
 
 fn add_declaration_tokens(line: &str, line_num: u32, out: &mut SemanticTokenBuilder) {
-    for head in ["query", "mutation", "iterator", "subscription"] {
+    for head in ["glyph", "query", "mutation", "iterator", "subscription"] {
         if let Some((name_start, name_len)) = declaration_name_span(line, head) {
             let kw_pos = line.find(head).unwrap_or(0) as u32;
             out.push(line_num, kw_pos, head.len() as u32, TOKEN_KEYWORD);
@@ -1824,6 +1847,7 @@ fn is_keyword(value: &str) -> bool {
         value,
         "import"
             | "from"
+            | "glyph"
             | "query"
             | "mutation"
             | "iterator"

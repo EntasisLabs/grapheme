@@ -36,6 +36,7 @@ Planned (not yet implemented):
 
 Only executable definitions are lowered to MIR functions:
 
+- glyph
 - query
 - mutation
 - subscription
@@ -47,7 +48,14 @@ Only executable definitions are lowered to MIR functions:
 Artifact execution runs exactly one MIR function: the artifact entrypoint.
 
 - If an explicit entrypoint is provided, that function is used.
+- Otherwise, if a `glyph` exists, that glyph name is used as the entrypoint.
 - Otherwise, the first MIR function is used.
+
+Glyph constraints:
+
+- A file may declare at most one `glyph`.
+- `glyph` is intended as Program-style composition root (similar to `fn main()` orchestration).
+- Pipelines inside a glyph execute exactly like query pipelines.
 
 Implication: definitions after the selected entrypoint are not executed in that run.
 

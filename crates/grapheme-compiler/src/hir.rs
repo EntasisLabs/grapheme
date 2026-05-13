@@ -113,6 +113,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
         .definitions
         .iter()
         .filter_map(|def| match def {
+            Definition::Glyph(g) => Some(g.name.clone()),
             Definition::Query(q) => Some(q.name.clone()),
             Definition::Mutation(m) => Some(m.name.clone()),
             Definition::Subscription(s) => Some(s.name.clone()),
@@ -177,6 +178,32 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
 
     for def in &program.definitions {
         match def {
+            Definition::Glyph(g) => {
+                executable_defs.push(HirExecutable {
+                    kind: HirExecutableKind::Query,
+                    name: g.name.clone(),
+                    input_type: None,
+                    output_type: None,
+                    loop_directive_count: 0,
+                    loop_args: None,
+                    recursive_directive_count: 0,
+                    recursive_args: None,
+                    recursive_max_depth: None,
+                    retry_directive_count: 0,
+                    retry_args: None,
+                    timeout_directive_count: 0,
+                    timeout_args: None,
+                    intent_args: None,
+                    pipelines: lower_pipelines(
+                        &g.name,
+                        &g.pipelines,
+                        &executable_names,
+                        None,
+                        &fragment_defs,
+                        false,
+                    )?,
+                })
+            }
             Definition::Query(q) => {
                 let directives = normalize_executable_directives(&q.name, &q.directives)?;
                 executable_defs.push(HirExecutable {

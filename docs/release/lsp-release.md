@@ -49,7 +49,7 @@ Build and publish to release tag:
 ```bash
 ./scripts/release-lsp.sh \
   --target x86_64-unknown-linux-gnu \
-  --tag v0.1.0 \
+  --tag v0.2.0 \
   --publish
 ```
 
@@ -58,7 +58,7 @@ Publish to a different repo:
 ```bash
 ./scripts/release-lsp.sh \
   --target x86_64-unknown-linux-gnu \
-  --tag v0.1.0 \
+  --tag v0.2.0 \
   --publish \
   --repo owner/repo
 ```
@@ -96,7 +96,7 @@ Build and publish combined bundle:
 ```bash
 ./scripts/release-bundle.sh \
   --target x86_64-unknown-linux-gnu \
-  --tag v0.1.0 \
+  --tag v0.2.0 \
   --publish
 ```
 

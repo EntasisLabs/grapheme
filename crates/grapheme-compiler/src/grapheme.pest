@@ -288,6 +288,12 @@ variable_defs = { "(" ~ (variable_def ~ ("," ~ variable_def)*)? ~ ")" }
 
 executable_signature = { "on" ~ type_ref ~ ("->" ~ type_ref)? }
 
+glyph_def = {
+    "glyph" ~ ident ~ "{"
+    ~ pipeline+
+    ~ "}"
+}
+
 query_def = {
     "query" ~ ident ~ variable_defs? ~ executable_signature? ~ directive* ~ "{"
     ~ pipeline+
@@ -331,6 +337,8 @@ subscription_def = {
 // ── Program Root ──────────────────────────────────────────────
 
 definition = {
+        glyph_def
+    |
     query_def
   | mutation_def
     | iterator_def

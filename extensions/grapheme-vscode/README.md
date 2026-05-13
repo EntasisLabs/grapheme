@@ -20,7 +20,7 @@ Binary resolution order:
 - transform op hover hints with typed return-shape info
 - transform op completion hints (triggered by `.`) with return-shape details
 - go-to-definition for top-level executable references
-- document symbols for queries/iterators/mutations/subscriptions
+- document symbols for glyph/query/iterator/mutation/subscription definitions
 - snippet completions for common language constructs
 - find references for symbols across open `.gr` files
 - rename symbol support for top-level executable references

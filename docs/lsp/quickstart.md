@@ -8,7 +8,7 @@ This guide covers local development and validation for `crates/grapheme-lsp`.
 - full-document formatting (trim trailing spaces, normalize ending newline)
 - hover hints for transform ops (`html.to_md`, `json.parse`, `csv.to_list`, `yaml.to_json`)
 - completion for transform ops with typed return-shape details
-- go-to-definition for `query`/`iterator`/`mutation`/`subscription` references
+- go-to-definition for `glyph`/`query`/`iterator`/`mutation`/`subscription` references
 - document symbols for top-level executable definitions
 - snippet completions for key language constructs (`query`, `iterator`, `flow.branch`)
 - find references for symbols across open `.gr` documents

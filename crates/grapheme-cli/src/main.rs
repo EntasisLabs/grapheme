@@ -17,6 +17,7 @@
 /// ─────────────────────────────────────────────────────────────
 
 use grapheme_artifact::{ExecutionResult, MirInst};
+use grapheme_compiler::ast::Definition;
 use grapheme_compiler::{Compiler, CompilerError, CompilerOptions};
 use grapheme_compiler::verifier::LintWarning;
 use grapheme_sdk::{GraphemeEngine, StructuredMode};
@@ -914,8 +915,109 @@ fn resolve_project_main_path_from_dir(start_dir: &Path) -> Result<String, Compil
         .parent()
         .ok_or_else(|| CompilerError::RuntimeError("resolve project root".to_string()))?;
 
+    enforce_project_glyph_uniqueness(project_root, &config, &config_path)?;
+
     let main_path = project_root.join(&config.project.main);
     Ok(main_path.to_string_lossy().to_string())
+}
+
+fn enforce_project_glyph_uniqueness(
+    project_root: &Path,
+    config: &GraphemeProjectToml,
+    config_path: &Path,
+) -> Result<(), CompilerError> {
+    let mut scan_roots = BTreeSet::new();
+    scan_roots.insert(project_root.join(&config.project.main));
+
+    if let Some(examples) = &config.examples {
+        for path in examples.namespaces.values() {
+            scan_roots.insert(project_root.join(path));
+        }
+    }
+
+    let mut files = BTreeSet::new();
+    for root in scan_roots {
+        collect_gr_files(&root, &mut files)?;
+    }
+
+    let mut glyph_index: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
+    for file in files {
+        let source = fs::read_to_string(&file).map_err(|e| {
+            CompilerError::RuntimeError(format!("read '{}': {e}", file.display()))
+        })?;
+
+        let parsed = grapheme_compiler::parse(&source).map_err(|e| {
+            CompilerError::RuntimeError(format!(
+                "parse '{}' while validating glyph uniqueness from '{}': {}",
+                file.display(),
+                config_path.display(),
+                e
+            ))
+        })?;
+
+        for def in parsed.definitions {
+            if let Definition::Glyph(glyph) = def {
+                glyph_index
+                    .entry(glyph.name)
+                    .or_default()
+                    .push(file.clone());
+            }
+        }
+    }
+
+    let duplicates = glyph_index
+        .iter()
+        .filter(|(_, files)| files.len() > 1)
+        .collect::<Vec<_>>();
+
+    if !duplicates.is_empty() {
+        let detail = duplicates
+            .into_iter()
+            .map(|(glyph, files)| {
+                let joined = files
+                    .iter()
+                    .map(|p| p.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("glyph '{}' in [{}]", glyph, joined)
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+
+        return Err(CompilerError::RuntimeError(format!(
+            "glyph names must be unique across project main files (from '{}'): {}",
+            config_path.display(),
+            detail
+        )));
+    }
+
+    Ok(())
+}
+
+fn collect_gr_files(path: &Path, out: &mut BTreeSet<PathBuf>) -> Result<(), CompilerError> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    if path.is_file() {
+        if path.extension().and_then(|ext| ext.to_str()) == Some("gr") {
+            out.insert(path.to_path_buf());
+        }
+        return Ok(());
+    }
+
+    let entries = fs::read_dir(path).map_err(|e| {
+        CompilerError::RuntimeError(format!("read directory '{}': {e}", path.display()))
+    })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| {
+            CompilerError::RuntimeError(format!("read directory entry in '{}': {e}", path.display()))
+        })?;
+        collect_gr_files(&entry.path(), out)?;
+    }
+
+    Ok(())
 }
 
 fn discover_project_config(start_dir: &Path) -> Result<Option<(PathBuf, GraphemeProjectToml)>, CompilerError> {
@@ -1578,6 +1680,50 @@ showcase = "examples/legacy/showcase"
         let _ = fs::remove_dir_all(&dir);
 
         assert!(file.ends_with("examples/main.gr"));
+    }
+
+    #[test]
+    fn resolve_project_main_path_from_dir_rejects_duplicate_glyph_names_across_namespaces() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = env::temp_dir().join(format!("grapheme-cli-glyph-dup-{unique}"));
+        fs::create_dir_all(dir.join("examples")).expect("create examples dir");
+        fs::create_dir_all(dir.join("examples/legacy/showcase")).expect("create showcase dir");
+
+        fs::write(
+            dir.join("grapheme.toml"),
+            r#""$schema" = "./grapheme.schema.json"
+
+[project]
+name = "dup"
+main = "examples/main.gr"
+
+[examples.namespaces]
+core = "examples"
+showcase = "examples/legacy/showcase"
+"#,
+        )
+        .expect("write config");
+
+        fs::write(
+            dir.join("examples/main.gr"),
+            "glyph Main { core.echo(message: \"a\") }\n",
+        )
+        .expect("write main");
+
+        fs::write(
+            dir.join("examples/legacy/showcase/another.gr"),
+            "glyph Main { core.echo(message: \"b\") }\n",
+        )
+        .expect("write duplicate glyph");
+
+        let err = resolve_project_main_path_from_dir(&dir)
+            .expect_err("duplicate glyph names should fail");
+        let _ = fs::remove_dir_all(&dir);
+
+        assert!(err.to_string().contains("glyph names must be unique"));
     }
 
     #[test]

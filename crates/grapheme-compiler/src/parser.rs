@@ -120,6 +120,7 @@ fn is_executable_definition_line(trimmed: &str) -> bool {
 fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, GraphemeError> {
     let mut imports = vec![];
     let mut definitions = vec![];
+    let mut glyph_names = Vec::new();
 
     for inner in pair.into_inner() {
         match inner.as_rule() {
@@ -128,6 +129,11 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
                 // Unwrap the definition wrapper to get the actual variant
                 let def = inner.into_inner().next().unwrap();
                 match def.as_rule() {
+                    Rule::glyph_def        => {
+                        let glyph = parse_glyph(def, state)?;
+                        glyph_names.push(glyph.name.clone());
+                        definitions.push(Definition::Glyph(glyph));
+                    }
                     Rule::query_def        => definitions.push(Definition::Query(parse_query(def, state)?)),
                     Rule::mutation_def     => definitions.push(Definition::Mutation(parse_mutation(def, state)?)),
                     Rule::iterator_def     => definitions.push(Definition::Iterator(parse_iterator(def, state)?)),
@@ -147,11 +153,41 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
         }
     }
 
+    if glyph_names.len() > 1 {
+        return Err(GraphemeError::ParseError(format!(
+            "only one glyph is allowed per file, found: {}",
+            glyph_names.join(", ")
+        )));
+    }
+
     for iterator in state.synthetic_iterators.drain(..) {
         definitions.push(Definition::Iterator(iterator));
     }
 
     Ok(Program { imports, definitions })
+}
+
+fn parse_glyph(pair: Pair<Rule>, state: &mut ParseState) -> Result<GlyphDef, GraphemeError> {
+    let mut inner = pair.into_inner();
+    let name = inner
+        .next()
+        .ok_or_else(|| GraphemeError::ParseError("glyph missing name".to_string()))?
+        .as_str()
+        .to_string();
+
+    let pipelines = inner
+        .filter(|p| p.as_rule() == Rule::pipeline)
+        .map(|p| parse_pipeline(p, state))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if pipelines.is_empty() {
+        return Err(GraphemeError::ParseError(format!(
+            "glyph '{}' must contain at least one pipeline",
+            name
+        )));
+    }
+
+    Ok(GlyphDef { name, pipelines })
 }
 
 // ── Imports ───────────────────────────────────────────────────

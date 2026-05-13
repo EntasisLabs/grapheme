@@ -12,6 +12,7 @@ pub mod parser;
 pub mod pipeline;
 pub mod verifier;
 
+use crate::ast::Definition;
 use grapheme_artifact::{
 	build_aot_from_artifact, build_artifact_from_mir, build_stage_b_container_from_aot,
 	AotEnvelope, ArtifactEnvelope,
@@ -30,8 +31,36 @@ pub fn compile(source: &str) -> Result<CompilationArtifact, CompilerError> {
 
 /// Compile source and emit an artifact envelope.
 pub fn compile_to_artifact(source: &str, entrypoint: Option<&str>) -> Result<ArtifactEnvelope, CompilerError> {
-	let compilation = compile(source)?;
-	build_artifact_from_mir(&compilation.mir, entrypoint)
+	let ast = parse(source)?;
+	let implicit_entrypoint = ast
+		.definitions
+		.iter()
+		.find_map(|def| match def {
+			Definition::Glyph(g) => Some(g.name.clone()),
+			_ => None,
+		});
+
+	if entrypoint.is_none() && implicit_entrypoint.is_none() {
+		let executable_roots = ast
+			.definitions
+			.iter()
+			.filter_map(|def| match def {
+				Definition::Query(q) => Some(format!("query {}", q.name)),
+				Definition::Mutation(m) => Some(format!("mutation {}", m.name)),
+				_ => None,
+			})
+			.collect::<Vec<_>>();
+
+		if executable_roots.len() > 1 {
+			return Err(CompilerError::TypeError(format!(
+				"ambiguous entrypoint: file has multiple query/mutation roots ({}) and no glyph; add `glyph <Name> {{ ... }}` or pass an explicit entrypoint",
+				executable_roots.join(", ")
+			)));
+		}
+	}
+	let compilation = compile_program(ast, CompileOptions::default())?;
+	let artifact_entrypoint = entrypoint.or(implicit_entrypoint.as_deref());
+	build_artifact_from_mir(&compilation.mir, artifact_entrypoint)
 		.map_err(|e| CompilerError::ArtifactEmitError(e.to_string()))
 }
 
@@ -81,6 +110,42 @@ query Hello {
 				);
 				assert_eq!(aot.payload.format, "grapheme.aot.stage_a.v1");
 				assert_eq!(aot.payload.host_interface_id, "grapheme.runtime.host.v1");
+		}
+
+		#[test]
+		fn compile_to_artifact_rejects_ambiguous_roots_without_glyph() {
+				let source = r#"
+query Alpha {
+  core.echo(message: "alpha")
+}
+
+mutation Beta {
+  core.echo(message: "beta")
+}
+"#;
+
+				let err = compile_to_artifact(source, None)
+						.expect_err("ambiguous roots should fail without glyph");
+				assert!(err
+						.to_string()
+						.contains("ambiguous entrypoint"));
+		}
+
+		#[test]
+		fn compile_to_artifact_allows_explicit_entrypoint_without_glyph() {
+				let source = r#"
+query Alpha {
+  core.echo(message: "alpha")
+}
+
+mutation Beta {
+  core.echo(message: "beta")
+}
+"#;
+
+				let artifact = compile_to_artifact(source, Some("Alpha"))
+						.expect("explicit entrypoint should disambiguate");
+				assert_eq!(artifact.entrypoint, "Alpha");
 		}
 
 		#[test]

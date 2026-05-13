@@ -5,6 +5,7 @@ use grapheme_artifact::{
 };
 
 use crate::pipeline::{self, CompileOptions, CompilationArtifact};
+use crate::ast::{Definition, Program};
 use crate::error::CompilerError;
 use crate::parser;
 
@@ -44,8 +45,13 @@ impl Compiler {
     /// Compile source into a `CompiledScript`.
     pub fn compile_source(source: &str, options: CompilerOptions) -> Result<CompiledScript, CompilerError> {
         let ast = parser::parse(source)?;
+        let implicit_entrypoint = glyph_entrypoint(&ast)?;
         let compilation = pipeline::compile_program(ast, options.compile_options)?;
-        let artifact = build_artifact_from_mir(&compilation.mir, options.entrypoint.as_deref())
+        let explicit_entrypoint = options.entrypoint.clone();
+        let artifact_entrypoint = explicit_entrypoint
+            .as_deref()
+            .or(implicit_entrypoint.as_deref());
+        let artifact = build_artifact_from_mir(&compilation.mir, artifact_entrypoint)
             .map_err(map_artifact_error)?;
 
         Ok(CompiledScript {
@@ -90,6 +96,45 @@ impl Compiler {
             aot: stage_b,
         })
     }
+}
+
+fn glyph_entrypoint(ast: &Program) -> Result<Option<String>, CompilerError> {
+    let glyphs = ast
+        .definitions
+        .iter()
+        .filter_map(|def| match def {
+            Definition::Glyph(g) => Some(g.name.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    if glyphs.len() > 1 {
+        return Err(CompilerError::TypeError(format!(
+            "only one glyph is allowed per file, found: {}",
+            glyphs.join(", ")
+        )));
+    }
+
+    if glyphs.is_empty() {
+        let executable_roots = ast
+            .definitions
+            .iter()
+            .filter_map(|def| match def {
+                Definition::Query(q) => Some(format!("query {}", q.name)),
+                Definition::Mutation(m) => Some(format!("mutation {}", m.name)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        if executable_roots.len() > 1 {
+            return Err(CompilerError::TypeError(format!(
+                "ambiguous entrypoint: file has multiple query/mutation roots ({}) and no glyph; add `glyph <Name> {{ ... }}` or pass an explicit entrypoint",
+                executable_roots.join(", ")
+            )));
+        }
+    }
+
+    Ok(glyphs.into_iter().next())
 }
 
 fn map_artifact_error(err: ArtifactError) -> CompilerError {
