@@ -28,6 +28,9 @@ Run these first:
 - `request-transform-output.gr`
 - `websearch-materials.gr`
 - `websearch-report.gr`
+- `web-provider-catalog.gr`
+- `web-provider-routing.gr`
+- `web-xaviv-planned.gr`
 - `io-list.gr`
 - `memory-roundtrip.gr`
 - `tcp-connect.gr`

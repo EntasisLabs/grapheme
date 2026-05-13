@@ -229,6 +229,21 @@ const BUNDLED_EXAMPLES: &[BundledExample] = &[
         relative_path: "examples/websearch-report.gr",
         content: include_str!("../bundled-examples/websearch-report.gr"),
     },
+    BundledExample {
+        name: "web-provider-catalog",
+        relative_path: "examples/web-provider-catalog.gr",
+        content: include_str!("../bundled-examples/web-provider-catalog.gr"),
+    },
+    BundledExample {
+        name: "web-provider-routing",
+        relative_path: "examples/web-provider-routing.gr",
+        content: include_str!("../bundled-examples/web-provider-routing.gr"),
+    },
+    BundledExample {
+        name: "web-xaviv-planned",
+        relative_path: "examples/web-xaviv-planned.gr",
+        content: include_str!("../bundled-examples/web-xaviv-planned.gr"),
+    },
 ];
 
 fn main() {

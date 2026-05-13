@@ -1,0 +1,18 @@
+glyph WebProviderRouting {
+  web.capabilities(provider: "google")
+  |> DecideProvider
+}
+
+iterator DecideProvider on Any {
+  if $current.provider.supports.search == true then UseGoogle else UseDuckDuckGo
+}
+
+iterator UseGoogle on Any {
+  web.google(query: "grapheme workflow language", max_results: 3)
+  |> core.pick(fields: ["provider", "query", "count", "results", "error"])
+}
+
+iterator UseDuckDuckGo on Any {
+  web.duckduckgo(query: "grapheme workflow language", max_results: 3)
+  |> core.pick(fields: ["provider", "query", "count", "results", "error"])
+}

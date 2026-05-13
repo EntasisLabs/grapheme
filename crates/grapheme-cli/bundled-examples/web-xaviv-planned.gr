@@ -1,0 +1,4 @@
+query WebXavivPlanned {
+  web.xaviv(query: "agentic runtime orchestration", max_results: 3)
+  |> if $current.error == "" then core.echo(message: "xaviv provider is ready") else core.echo(message: $current.error)
+}
