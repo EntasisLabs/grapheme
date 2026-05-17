@@ -238,6 +238,16 @@ const BUNDLED_EXAMPLES: &[BundledExample] = &[
         content: include_str!("../bundled-examples/subscription-heartbeat-readable.gr"),
     },
     BundledExample {
+        name: "http-get",
+        relative_path: "examples/http-get.gr",
+        content: include_str!("../bundled-examples/http-get.gr"),
+    },
+    BundledExample {
+        name: "websearch-basic",
+        relative_path: "examples/websearch-basic.gr",
+        content: include_str!("../bundled-examples/websearch-basic.gr"),
+    },
+    BundledExample {
         name: "websearch-report",
         relative_path: "examples/websearch-report.gr",
         content: include_str!("../bundled-examples/websearch-report.gr"),

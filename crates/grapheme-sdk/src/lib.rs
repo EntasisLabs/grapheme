@@ -13,7 +13,7 @@ use grapheme_runtime::{
 use grapheme_signatures::{find_op_spec, op_output_object_fields, op_output_type, ArgType};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
@@ -360,7 +360,7 @@ pub enum ModuleSearchDetail {
 /// Search options for module discovery payload APIs.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ModuleSearchOptions {
-    /// Enable explain output shape (when false, returns compact module-id list).
+    /// Enable explain output shape (when false, returns compact metadata per module hit).
     pub explain: bool,
     /// Explain detail tier when explain mode is active.
     #[serde(default)]
@@ -494,6 +494,24 @@ const EXAMPLE_CATALOG: &[ExampleCatalogEntry] = &[
         requires_native_modules: false,
     },
     ExampleCatalogEntry {
+        name: "http-get",
+        path: "examples/http-get.gr",
+        summary: "Fetch a live page over HTTP and convert it to markdown.",
+        use_when: "You want a practical fetch -> transform flow using http and html modules.",
+        complexity: "beginner",
+        tags: &["http", "html", "markdown", "transform"],
+        requires_native_modules: false,
+    },
+    ExampleCatalogEntry {
+        name: "websearch-basic",
+        path: "examples/websearch-basic.gr",
+        summary: "Search web results, iterate URLs, and normalize each page into markdown.",
+        use_when: "You need a practical websearch -> fetch -> parse loop for research workflows.",
+        complexity: "intermediate",
+        tags: &["websearch", "http", "html", "loop", "research"],
+        requires_native_modules: false,
+    },
+    ExampleCatalogEntry {
         name: "websearch-report",
         path: "examples/websearch-report.gr",
         summary: "Search -> fetch -> clean -> report pipeline.",
@@ -554,6 +572,7 @@ pub fn curated_examples_for_module(module_id: &str) -> &'static [&'static str] {
     match module_id.to_lowercase().as_str() {
         "http" => &["examples/http-get.gr"],
         "websearch" => &[
+            "examples/websearch-basic.gr",
             "examples/websearch-materials.gr",
             "examples/websearch-report.gr",
         ],
@@ -594,19 +613,64 @@ pub fn modules_search_payload(query: &str, options: &ModuleSearchOptions) -> Jso
     let q = query.to_lowercase();
 
     if !options.explain {
-        let mut matches = discover_module_manifests()
-            .into_iter()
-            .filter(|m| {
-                m.module_id.to_lowercase().contains(&q)
-                    || m.exported_ops
-                        .iter()
-                        .any(|op| op.op.to_lowercase().contains(&q))
-            })
-            .map(|m| m.module_id)
-            .collect::<Vec<_>>();
-        matches.sort();
+        let mut matches = Vec::new();
 
-        return JsonValue::Array(matches.into_iter().map(JsonValue::String).collect());
+        for manifest in discover_module_manifests() {
+            let module_id = manifest.module_id;
+            let module_match = module_id.to_lowercase().contains(&q);
+            let matching_ops = manifest
+                .exported_ops
+                .iter()
+                .filter_map(|op| {
+                    if op.op.to_lowercase().contains(&q)
+                        || format!("{}.{}", module_id, op.op).to_lowercase().contains(&q)
+                    {
+                        Some(op.op.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            if !(module_match || !matching_ops.is_empty()) {
+                continue;
+            }
+
+            let guidance = module_search_guidance(&module_id);
+            let effects = manifest
+                .exported_ops
+                .iter()
+                .map(|op| effect_name(&op.effect).to_string())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            let related_examples = curated_examples_for_module(&module_id)
+                .iter()
+                .map(|path| JsonValue::String((*path).to_string()))
+                .collect::<Vec<_>>();
+
+            matches.push(serde_json::json!({
+                "module_id": module_id,
+                "summary": guidance.summary,
+                "op_count": manifest.exported_ops.len(),
+                "effects": effects,
+                "matching_ops": matching_ops,
+                "related_examples": related_examples,
+            }));
+        }
+
+        matches.sort_by(|a, b| {
+            a.get("module_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .cmp(b.get("module_id").and_then(|v| v.as_str()).unwrap_or_default())
+        });
+
+        return serde_json::json!({
+            "query": query,
+            "count": matches.len(),
+            "matches": matches,
+        });
     }
 
     let mut matches = Vec::new();
@@ -1231,6 +1295,34 @@ mod tests {
             first.get("module_id").and_then(|v| v.as_str()),
             Some("web")
         );
+    }
+
+    #[test]
+    fn modules_search_payload_default_includes_compact_module_metadata() {
+        let payload = modules_search_payload("html", &ModuleSearchOptions::default());
+
+        assert_eq!(payload.get("query").and_then(|v| v.as_str()), Some("html"));
+        assert_eq!(payload.get("count").and_then(|v| v.as_u64()), Some(1));
+
+        let first = payload
+            .get("matches")
+            .and_then(|v| v.as_array())
+            .and_then(|items| items.first())
+            .expect("first compact match");
+
+        assert_eq!(
+            first.get("module_id").and_then(|v| v.as_str()),
+            Some("html")
+        );
+        assert!(first
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.is_empty()));
+        assert!(first.get("op_count").and_then(|v| v.as_u64()).is_some());
+        assert!(first
+            .get("effects")
+            .and_then(|v| v.as_array())
+            .is_some_and(|effects| !effects.is_empty()));
     }
 
     #[test]

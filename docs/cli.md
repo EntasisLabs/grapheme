@@ -213,6 +213,15 @@ Search manifests by module id or op name:
 cargo run -- modules search http
 ```
 
+Default `modules search` now returns compact metadata per hit:
+
+- `module_id`
+- `summary`
+- `op_count`
+- `effects`
+- `matching_ops`
+- `related_examples`
+
 Explain search matches with quick guidance (recommended for discovery and agent planning):
 
 ```bash
