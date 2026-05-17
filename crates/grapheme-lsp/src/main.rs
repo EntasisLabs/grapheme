@@ -1080,6 +1080,8 @@ fn completion_insert_text(spec: &OpSpec, op_only: bool) -> String {
     for (idx, arg) in spec.args.iter().enumerate() {
         let value = match arg.ty {
             ArgType::String => format!("\"${{{}:}}\"", idx + 1),
+            ArgType::Number => format!("${{{}:0}}", idx + 1),
+            ArgType::Boolean => format!("${{{}:false}}", idx + 1),
             ArgType::Object => format!("${{{}:{{}}}}", idx + 1),
             ArgType::Array => format!("${{{}:[]}}", idx + 1),
             ArgType::Any => format!("${{{}:null}}", idx + 1),
@@ -1141,6 +1143,8 @@ fn signature_args_label(spec: &OpSpec) -> String {
 fn signature_arg_type_label(ty: ArgType) -> &'static str {
     match ty {
         ArgType::String => "string",
+        ArgType::Number => "number",
+        ArgType::Boolean => "boolean",
         ArgType::Object => "object",
         ArgType::Array => "array",
         ArgType::Any => "any",

@@ -2394,6 +2394,7 @@ dependencies = [
  "grapheme-artifact",
  "grapheme-compiler",
  "grapheme-runtime",
+ "grapheme-signatures",
  "grapheme-stdlib",
  "serde",
  "serde_json",

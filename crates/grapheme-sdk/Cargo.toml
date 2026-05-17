@@ -19,4 +19,5 @@ serde_yaml = "0.9"
 grapheme-artifact = { path = "../grapheme-artifact", version = "0.1.0" }
 grapheme-compiler = { path = "../grapheme-compiler", version = "0.1.0" }
 grapheme-runtime = { path = "../grapheme-runtime", version = "0.1.0" }
+grapheme-signatures = { path = "../grapheme-signatures", version = "0.1.0" }
 grapheme-stdlib = { path = "../grapheme-stdlib", version = "0.1.0" }

@@ -1,6 +1,7 @@
 glyph WebProviderRouting {
   web.capabilities(provider: "google")
   |> DecideProvider
+  |> core.echo(message: "{$current.results}")
 }
 
 iterator DecideProvider on Any {

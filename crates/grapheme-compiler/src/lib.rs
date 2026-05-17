@@ -385,6 +385,36 @@ query Q {
 		}
 
 		#[test]
+		fn rejects_unknown_arg_for_known_core_op() {
+				let source = r#"
+query BadArgs {
+	core.echo(message: "ok", extra: "nope")
+}
+"#;
+
+				let err = compile(source).expect_err("compile should fail for unknown arg on known op");
+				let msg = err.to_string();
+				assert!(msg.contains("unknown arg 'extra'"));
+				assert!(msg.contains("for 'core.echo'"));
+				assert!(msg.contains("allowed: message"));
+		}
+
+		#[test]
+		fn rejects_unknown_arg_for_known_http_op() {
+				let source = r#"
+query BadHttpArgs {
+	http.get(url: "https://example.com", method: "GET")
+}
+"#;
+
+				let err = compile(source).expect_err("compile should fail for unknown arg on http.get");
+				let msg = err.to_string();
+				assert!(msg.contains("unknown arg 'method'"));
+				assert!(msg.contains("for 'http.get'"));
+				assert!(msg.contains("allowed: url"));
+		}
+
+		#[test]
 		fn rejects_invalid_loop_merge_value() {
 				let source = r#"
 query InvalidLoopMerge {

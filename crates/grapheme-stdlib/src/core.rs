@@ -1,21 +1,13 @@
 use serde_json::{json, Map, Value as JsonValue};
 
 pub fn echo(args: &JsonValue) -> JsonValue {
-    let message = args
-        .get("message")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let message = core_arg_message(args, "message");
     json!({ "message": message })
 }
 
 pub fn tap(args: &JsonValue) -> JsonValue {
     args.get("__input").cloned().unwrap_or_else(|| {
-        let message = args
-            .get("message")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+        let message = core_arg_message(args, "message");
         serde_json::json!({ "message": message })
     })
 }
@@ -548,6 +540,12 @@ fn core_arg_text(args: &JsonValue, key: &str) -> String {
         .unwrap_or_default()
 }
 
+    fn core_arg_message(args: &JsonValue, key: &str) -> String {
+        args.get(key)
+        .map(core_scalar_to_key)
+        .unwrap_or_default()
+    }
+
 fn core_arg_f64(args: &JsonValue, key: &str) -> Option<f64> {
     args.get(key)
         .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok())))
@@ -579,4 +577,27 @@ fn bump_field(args: &JsonValue, delta: f64) -> JsonValue {
     let current = input.get(field).and_then(|v| v.as_f64()).unwrap_or(0.0);
     input.insert(field.to_string(), json!(current + delta));
     JsonValue::Object(input)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn echo_accepts_numeric_message_values() {
+        let out = echo(&json!({ "message": 42 }));
+        assert_eq!(out, json!({ "message": "42" }));
+    }
+
+    #[test]
+    fn echo_accepts_object_message_values() {
+        let out = echo(&json!({ "message": { "a": 1, "b": true } }));
+        assert_eq!(out, json!({ "message": "{\"a\":1,\"b\":true}" }));
+    }
+
+    #[test]
+    fn tap_preserves_input_when_present() {
+        let out = tap(&json!({ "__input": { "value": 1 }, "message": "ignored" }));
+        assert_eq!(out, json!({ "value": 1 }));
+    }
 }

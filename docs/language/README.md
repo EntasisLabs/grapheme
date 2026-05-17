@@ -8,6 +8,7 @@ Language design, semantics, and evolution references.
 2. docs/language/control-flow-v1-implementation.md
 3. docs/language/typed-records-v1.md
 4. docs/language/turing-roadmap.md
+5. docs/language/llm-native-contract-v1.md
 
 ## Use With
 
