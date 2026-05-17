@@ -46,7 +46,7 @@ jobs:
 
       - name: CLI AOT build manifest snapshot contract
         run: |
-          cargo test -p grapheme --bin grapheme golden_aot_build_manifest_snapshot_contract
+          cargo test -p grapheme-cli --bin grapheme golden_aot_build_manifest_snapshot_contract
 
       - name: Rustdoc build verification
         run: |
