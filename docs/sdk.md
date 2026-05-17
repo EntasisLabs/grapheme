@@ -66,6 +66,50 @@ query Hello {
 }
 ```
 
+## Module Discovery APIs
+
+The SDK now exposes module discovery/search helpers that mirror CLI discovery behavior.
+
+```rust
+use grapheme_sdk::{
+    discover_module_manifests,
+    modules_search_payload,
+    modules_ops_payload,
+    modules_types_payload,
+    modules_examples_payload,
+    ModuleSearchDetail,
+    ModuleSearchOptions,
+};
+
+fn main() {
+    let manifests = discover_module_manifests();
+    println!("modules: {}", manifests.len());
+
+    let payload = modules_search_payload(
+        "web",
+        &ModuleSearchOptions {
+            explain: true,
+            detail: ModuleSearchDetail::Concise,
+            top: Some(1),
+            min_score: Some(100.0),
+        },
+    );
+
+    println!("{}", serde_json::to_string_pretty(&payload).unwrap());
+
+    let ops = modules_ops_payload("web");
+    println!("{}", serde_json::to_string_pretty(&ops).unwrap());
+
+    let types = modules_types_payload("core").expect("core module types");
+    println!("{}", serde_json::to_string_pretty(&types).unwrap());
+
+    let examples = modules_examples_payload("websearch").expect("websearch examples");
+    println!("{}", serde_json::to_string_pretty(&examples).unwrap());
+}
+```
+
+Use these APIs when building agent tooling that needs the same discovery semantics as the CLI without shelling out to subprocesses.
+
 ## Capability Observer Hook
 
 Use this when you want observability over capability calls while preserving normal dispatch.

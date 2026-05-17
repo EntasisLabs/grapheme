@@ -10,7 +10,7 @@
 ///    grapheme parse <file.gr>
 ///    grapheme compile <file.gr> --emit ast|hir|mir|artifact|aot
 ///    grapheme build <file.gr> [--aot-stage stage_a|stage_b] [--out path]
-///    grapheme plugins build [all|core|io ...]
+///    grapheme plugins build [all|core|io ...]")
 ///    grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules]
 ///                          [--aot-stage stage_a|stage_b] [--strict-stage-b]
 ///    grapheme modules [search <query> | ops <query> | info <module> | types <module> | examples <module>]
@@ -19,8 +19,12 @@
 use grapheme_artifact::{ExecutionResult, MirInst};
 use grapheme_compiler::ast::Definition;
 use grapheme_compiler::{Compiler, CompilerError, CompilerOptions};
-use grapheme_compiler::verifier::LintWarning;
-use grapheme_sdk::{GraphemeEngine, StructuredMode};
+use grapheme_compiler::verifier::{ExecutableKindPolicyMode, LintWarning};
+use grapheme_sdk::{
+    discover_module_manifests, discover_examples, example_by_name, modules_examples_payload,
+    modules_info_payload, modules_ops_payload, modules_search_payload, modules_types_payload,
+    GraphemeEngine, ModuleSearchDetail, ModuleSearchOptions, StructuredMode,
+};
 use grapheme_runtime::{
     PolicyGuard,
     TracePolicy, TraceProjection,
@@ -57,6 +61,7 @@ struct RunOptions {
     trace_steps: Option<usize>,
     trace_projection: Option<TraceProjection>,
     trace_max_string_bytes: Option<usize>,
+    executable_kind_policy_mode: ExecutableKindPolicyMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +87,14 @@ struct BundledExample {
     name: &'static str,
     relative_path: &'static str,
     content: &'static str,
+}
+
+#[derive(Default)]
+struct ExampleListFilter {
+    query: Option<String>,
+    tag: Option<String>,
+    complexity: Option<String>,
+    native_only: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -225,6 +238,16 @@ const BUNDLED_EXAMPLES: &[BundledExample] = &[
         content: include_str!("../bundled-examples/subscription-heartbeat-readable.gr"),
     },
     BundledExample {
+        name: "http-get",
+        relative_path: "examples/http-get.gr",
+        content: include_str!("../bundled-examples/http-get.gr"),
+    },
+    BundledExample {
+        name: "websearch-basic",
+        relative_path: "examples/websearch-basic.gr",
+        content: include_str!("../bundled-examples/websearch-basic.gr"),
+    },
+    BundledExample {
         name: "websearch-report",
         relative_path: "examples/websearch-report.gr",
         content: include_str!("../bundled-examples/websearch-report.gr"),
@@ -334,21 +357,162 @@ fn emit_plugins(args: &[String]) -> Result<(), CompilerError> {
 
 fn emit_examples_cmd(args: &[String]) -> Result<(), CompilerError> {
     if args.is_empty() || args[0] == "list" {
-        for ex in BUNDLED_EXAMPLES {
-            println!("{}\t{}", ex.name, ex.relative_path);
+        let mut mode = None;
+        let mut filter = ExampleListFilter::default();
+
+        if !args.is_empty() {
+            let mut i = 1;
+            while i < args.len() {
+                if let Some(flag_mode) = parse_structured_output_flag(&args[i]) {
+                    mode = Some(flag_mode);
+                    i += 1;
+                    continue;
+                }
+
+                match args[i].as_str() {
+                    "--query" => {
+                        if i + 1 >= args.len() {
+                            return Err(CompilerError::RuntimeError(
+                                "examples list --query requires a value".to_string(),
+                            ));
+                        }
+                        filter.query = Some(args[i + 1].to_lowercase());
+                        i += 2;
+                    }
+                    "--tag" => {
+                        if i + 1 >= args.len() {
+                            return Err(CompilerError::RuntimeError(
+                                "examples list --tag requires a value".to_string(),
+                            ));
+                        }
+                        filter.tag = Some(args[i + 1].to_lowercase());
+                        i += 2;
+                    }
+                    "--complexity" => {
+                        if i + 1 >= args.len() {
+                            return Err(CompilerError::RuntimeError(
+                                "examples list --complexity requires a value".to_string(),
+                            ));
+                        }
+                        filter.complexity = Some(args[i + 1].to_lowercase());
+                        i += 2;
+                    }
+                    "--native-only" => {
+                        filter.native_only = true;
+                        i += 1;
+                    }
+                    other => {
+                        return Err(CompilerError::RuntimeError(format!(
+                            "unknown examples list flag '{}'",
+                            other
+                        )));
+                    }
+                }
+            }
         }
+
+        let rows = discover_examples(
+            filter.query.as_deref(),
+            filter.tag.as_deref(),
+            filter.complexity.as_deref(),
+            filter.native_only,
+        );
+
+        if let Some(mode) = mode {
+            print_discovery(
+                &json!({
+                    "filters": {
+                        "query": filter.query,
+                        "tag": filter.tag,
+                        "complexity": filter.complexity,
+                        "native_only": filter.native_only,
+                    },
+                    "count": rows.len(),
+                    "examples": rows,
+                }),
+                mode,
+            )?;
+        } else {
+            println!("NAME\tCOMPLEXITY\tTAGS\tSUMMARY");
+            for row in rows {
+                let name = row.name;
+                let complexity = row.complexity;
+                let tags = row.tags.join(",");
+                let summary = row.summary;
+                println!("{}\t{}\t{}\t{}", name, complexity, tags, summary);
+            }
+
+            println!("\nTip: grapheme examples show <name> for quick guidance and source");
+            println!("Tip: grapheme examples list --query web --tag routing --complexity advanced");
+            println!("Tip: grapheme examples list --yaml for machine-readable details");
+        }
+
         return Ok(());
     }
 
     match args[0].as_str() {
         "show" => {
-            if args.len() != 2 {
+            if args.len() < 2 {
                 return Err(CompilerError::RuntimeError(
                     "examples show requires an example name".to_string(),
                 ));
             }
+
+            let mut mode = DiscoveryOutputMode::Yaml;
+            let mut summary_only = false;
+            let mut raw = false;
+            for flag in &args[2..] {
+                if let Some(flag_mode) = parse_structured_output_flag(flag) {
+                    mode = flag_mode;
+                    continue;
+                }
+
+                match flag.as_str() {
+                    "--summary" => summary_only = true,
+                    "--raw" => raw = true,
+                    other => {
+                        return Err(CompilerError::RuntimeError(format!(
+                            "unknown examples show flag '{}'",
+                            other
+                        )));
+                    }
+                }
+            }
+
+            if summary_only && raw {
+                return Err(CompilerError::RuntimeError(
+                    "examples show flags --summary and --raw cannot be combined".to_string(),
+                ));
+            }
+
             let ex = find_bundled_example(&args[1])?;
-            print!("{}", ex.content);
+            let row = example_by_name(ex.name).ok_or_else(|| {
+                CompilerError::RuntimeError(format!(
+                    "missing example metadata for '{}'",
+                    ex.name
+                ))
+            })?;
+
+            if summary_only {
+                print_discovery(&row, mode)?;
+            } else if raw {
+                print!("{}", ex.content);
+            } else {
+                println!("name: {}", row.name);
+                println!("path: {}", row.path);
+                println!("summary: {}", row.summary);
+                println!("use_when: {}", row.use_when);
+                println!("complexity: {}", row.complexity);
+                println!("run: {}", row.run);
+                println!("tags: {}", row.tags.join(", "));
+                println!("requires_native_modules: {}", row.requires_native_modules);
+
+                println!("\n--- source ---");
+                print!("{}", ex.content);
+                println!("\n--- next ---");
+                println!("{}", row.run);
+                println!("grapheme examples show {} --summary --yaml", ex.name);
+            }
             Ok(())
         }
         "init" => {
@@ -397,6 +561,10 @@ fn emit_examples_cmd(args: &[String]) -> Result<(), CompilerError> {
                 BUNDLED_EXAMPLES.len(),
                 out_dir.display()
             );
+            println!("Next:");
+            println!("  grapheme examples list");
+            println!("  grapheme examples show main");
+            println!("  grapheme run {}/examples/main.gr", out_dir.display());
             Ok(())
         }
         other => Err(CompilerError::RuntimeError(format!(
@@ -574,7 +742,7 @@ fn plugin_spec_by_name(name: &str) -> Option<&'static PluginBuildSpec> {
 }
 
 fn emit_modules(mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
-    let manifests = grapheme_runtime::core_v1_manifests();
+    let manifests = discover_module_manifests();
     print_discovery(&manifests, mode)
 }
 
@@ -591,12 +759,8 @@ fn emit_modules_cmd(args: &[String]) -> Result<(), CompilerError> {
             Ok(())
         }
         "search" => {
-            if cmd_args.len() != 2 {
-                return Err(CompilerError::RuntimeError(
-                    "modules search requires a query".to_string(),
-                ));
-            }
-            emit_modules_search(&cmd_args[1], mode)
+            let (query, options) = parse_modules_search_args(&cmd_args[1..])?;
+            emit_modules_search(&query, &options, mode)
         }
         "ops" => {
             if cmd_args.len() != 2 {
@@ -660,153 +824,135 @@ fn parse_structured_output_flag(flag: &str) -> Option<DiscoveryOutputMode> {
     }
 }
 
-fn emit_modules_search(query: &str, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
-    let q = query.to_lowercase();
-    let matches = grapheme_runtime::core_v1_manifests()
-        .into_iter()
-        .filter(|m| {
-            m.module_id.to_lowercase().contains(&q)
-                || m.exported_ops
-                    .iter()
-                    .any(|op| op.op.to_lowercase().contains(&q))
-        })
-        .map(|m| m.module_id)
-        .collect::<Vec<_>>();
+fn parse_modules_search_args(args: &[String]) -> Result<(String, ModuleSearchOptions), CompilerError> {
+    if args.is_empty() {
+        return Err(CompilerError::RuntimeError(
+            "modules search requires a query".to_string(),
+        ));
+    }
 
-    print_discovery(&matches, mode)
-}
+    let query = args[0].clone();
+    let mut options = ModuleSearchOptions::default();
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--explain" => {
+                options.explain = true;
+                i += 1;
+            }
+            "--detail" => {
+                if i + 1 >= args.len() {
+                    return Err(CompilerError::RuntimeError(
+                        "modules search --detail requires concise|full".to_string(),
+                    ));
+                }
+                options.detail = parse_modules_search_detail(&args[i + 1])?;
+                options.explain = true;
+                i += 2;
+            }
+            "--top" => {
+                if i + 1 >= args.len() {
+                    return Err(CompilerError::RuntimeError(
+                        "modules search --top requires an integer >= 1".to_string(),
+                    ));
+                }
 
-fn emit_modules_ops(query: &str, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
-    let q = query.to_lowercase();
-    let mut matches = Vec::new();
+                let top = args[i + 1].parse::<usize>().map_err(|_| {
+                    CompilerError::RuntimeError(
+                        "modules search --top requires an integer >= 1".to_string(),
+                    )
+                })?;
+                if top == 0 {
+                    return Err(CompilerError::RuntimeError(
+                        "modules search --top requires an integer >= 1".to_string(),
+                    ));
+                }
 
-    for manifest in grapheme_runtime::core_v1_manifests() {
-        let module_id = manifest.module_id;
-        let module_match = module_id.to_lowercase().contains(&q);
+                options.top = Some(top);
+                options.explain = true;
+                i += 2;
+            }
+            "--min-score" => {
+                if i + 1 >= args.len() {
+                    return Err(CompilerError::RuntimeError(
+                        "modules search --min-score requires a number >= 0".to_string(),
+                    ));
+                }
 
-        for op in manifest.exported_ops {
-            let full = format!("{}.{}", module_id, op.op);
-            if module_match
-                || op.op.to_lowercase().contains(&q)
-                || full.to_lowercase().contains(&q)
-            {
-                matches.push(json!({
-                    "module_id": module_id,
-                    "op": op.op,
-                    "effect": op.effect,
-                    "input_schema_ref": op.input_schema_ref,
-                    "output_schema_ref": op.output_schema_ref,
-                }));
+                let min_score = args[i + 1].parse::<f64>().map_err(|_| {
+                    CompilerError::RuntimeError(
+                        "modules search --min-score requires a number >= 0".to_string(),
+                    )
+                })?;
+                if min_score < 0.0 {
+                    return Err(CompilerError::RuntimeError(
+                        "modules search --min-score requires a number >= 0".to_string(),
+                    ));
+                }
+
+                options.min_score = Some(min_score);
+                options.explain = true;
+                i += 2;
+            }
+            other => {
+                return Err(CompilerError::RuntimeError(format!(
+                    "unknown modules search flag '{}'; expected --explain|--detail|--top|--min-score",
+                    other
+                )));
             }
         }
     }
 
-    matches.sort_by(|a, b| {
-        let a_module = a
-            .get("module_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default();
-        let b_module = b
-            .get("module_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default();
-        let a_op = a.get("op").and_then(|v| v.as_str()).unwrap_or_default();
-        let b_op = b.get("op").and_then(|v| v.as_str()).unwrap_or_default();
-        a_module.cmp(b_module).then(a_op.cmp(b_op))
-    });
-
-    print_discovery(
-        &json!({
-            "query": query,
-            "matches": matches,
-        }),
-        mode,
-    )
+    Ok((query, options))
 }
 
-fn find_manifest(module: &str) -> Result<grapheme_runtime::ModuleManifest, CompilerError> {
-    grapheme_runtime::core_v1_manifests()
-        .into_iter()
-        .find(|m| m.module_id.eq_ignore_ascii_case(module))
-        .ok_or_else(|| CompilerError::RuntimeError(format!("unknown module '{}'", module)))
+fn parse_modules_search_detail(value: &str) -> Result<ModuleSearchDetail, CompilerError> {
+    match value {
+        "full" => Ok(ModuleSearchDetail::Full),
+        "concise" => Ok(ModuleSearchDetail::Concise),
+        _ => Err(CompilerError::RuntimeError(format!(
+            "invalid modules search --detail '{}', expected concise|full",
+            value
+        ))),
+    }
+}
+
+fn emit_modules_search(
+    query: &str,
+    options: &ModuleSearchOptions,
+    mode: DiscoveryOutputMode,
+) -> Result<(), CompilerError> {
+    let payload = modules_search_payload(query, options);
+    print_discovery(&payload, mode)
+}
+
+fn emit_modules_ops(query: &str, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
+    let payload = modules_ops_payload(query);
+    print_discovery(&payload, mode)
 }
 
 fn emit_modules_info(module: &str, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
-    let manifest = find_manifest(module)?;
-    print_discovery(&manifest, mode)
+    let payload = modules_info_payload(module).ok_or_else(|| {
+        CompilerError::RuntimeError(format!("unknown module '{}'", module))
+    })?;
+    print_discovery(&payload, mode)
 }
 
 fn emit_modules_types(module: &str, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
-    let manifest = find_manifest(module)?;
-    let types = manifest
-        .exported_ops
-        .iter()
-        .map(|op| {
-            json!({
-                "op": op.op,
-                "input_schema_ref": op.input_schema_ref,
-                "output_schema_ref": op.output_schema_ref,
-                "effect": op.effect,
-            })
-        })
-        .collect::<Vec<_>>();
-
-    print_discovery(&json!({
-        "module_id": manifest.module_id,
-        "types": types,
-    }), mode)
+    let payload = modules_types_payload(module).ok_or_else(|| {
+        CompilerError::RuntimeError(format!("unknown module '{}'", module))
+    })?;
+    print_discovery(&payload, mode)
 }
 
 fn emit_modules_examples(module: &str, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
-    let module_id = module.to_lowercase();
-    let examples: &[&str] = match module_id.as_str() {
-        "http" => &["examples/http-get.gr"],
-        "websearch" => &[
-            "examples/websearch-materials.gr",
-            "examples/websearch-report.gr",
-        ],
-        "tcp" => &["examples/tcp-connect.gr"],
-        "smtp" => &["examples/smtp-send.gr"],
-        "sql" => &[
-            "examples/sql-query.gr",
-            "examples/sql-query-params.gr",
-            "examples/sql-transaction.gr",
-            "examples/sql-transaction-rollback.gr",
-        ],
-        "surreal" => &[
-            "examples/surreal-select.gr",
-            "examples/surreal-query.gr",
-            "examples/surreal-select-filtered.gr",
-            "examples/surreal-query-vars.gr",
-            "examples/surreal-health.gr",
-            "examples/surreal-create.gr",
-            "examples/surreal-update.gr",
-            "examples/surreal-delete.gr",
-        ],
-        "io" => &["examples/io-list.gr"],
-        "memory" => &["examples/memory-roundtrip.gr"],
-        "secrets" => &["examples/secrets-handle.gr", "examples/secrets-sign.gr"],
-        "json" | "csv" | "yaml" | "html" => &["examples/request-transform-output.gr"],
-        "core" => &[
-            "examples/core-merge.gr",
-            "examples/core-filter.gr",
-            "examples/core-validate-schema.gr",
-            "examples/mutation-update-preferences.gr",
-        ],
-        _ => &[],
-    };
-
-    if examples.is_empty() {
-        return Err(CompilerError::RuntimeError(format!(
+    let payload = modules_examples_payload(module).ok_or_else(|| {
+        CompilerError::RuntimeError(format!(
             "no curated examples are registered for module '{}'",
             module
-        )));
-    }
-
-    print_discovery(&json!({
-        "module_id": module_id,
-        "examples": examples,
-    }), mode)
+        ))
+    })?;
+    print_discovery(&payload, mode)
 }
 
 #[derive(Serialize)]
@@ -822,7 +968,10 @@ fn run_program(
     run_options: RunOptions,
 ) -> Result<(), CompilerError> {
     let source = read_source(file_path)?;
-    let compiled = Compiler::compile_source(&source, CompilerOptions::default())?;
+    let mut compiler_options = CompilerOptions::default();
+    compiler_options.compile_options.executable_kind_policy_mode =
+        run_options.executable_kind_policy_mode;
+    let compiled = Compiler::compile_source(&source, compiler_options.clone())?;
 
     let cwd = env::current_dir()
         .map_err(|e| CompilerError::RuntimeError(format!("resolve current directory: {e}")))?;
@@ -858,6 +1007,7 @@ fn run_program(
     let mut engine_builder = GraphemeEngine::builder()
         .with_policy_guard(policy_guard_from_env())
         .with_trace_policy(trace_policy)
+        .with_compiler_options(compiler_options)
         .with_strict_stage_b_container_execution(strict_stage_b_container_execution)
         .with_stream_step_output(
             run_options.output_mode == RunOutputMode::Plain && run_options.stream_steps,
@@ -1012,6 +1162,7 @@ fn default_run_options() -> RunOptions {
         trace_steps: None,
         trace_projection: None,
         trace_max_string_bytes: None,
+        executable_kind_policy_mode: ExecutableKindPolicyMode::Compatibility,
     }
 }
 
@@ -1295,8 +1446,9 @@ fn parse_optional_usize_env(var: &str) -> Result<(bool, Option<usize>), String> 
 fn parse_run_args(
     args: &[String],
 ) -> Result<(String, RunOptions), CompilerError> {
-    let (file_path, mut i) = resolve_file_path_arg_or_project_main(args, "run")?;
+    let (file_path, consumed) = resolve_file_path_arg_or_project_main(args, "run")?;
     let mut run_options = default_run_options();
+    let mut i = consumed;
 
     while i < args.len() {
         match args[i].as_str() {
@@ -1393,6 +1545,19 @@ fn parse_run_args(
                 )?);
                 i += 2;
             }
+            "--type-policy" => {
+                if i + 1 >= args.len() {
+                    return Err(CompilerError::RuntimeError(
+                        "--type-policy requires warn|strict".to_string(),
+                    ));
+                }
+
+                run_options.executable_kind_policy_mode = parse_executable_kind_policy_mode(
+                    "--type-policy",
+                    &args[i + 1],
+                )?;
+                i += 2;
+            }
             other => {
                 return Err(CompilerError::RuntimeError(format!(
                     "unknown run flag '{}'",
@@ -1457,6 +1622,20 @@ fn parse_aot_stage_selection(value: &str) -> Result<AotStageSelection, CompilerE
     }
 }
 
+fn parse_executable_kind_policy_mode(
+    flag: &str,
+    value: &str,
+) -> Result<ExecutableKindPolicyMode, CompilerError> {
+    match value {
+        "warn" => Ok(ExecutableKindPolicyMode::Compatibility),
+        "strict" => Ok(ExecutableKindPolicyMode::StrictMutationOnly),
+        _ => Err(CompilerError::RuntimeError(format!(
+            "invalid {} '{}', expected warn|strict",
+            flag, value
+        ))),
+    }
+}
+
 fn resolve_stage_b_strict_mode(run_options: &RunOptions) -> bool {
     let stage_b_selected = matches!(run_options.aot_stage, Some(AotStageSelection::StageB));
     run_options.strict_stage_b_container_execution
@@ -1500,6 +1679,7 @@ fn emit_compile_cmd(args: &[String]) -> Result<(), CompilerError> {
     let mut emit_target = "mir".to_string();
     let mut aot_stage = AotStageSelection::StageA;
     let mut output_mode = DiscoveryOutputMode::Yaml;
+    let mut executable_kind_policy_mode = ExecutableKindPolicyMode::Compatibility;
     let mut i = consumed;
     while i < args.len() {
         if let Some(mode) = parse_structured_output_flag(&args[i]) {
@@ -1528,6 +1708,19 @@ fn emit_compile_cmd(args: &[String]) -> Result<(), CompilerError> {
                 aot_stage = parse_aot_stage_selection(&args[i + 1])?;
                 i += 2;
             }
+            "--type-policy" => {
+                if i + 1 >= args.len() {
+                    return Err(CompilerError::RuntimeError(
+                        "--type-policy requires warn|strict".to_string(),
+                    ));
+                }
+
+                executable_kind_policy_mode = parse_executable_kind_policy_mode(
+                    "--type-policy",
+                    &args[i + 1],
+                )?;
+                i += 2;
+            }
             flag => {
                 return Err(CompilerError::RuntimeError(format!(
                     "unknown compile flag '{}'",
@@ -1538,7 +1731,9 @@ fn emit_compile_cmd(args: &[String]) -> Result<(), CompilerError> {
     }
 
     let source = read_source(&file_path)?;
-    let compilation = grapheme_compiler::compile(&source)?;
+    let mut compiler_options = CompilerOptions::default();
+    compiler_options.compile_options.executable_kind_policy_mode = executable_kind_policy_mode;
+    let compilation = Compiler::compile_source(&source, compiler_options)?.compilation;
 
     if emit_target != "aot" && aot_stage != AotStageSelection::StageA {
         return Err(CompilerError::RuntimeError(
@@ -1747,17 +1942,17 @@ fn print_usage() {
     eprintln!("  grapheme                    # run project main from grapheme.toml");
     eprintln!("  grapheme <file.gr>");
     eprintln!("  grapheme parse [<file.gr>] [--yaml|--json]");
-    eprintln!("  grapheme compile [<file.gr>] [--emit ast|hir|mir|artifact|aot] [--aot-stage stage_a|stage_b] [--yaml|--json]");
+    eprintln!("  grapheme compile [<file.gr>] [--emit ast|hir|mir|artifact|aot] [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--yaml|--json]");
     eprintln!("  grapheme build [<file.gr>] [--aot-stage stage_a|stage_b] [--out path] [--yaml|--json]");
     eprintln!("  grapheme plugins build [all|core|io ...]");
-    eprintln!("  grapheme examples [list]");
-    eprintln!("  grapheme examples show <name>");
+    eprintln!("  grapheme examples [list] [--yaml|--json] [--query q] [--tag tag] [--complexity level] [--native-only]");
+    eprintln!("  grapheme examples show <name> [--summary] [--raw] [--yaml|--json]");
     eprintln!("  grapheme examples init [--out dir]");
-    eprintln!("  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules] [--aot-stage stage_a|stage_b] [--strict-stage-b] [--allow-stage-b-fallback] [--stream-steps]");
+    eprintln!("  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules] [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--strict-stage-b] [--allow-stage-b-fallback] [--stream-steps]");
     eprintln!("               [--trace-profile lean|debug] [--trace-steps N]");
     eprintln!("               [--trace-projection minimal|full] [--trace-max-string-bytes N]");
     eprintln!("  grapheme modules [--yaml|--json]");
-    eprintln!("  grapheme modules search <query> [--yaml|--json]");
+    eprintln!("  grapheme modules search <query> [--explain] [--detail concise|full] [--top N] [--min-score X] [--yaml|--json]");
     eprintln!("  grapheme modules ops <query> [--yaml|--json]");
     eprintln!("  grapheme modules info <module> [--yaml|--json]");
     eprintln!("  grapheme modules types <module> [--yaml|--json]");
@@ -1768,7 +1963,7 @@ fn print_usage() {
 fn print_modules_usage() {
     eprintln!("usage:");
     eprintln!("  grapheme modules [--yaml|--json]");
-    eprintln!("  grapheme modules search <query> [--yaml|--json]");
+    eprintln!("  grapheme modules search <query> [--explain] [--detail concise|full] [--top N] [--min-score X] [--yaml|--json]");
     eprintln!("  grapheme modules ops <query> [--yaml|--json]");
     eprintln!("  grapheme modules info <module> [--yaml|--json]");
     eprintln!("  grapheme modules types <module> [--yaml|--json]");
@@ -1816,6 +2011,28 @@ mod tests {
         assert!(matches!(run_options.aot_stage, Some(AotStageSelection::StageB)));
         assert!(run_options.strict_stage_b_container_execution);
         assert!(matches!(run_options.output_mode, RunOutputMode::Json));
+    }
+
+    #[test]
+    fn parse_run_args_supports_type_policy_strict() {
+        let args = vec![
+            "examples/hello.gr".to_string(),
+            "--type-policy".to_string(),
+            "strict".to_string(),
+        ];
+
+        let (_file, run_options) = parse_run_args(&args).expect("parse run args should succeed");
+        assert_eq!(
+            run_options.executable_kind_policy_mode,
+            ExecutableKindPolicyMode::StrictMutationOnly
+        );
+    }
+
+    #[test]
+    fn parse_executable_kind_policy_mode_rejects_unknown_value() {
+        let err = parse_executable_kind_policy_mode("--type-policy", "aggressive")
+            .expect_err("invalid type-policy should fail");
+        assert!(err.to_string().contains("expected warn|strict"));
     }
 
     #[test]
@@ -1907,6 +2124,7 @@ showcase = "examples/legacy/showcase"
             trace_steps: None,
             trace_projection: None,
             trace_max_string_bytes: None,
+            executable_kind_policy_mode: ExecutableKindPolicyMode::Compatibility,
         };
 
         assert!(resolve_stage_b_strict_mode(&run_options));
@@ -1926,6 +2144,7 @@ showcase = "examples/legacy/showcase"
             trace_steps: None,
             trace_projection: None,
             trace_max_string_bytes: None,
+            executable_kind_policy_mode: ExecutableKindPolicyMode::Compatibility,
         };
 
         assert!(!resolve_stage_b_strict_mode(&run_options));
@@ -2080,6 +2299,206 @@ query Hello {
     }
 
     #[test]
+    fn example_discovery_row_contains_summary_and_run_hint() {
+        let row = discover_examples(None, None, None, false)
+            .into_iter()
+            .find(|e| e.name == "main")
+            .expect("main discovery row exists");
+
+        assert_eq!(row.name, "main");
+        assert!(!row.summary.is_empty());
+        assert_eq!(row.run, "grapheme run examples/main.gr");
+    }
+
+    #[test]
+    fn examples_show_rejects_summary_and_raw_together() {
+        let err = emit_examples_cmd(&[
+            "show".to_string(),
+            "main".to_string(),
+            "--summary".to_string(),
+            "--raw".to_string(),
+        ])
+        .expect_err("conflicting examples show flags should fail");
+
+        assert!(err
+            .to_string()
+            .contains("--summary and --raw cannot be combined"));
+    }
+
+    #[test]
+    fn example_matches_filters_supports_tag_complexity_and_query() {
+        let matching = discover_examples(
+            Some("fallback"),
+            Some("routing"),
+            Some("advanced"),
+            false,
+        );
+        assert!(matching.iter().any(|e| e.name == "web-provider-routing"));
+
+        let wrong_tag = discover_examples(None, Some("smtp"), None, false);
+        assert!(wrong_tag.is_empty());
+    }
+
+    #[test]
+    fn examples_list_rejects_missing_filter_values() {
+        let err = emit_examples_cmd(&[
+            "list".to_string(),
+            "--tag".to_string(),
+        ])
+        .expect_err("missing tag value should fail");
+
+        assert!(err.to_string().contains("--tag requires a value"));
+    }
+
+    #[test]
+    fn parse_modules_search_args_supports_explain_flag() {
+        let (query, options) = parse_modules_search_args(&[
+            "web".to_string(),
+            "--explain".to_string(),
+        ])
+        .expect("modules search args should parse");
+
+        assert_eq!(query, "web");
+        assert!(options.explain);
+        assert_eq!(options.detail, ModuleSearchDetail::Full);
+        assert!(options.top.is_none());
+        assert!(options.min_score.is_none());
+    }
+
+    #[test]
+    fn parse_modules_search_args_supports_detail_flag() {
+        let (query, options) = parse_modules_search_args(&[
+            "web".to_string(),
+            "--detail".to_string(),
+            "concise".to_string(),
+        ])
+        .expect("modules search detail should parse");
+
+        assert_eq!(query, "web");
+        assert!(options.explain);
+        assert_eq!(options.detail, ModuleSearchDetail::Concise);
+    }
+
+    #[test]
+    fn parse_modules_search_args_supports_top_and_min_score() {
+        let (_query, options) = parse_modules_search_args(&[
+            "web".to_string(),
+            "--top".to_string(),
+            "1".to_string(),
+            "--min-score".to_string(),
+            "100".to_string(),
+        ])
+        .expect("modules search top/min-score should parse");
+
+        assert!(options.explain);
+        assert_eq!(options.top, Some(1));
+        assert_eq!(options.min_score, Some(100.0));
+    }
+
+    #[test]
+    fn parse_modules_search_args_rejects_missing_detail_value() {
+        let err = parse_modules_search_args(&[
+            "web".to_string(),
+            "--detail".to_string(),
+        ])
+        .expect_err("missing detail value should fail");
+
+        assert!(err.to_string().contains("--detail requires concise|full"));
+    }
+
+    #[test]
+    fn parse_modules_search_args_rejects_unknown_flag() {
+        let err = parse_modules_search_args(&[
+            "web".to_string(),
+            "--oops".to_string(),
+        ])
+        .expect_err("unknown modules search flag should fail");
+
+        assert!(err
+            .to_string()
+            .contains("expected --explain|--detail|--top|--min-score"));
+    }
+
+    #[test]
+    fn search_modules_payload_explain_includes_guidance_fields() {
+        let payload = modules_search_payload(
+            "web",
+            &ModuleSearchOptions {
+                explain: true,
+                detail: ModuleSearchDetail::Full,
+                top: None,
+                min_score: None,
+            },
+        );
+        let matches = payload
+            .get("matches")
+            .and_then(|v| v.as_array())
+            .expect("matches array present");
+
+        let web = matches
+            .iter()
+            .find(|item| item.get("module_id").and_then(|v| v.as_str()) == Some("web"))
+            .expect("web module present in explain matches");
+
+        assert!(web.get("summary").and_then(|v| v.as_str()).is_some());
+        assert!(web.get("use_when").and_then(|v| v.as_str()).is_some());
+        assert!(web.get("avoid_when").and_then(|v| v.as_str()).is_some());
+        assert!(web.get("score").and_then(|v| v.as_f64()).is_some());
+        assert!(web
+            .get("related_examples")
+            .and_then(|v| v.as_array())
+            .is_some());
+    }
+
+    #[test]
+    fn search_modules_payload_concise_excludes_full_guidance_fields() {
+        let payload = modules_search_payload(
+            "web",
+            &ModuleSearchOptions {
+                explain: true,
+                detail: ModuleSearchDetail::Concise,
+                top: None,
+                min_score: None,
+            },
+        );
+        let matches = payload
+            .get("matches")
+            .and_then(|v| v.as_array())
+            .expect("matches array present");
+        let first = matches.first().expect("at least one match");
+
+        assert!(first.get("score").and_then(|v| v.as_f64()).is_some());
+        assert!(first.get("summary").and_then(|v| v.as_str()).is_some());
+        assert!(first.get("use_when").is_none());
+        assert!(first.get("avoid_when").is_none());
+        assert!(first.get("matching_ops").is_none());
+    }
+
+    #[test]
+    fn search_modules_payload_applies_top_and_min_score() {
+        let payload = modules_search_payload(
+            "web",
+            &ModuleSearchOptions {
+                explain: true,
+                detail: ModuleSearchDetail::Concise,
+                top: Some(1),
+                min_score: Some(100.0),
+            },
+        );
+
+        assert_eq!(payload.get("count").and_then(|v| v.as_u64()), Some(1));
+        let matches = payload
+            .get("matches")
+            .and_then(|v| v.as_array())
+            .expect("matches array present");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            matches[0].get("module_id").and_then(|v| v.as_str()),
+            Some("web")
+        );
+    }
+
+    #[test]
     fn core_field_mutation_ops_are_live() {
         let inc = dispatch_std(
             "core",
@@ -2104,15 +2523,7 @@ query Hello {
 
     #[test]
     fn golden_modules_examples_yaml_contract() {
-        let payload = json!({
-            "module_id": "core",
-            "examples": [
-                "examples/core-merge.gr",
-                "examples/core-filter.gr",
-                "examples/core-validate-schema.gr",
-                "examples/mutation-update-preferences.gr"
-            ]
-        });
+        let payload = modules_examples_payload("core").expect("core examples payload");
 
         let actual = format_discovery(&payload, DiscoveryOutputMode::Yaml)
             .expect("yaml format should succeed");
@@ -2122,15 +2533,7 @@ query Hello {
 
     #[test]
     fn golden_modules_examples_json_contract() {
-        let payload = json!({
-            "module_id": "core",
-            "examples": [
-                "examples/core-merge.gr",
-                "examples/core-filter.gr",
-                "examples/core-validate-schema.gr",
-                "examples/mutation-update-preferences.gr"
-            ]
-        });
+        let payload = modules_examples_payload("core").expect("core examples payload");
 
         let actual = format_discovery(&payload, DiscoveryOutputMode::Json)
             .expect("json format should succeed");
@@ -2140,15 +2543,7 @@ query Hello {
 
     #[test]
     fn golden_modules_examples_sql_yaml_contract() {
-        let payload = json!({
-            "module_id": "sql",
-            "examples": [
-                "examples/sql-query.gr",
-                "examples/sql-query-params.gr",
-                "examples/sql-transaction.gr",
-                "examples/sql-transaction-rollback.gr"
-            ]
-        });
+        let payload = modules_examples_payload("sql").expect("sql examples payload");
 
         let actual = format_discovery(&payload, DiscoveryOutputMode::Yaml)
             .expect("yaml format should succeed");
@@ -2158,15 +2553,7 @@ query Hello {
 
     #[test]
     fn golden_modules_examples_sql_json_contract() {
-        let payload = json!({
-            "module_id": "sql",
-            "examples": [
-                "examples/sql-query.gr",
-                "examples/sql-query-params.gr",
-                "examples/sql-transaction.gr",
-                "examples/sql-transaction-rollback.gr"
-            ]
-        });
+        let payload = modules_examples_payload("sql").expect("sql examples payload");
 
         let actual = format_discovery(&payload, DiscoveryOutputMode::Json)
             .expect("json format should succeed");
@@ -2176,19 +2563,7 @@ query Hello {
 
     #[test]
     fn golden_modules_examples_surreal_yaml_contract() {
-        let payload = json!({
-            "module_id": "surreal",
-            "examples": [
-                "examples/surreal-select.gr",
-                "examples/surreal-query.gr",
-                "examples/surreal-select-filtered.gr",
-                "examples/surreal-query-vars.gr",
-                "examples/surreal-health.gr",
-                "examples/surreal-create.gr",
-                "examples/surreal-update.gr",
-                "examples/surreal-delete.gr"
-            ]
-        });
+        let payload = modules_examples_payload("surreal").expect("surreal examples payload");
 
         let actual = format_discovery(&payload, DiscoveryOutputMode::Yaml)
             .expect("yaml format should succeed");
@@ -2198,19 +2573,7 @@ query Hello {
 
     #[test]
     fn golden_modules_examples_surreal_json_contract() {
-        let payload = json!({
-            "module_id": "surreal",
-            "examples": [
-                "examples/surreal-select.gr",
-                "examples/surreal-query.gr",
-                "examples/surreal-select-filtered.gr",
-                "examples/surreal-query-vars.gr",
-                "examples/surreal-health.gr",
-                "examples/surreal-create.gr",
-                "examples/surreal-update.gr",
-                "examples/surreal-delete.gr"
-            ]
-        });
+        let payload = modules_examples_payload("surreal").expect("surreal examples payload");
 
         let actual = format_discovery(&payload, DiscoveryOutputMode::Json)
             .expect("json format should succeed");
@@ -2220,33 +2583,7 @@ query Hello {
 
     #[test]
     fn golden_modules_ops_core_yaml_contract() {
-        let mut matches = Vec::new();
-        for manifest in grapheme_runtime::core_v1_manifests() {
-            if manifest.module_id != "core" {
-                continue;
-            }
-            for op in manifest.exported_ops {
-                matches.push(json!({
-                    "module_id": "core",
-                    "op": op.op,
-                    "effect": op.effect,
-                    "input_schema_ref": op.input_schema_ref,
-                    "output_schema_ref": op.output_schema_ref,
-                }));
-            }
-        }
-
-        matches.sort_by(|a, b| {
-            a.get("op")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .cmp(b.get("op").and_then(|v| v.as_str()).unwrap_or_default())
-        });
-
-        let payload = json!({
-            "query": "core",
-            "matches": matches,
-        });
+        let payload = modules_ops_payload("core");
 
         let actual = format_discovery(&payload, DiscoveryOutputMode::Yaml)
             .expect("yaml format should succeed");
@@ -2256,33 +2593,7 @@ query Hello {
 
     #[test]
     fn golden_modules_ops_core_json_contract() {
-        let mut matches = Vec::new();
-        for manifest in grapheme_runtime::core_v1_manifests() {
-            if manifest.module_id != "core" {
-                continue;
-            }
-            for op in manifest.exported_ops {
-                matches.push(json!({
-                    "module_id": "core",
-                    "op": op.op,
-                    "effect": op.effect,
-                    "input_schema_ref": op.input_schema_ref,
-                    "output_schema_ref": op.output_schema_ref,
-                }));
-            }
-        }
-
-        matches.sort_by(|a, b| {
-            a.get("op")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .cmp(b.get("op").and_then(|v| v.as_str()).unwrap_or_default())
-        });
-
-        let payload = json!({
-            "query": "core",
-            "matches": matches,
-        });
+        let payload = modules_ops_payload("core");
 
         let actual = format_discovery(&payload, DiscoveryOutputMode::Json)
             .expect("json format should succeed");

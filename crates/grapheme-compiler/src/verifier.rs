@@ -1319,6 +1319,23 @@ fn verify_step_types(
         }
     }
 
+    let mut allowed_args = spec.args.iter().map(|arg| arg.name).collect::<Vec<_>>();
+    allowed_args.sort_unstable();
+    for arg_name in args.keys() {
+        if !allowed_args.contains(&arg_name.as_str()) {
+            let allowed_display = if allowed_args.is_empty() {
+                "<none>".to_string()
+            } else {
+                allowed_args.join(", ")
+            };
+
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: unknown arg '{}' for '{}.{}' (allowed: {})",
+                def_name, pipeline_idx, step_idx, arg_name, module_raw, step.op, allowed_display
+            )));
+        }
+    }
+
     Ok(())
 }
 
@@ -2000,6 +2017,8 @@ fn is_variable_placeholder(value: &JsonValue) -> bool {
 fn value_matches_arg_type(value: &JsonValue, expected: ArgType) -> bool {
     match expected {
         ArgType::String => value.is_string(),
+        ArgType::Number => value.is_number(),
+        ArgType::Boolean => value.is_boolean(),
         ArgType::Object => value.is_object(),
         ArgType::Array => value.is_array(),
         ArgType::Any => true,
@@ -2009,6 +2028,8 @@ fn value_matches_arg_type(value: &JsonValue, expected: ArgType) -> bool {
 fn arg_type_label(expected: ArgType) -> &'static str {
     match expected {
         ArgType::String => "string",
+        ArgType::Number => "number",
+        ArgType::Boolean => "boolean",
         ArgType::Object => "object",
         ArgType::Array => "array",
         ArgType::Any => "any",

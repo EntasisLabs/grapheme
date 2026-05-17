@@ -26,11 +26,12 @@ This is the front door for the docs set. Use this page for fast navigation.
 1. docs/getting-started.md
 2. docs/sdk.md
 3. docs/language-contract.md
-4. docs/architecture.md
-5. docs/cli.md
-6. docs/runtime-policy.md
-7. docs/modules.md
-8. docs/native-modules.md
+4. docs/language/llm-native-contract-v1.md
+5. docs/architecture.md
+6. docs/cli.md
+7. docs/runtime-policy.md
+8. docs/modules.md
+9. docs/native-modules.md
 
 ## Domain Indexes
 

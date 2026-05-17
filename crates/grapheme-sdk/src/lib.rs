@@ -10,9 +10,10 @@ use grapheme_runtime::{
     CapabilityCall, CapabilityHost, HostCallError, PolicyGuard, RuntimeEngine, RuntimeError,
     RuntimeOptions, TracePolicy,
 };
-use serde::Serialize;
+use grapheme_signatures::{find_op_spec, op_output_object_fields, op_output_type, ArgType};
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
@@ -60,6 +61,7 @@ pub enum GraphemeSdkError {
 /// Builder for configuring `GraphemeEngine` runtime behavior.
 pub struct GraphemeEngineBuilder {
     runtime_options: RuntimeOptions,
+    compiler_options: CompilerOptions,
     module_bindings: HashMap<String, PathBuf>,
     host_factory: Option<HostFactory>,
     capability_observer: Option<CapabilityObserver>,
@@ -77,6 +79,7 @@ impl GraphemeEngineBuilder {
     pub fn new() -> Self {
         Self {
             runtime_options: RuntimeOptions::default(),
+            compiler_options: CompilerOptions::default(),
             module_bindings: HashMap::new(),
             host_factory: None,
             capability_observer: None,
@@ -111,6 +114,12 @@ impl GraphemeEngineBuilder {
     /// Enable or disable strict Stage B container execution mode.
     pub fn with_strict_stage_b_container_execution(mut self, enabled: bool) -> Self {
         self.runtime_options.strict_stage_b_container_execution = enabled;
+        self
+    }
+
+    /// Set compiler options used by source-based compile helpers.
+    pub fn with_compiler_options(mut self, options: CompilerOptions) -> Self {
+        self.compiler_options = options;
         self
     }
 
@@ -164,6 +173,7 @@ impl GraphemeEngineBuilder {
     pub fn build(self) -> GraphemeEngine {
         GraphemeEngine {
             runtime_options: self.runtime_options,
+            compiler_options: self.compiler_options,
             module_bindings: self.module_bindings,
             host_factory: self.host_factory,
             capability_observer: self.capability_observer,
@@ -175,6 +185,7 @@ impl GraphemeEngineBuilder {
 /// High-level embedded engine for compile/execute and AOT helper flows.
 pub struct GraphemeEngine {
     runtime_options: RuntimeOptions,
+    compiler_options: CompilerOptions,
     module_bindings: HashMap<String, PathBuf>,
     host_factory: Option<HostFactory>,
     capability_observer: Option<CapabilityObserver>,
@@ -189,13 +200,13 @@ impl GraphemeEngine {
 
     /// Compile and execute source in one call.
     pub fn execute_source(&self, source: &str) -> Result<ExecuteResultPayload, GraphemeSdkError> {
-        let compiled = Compiler::compile_source(source, CompilerOptions::default())?;
+        let compiled = Compiler::compile_source(source, self.compiler_options.clone())?;
         self.execute_compiled(&compiled)
     }
 
     /// Compile source into a Stage A AOT envelope.
     pub fn compile_source_to_aot(&self, source: &str) -> Result<AotEnvelope, GraphemeSdkError> {
-        let compiled = Compiler::compile_source_to_aot(source, CompilerOptions::default())?;
+        let compiled = Compiler::compile_source_to_aot(source, self.compiler_options.clone())?;
         Ok(compiled.aot)
     }
 
@@ -335,6 +346,887 @@ fn map_runtime_aot_error(err: RuntimeError) -> GraphemeSdkError {
     }
 }
 
+/// Detail tier for module search explain payloads.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModuleSearchDetail {
+    /// Full guidance payload with operation and usage hints.
+    #[default]
+    Full,
+    /// Concise payload optimized for ranking and short previews.
+    Concise,
+}
+
+/// Search options for module discovery payload APIs.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModuleSearchOptions {
+    /// Enable explain output shape (when false, returns compact metadata per module hit).
+    pub explain: bool,
+    /// Explain detail tier when explain mode is active.
+    #[serde(default)]
+    pub detail: ModuleSearchDetail,
+    /// Optional maximum number of ranked results.
+    pub top: Option<usize>,
+    /// Optional minimum relevance threshold.
+    pub min_score: Option<f64>,
+}
+
+/// Discovery row returned by SDK example listing/search APIs.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExampleDiscoveryItem {
+    /// Stable example name.
+    pub name: String,
+    /// Relative path where the example is typically scaffolded.
+    pub path: String,
+    /// One-line description.
+    pub summary: String,
+    /// Guidance on when to choose this example.
+    pub use_when: String,
+    /// Authoring complexity tier.
+    pub complexity: String,
+    /// Discovery tags.
+    pub tags: Vec<String>,
+    /// Whether native modules are required.
+    pub requires_native_modules: bool,
+    /// Suggested CLI run command.
+    pub run: String,
+}
+
+struct ExampleCatalogEntry {
+    name: &'static str,
+    path: &'static str,
+    summary: &'static str,
+    use_when: &'static str,
+    complexity: &'static str,
+    tags: &'static [&'static str],
+    requires_native_modules: bool,
+}
+
+const EXAMPLE_CATALOG: &[ExampleCatalogEntry] = &[
+    ExampleCatalogEntry {
+        name: "main",
+        path: "examples/main.gr",
+        summary: "Canonical project entrypoint with glyph-based composition.",
+        use_when: "You want the default project root flow and main wiring pattern.",
+        complexity: "beginner",
+        tags: &["entrypoint", "glyph", "composition"],
+        requires_native_modules: false,
+    },
+    ExampleCatalogEntry {
+        name: "hello-world",
+        path: "examples/hello-world.gr",
+        summary: "Smallest end-to-end query pipeline.",
+        use_when: "You need a first successful run to validate install/runtime.",
+        complexity: "beginner",
+        tags: &["intro", "core", "query"],
+        requires_native_modules: false,
+    },
+    ExampleCatalogEntry {
+        name: "core-merge",
+        path: "examples/core-merge.gr",
+        summary: "Shows object merge semantics in core transforms.",
+        use_when: "You need to build/reshape state objects.",
+        complexity: "beginner",
+        tags: &["core", "transform", "object"],
+        requires_native_modules: false,
+    },
+    ExampleCatalogEntry {
+        name: "core-filter",
+        path: "examples/core-filter.gr",
+        summary: "Filters list items by field equality.",
+        use_when: "You need list narrowing before later pipeline steps.",
+        complexity: "beginner",
+        tags: &["core", "list", "filter"],
+        requires_native_modules: false,
+    },
+    ExampleCatalogEntry {
+        name: "core-validate-schema",
+        path: "examples/core-validate-schema.gr",
+        summary: "Validates required fields in payload-like objects.",
+        use_when: "You need fast contract checks before side effects.",
+        complexity: "intermediate",
+        tags: &["core", "validation", "schema"],
+        requires_native_modules: false,
+    },
+    ExampleCatalogEntry {
+        name: "request-transform-output",
+        path: "examples/request-transform-output.gr",
+        summary: "Transforms request data into a structured output envelope.",
+        use_when: "You need to normalize or map inbound payloads.",
+        complexity: "intermediate",
+        tags: &["transform", "mapping", "output"],
+        requires_native_modules: false,
+    },
+    ExampleCatalogEntry {
+        name: "mutation-update-preferences",
+        path: "examples/mutation-update-preferences.gr",
+        summary: "Mutation flow that updates preference-like state.",
+        use_when: "You need write-style workflows with controlled state changes.",
+        complexity: "intermediate",
+        tags: &["mutation", "state", "core"],
+        requires_native_modules: false,
+    },
+    ExampleCatalogEntry {
+        name: "mutation-state-machine-apply",
+        path: "examples/mutation-state-machine-apply.gr",
+        summary: "State-machine style mutation transitions.",
+        use_when: "You need explicit status/lifecycle transitions.",
+        complexity: "advanced",
+        tags: &["mutation", "state-machine", "transition"],
+        requires_native_modules: false,
+    },
+    ExampleCatalogEntry {
+        name: "resilience-composition",
+        path: "examples/resilience-composition.gr",
+        summary: "Shows retry/timeout/loop resilience composition patterns.",
+        use_when: "You need robust flows under transient errors.",
+        complexity: "advanced",
+        tags: &["resilience", "retry", "timeout"],
+        requires_native_modules: false,
+    },
+    ExampleCatalogEntry {
+        name: "subscription-heartbeat-readable",
+        path: "examples/subscription-heartbeat-readable.gr",
+        summary: "Readable heartbeat subscription-style workflow.",
+        use_when: "You need periodic signal/event style patterns.",
+        complexity: "intermediate",
+        tags: &["subscription", "heartbeat", "loop"],
+        requires_native_modules: false,
+    },
+    ExampleCatalogEntry {
+        name: "http-get",
+        path: "examples/http-get.gr",
+        summary: "Fetch a live page over HTTP and convert it to markdown.",
+        use_when: "You want a practical fetch -> transform flow using http and html modules.",
+        complexity: "beginner",
+        tags: &["http", "html", "markdown", "transform"],
+        requires_native_modules: false,
+    },
+    ExampleCatalogEntry {
+        name: "websearch-basic",
+        path: "examples/websearch-basic.gr",
+        summary: "Search web results, iterate URLs, and normalize each page into markdown.",
+        use_when: "You need a practical websearch -> fetch -> parse loop for research workflows.",
+        complexity: "intermediate",
+        tags: &["websearch", "http", "html", "loop", "research"],
+        requires_native_modules: false,
+    },
+    ExampleCatalogEntry {
+        name: "websearch-report",
+        path: "examples/websearch-report.gr",
+        summary: "Search -> fetch -> clean -> report pipeline.",
+        use_when: "You need source-grounded report generation.",
+        complexity: "advanced",
+        tags: &["websearch", "report", "research"],
+        requires_native_modules: false,
+    },
+    ExampleCatalogEntry {
+        name: "web-provider-catalog",
+        path: "examples/web-provider-catalog.gr",
+        summary: "Discover web providers and render provider ids.",
+        use_when: "You need capability-aware provider discovery in-flow.",
+        complexity: "beginner",
+        tags: &["web", "providers", "discovery"],
+        requires_native_modules: false,
+    },
+    ExampleCatalogEntry {
+        name: "web-provider-routing",
+        path: "examples/web-provider-routing.gr",
+        summary: "Capability-aware provider routing with fallback behavior.",
+        use_when: "You need provider-selection control flow with graceful fallback.",
+        complexity: "advanced",
+        tags: &["web", "routing", "fallback"],
+        requires_native_modules: false,
+    },
+    ExampleCatalogEntry {
+        name: "web-xaviv-planned",
+        path: "examples/web-xaviv-planned.gr",
+        summary: "Planned-provider handling path for unsupported providers.",
+        use_when: "You need explicit unsupported-provider branching patterns.",
+        complexity: "intermediate",
+        tags: &["web", "provider", "planned"],
+        requires_native_modules: false,
+    },
+];
+
+struct ModuleSearchGuidance {
+    summary: &'static str,
+    use_when: &'static str,
+    avoid_when: &'static str,
+}
+
+/// Return runtime module manifests currently known to the core runtime catalog.
+pub fn discover_module_manifests() -> Vec<grapheme_runtime::ModuleManifest> {
+    grapheme_runtime::core_v1_manifests()
+}
+
+/// Find a module manifest by id (case-insensitive).
+pub fn module_manifest_by_id(module_id: &str) -> Option<grapheme_runtime::ModuleManifest> {
+    discover_module_manifests()
+        .into_iter()
+        .find(|m| m.module_id.eq_ignore_ascii_case(module_id))
+}
+
+/// Return curated example paths for a module id.
+pub fn curated_examples_for_module(module_id: &str) -> &'static [&'static str] {
+    match module_id.to_lowercase().as_str() {
+        "http" => &["examples/http-get.gr"],
+        "websearch" => &[
+            "examples/websearch-basic.gr",
+            "examples/websearch-materials.gr",
+            "examples/websearch-report.gr",
+        ],
+        "tcp" => &["examples/tcp-connect.gr"],
+        "smtp" => &["examples/smtp-send.gr"],
+        "sql" => &[
+            "examples/sql-query.gr",
+            "examples/sql-query-params.gr",
+            "examples/sql-transaction.gr",
+            "examples/sql-transaction-rollback.gr",
+        ],
+        "surreal" => &[
+            "examples/surreal-select.gr",
+            "examples/surreal-query.gr",
+            "examples/surreal-select-filtered.gr",
+            "examples/surreal-query-vars.gr",
+            "examples/surreal-health.gr",
+            "examples/surreal-create.gr",
+            "examples/surreal-update.gr",
+            "examples/surreal-delete.gr",
+        ],
+        "io" => &["examples/io-list.gr"],
+        "memory" => &["examples/memory-roundtrip.gr"],
+        "secrets" => &["examples/secrets-handle.gr", "examples/secrets-sign.gr"],
+        "json" | "csv" | "yaml" | "html" => &["examples/request-transform-output.gr"],
+        "core" => &[
+            "examples/core-merge.gr",
+            "examples/core-filter.gr",
+            "examples/core-validate-schema.gr",
+            "examples/mutation-update-preferences.gr",
+        ],
+        _ => &[],
+    }
+}
+
+/// Search modules and return compact or explainable ranked payloads.
+pub fn modules_search_payload(query: &str, options: &ModuleSearchOptions) -> JsonValue {
+    let q = query.to_lowercase();
+
+    if !options.explain {
+        let mut matches = Vec::new();
+
+        for manifest in discover_module_manifests() {
+            let module_id = manifest.module_id;
+            let module_match = module_id.to_lowercase().contains(&q);
+            let matching_ops = manifest
+                .exported_ops
+                .iter()
+                .filter_map(|op| {
+                    if op.op.to_lowercase().contains(&q)
+                        || format!("{}.{}", module_id, op.op).to_lowercase().contains(&q)
+                    {
+                        Some(op.op.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            if !(module_match || !matching_ops.is_empty()) {
+                continue;
+            }
+
+            let guidance = module_search_guidance(&module_id);
+            let effects = manifest
+                .exported_ops
+                .iter()
+                .map(|op| effect_name(&op.effect).to_string())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            let related_examples = curated_examples_for_module(&module_id)
+                .iter()
+                .map(|path| JsonValue::String((*path).to_string()))
+                .collect::<Vec<_>>();
+
+            matches.push(serde_json::json!({
+                "module_id": module_id,
+                "summary": guidance.summary,
+                "op_count": manifest.exported_ops.len(),
+                "effects": effects,
+                "matching_ops": matching_ops,
+                "related_examples": related_examples,
+            }));
+        }
+
+        matches.sort_by(|a, b| {
+            a.get("module_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .cmp(b.get("module_id").and_then(|v| v.as_str()).unwrap_or_default())
+        });
+
+        return serde_json::json!({
+            "query": query,
+            "count": matches.len(),
+            "matches": matches,
+        });
+    }
+
+    let mut matches = Vec::new();
+
+    for manifest in discover_module_manifests() {
+        let module_id = manifest.module_id;
+        let module_match = module_id.to_lowercase().contains(&q);
+        let matching_ops = manifest
+            .exported_ops
+            .iter()
+            .filter_map(|op| {
+                if op.op.to_lowercase().contains(&q)
+                    || format!("{}.{}", module_id, op.op).to_lowercase().contains(&q)
+                {
+                    Some(op.op.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        if !(module_match || !matching_ops.is_empty()) {
+            continue;
+        }
+
+        let mut why_matched = Vec::new();
+        if module_match {
+            why_matched.push("module_id");
+        }
+        if !matching_ops.is_empty() {
+            why_matched.push("op_name");
+        }
+
+        let relevance_score =
+            compute_module_relevance_score(&q, &module_id, &matching_ops, module_match);
+
+        let guidance = module_search_guidance(&module_id);
+        let related_examples = curated_examples_for_module(&module_id)
+            .iter()
+            .map(|path| JsonValue::String((*path).to_string()))
+            .collect::<Vec<_>>();
+
+        let row = match options.detail {
+            ModuleSearchDetail::Concise => serde_json::json!({
+                "module_id": module_id,
+                "score": relevance_score,
+                "why_matched": why_matched,
+                "summary": guidance.summary,
+                "related_examples": related_examples,
+            }),
+            ModuleSearchDetail::Full => serde_json::json!({
+                "module_id": module_id,
+                "score": relevance_score,
+                "why_matched": why_matched,
+                "matching_ops": matching_ops,
+                "summary": guidance.summary,
+                "use_when": guidance.use_when,
+                "avoid_when": guidance.avoid_when,
+                "related_examples": related_examples,
+            }),
+        };
+
+        matches.push(row);
+    }
+
+    matches.sort_by(|a, b| {
+        let a_score = a.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let b_score = b.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+        b_score
+            .partial_cmp(&a_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(
+                a.get("module_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .cmp(b.get("module_id").and_then(|v| v.as_str()).unwrap_or_default()),
+            )
+    });
+
+    if let Some(min_score) = options.min_score {
+        matches.retain(|row| {
+            row.get("score")
+                .and_then(|v| v.as_f64())
+                .map(|score| score >= min_score)
+                .unwrap_or(false)
+        });
+    }
+
+    if let Some(top) = options.top {
+        matches.truncate(top);
+    }
+
+    serde_json::json!({
+        "query": query,
+        "detail": match options.detail {
+            ModuleSearchDetail::Full => "full",
+            ModuleSearchDetail::Concise => "concise",
+        },
+        "top": options.top,
+        "min_score": options.min_score,
+        "count": matches.len(),
+        "matches": matches,
+    })
+}
+
+/// Build `modules ops` payload for a query string.
+pub fn modules_ops_payload(query: &str) -> JsonValue {
+    let q = query.to_lowercase();
+    let mut matches = Vec::new();
+
+    for manifest in discover_module_manifests() {
+        let module_id = manifest.module_id;
+        let module_match = module_id.to_lowercase().contains(&q);
+
+        for op in manifest.exported_ops {
+            let full = format!("{}.{}", module_id, op.op);
+            if module_match
+                || op.op.to_lowercase().contains(&q)
+                || full.to_lowercase().contains(&q)
+            {
+                matches.push(serde_json::json!({
+                    "module_id": module_id,
+                    "op": op.op,
+                    "effect": op.effect,
+                    "input_schema_ref": op.input_schema_ref,
+                    "output_schema_ref": op.output_schema_ref,
+                }));
+            }
+        }
+    }
+
+    matches.sort_by(|a, b| {
+        let a_module = a
+            .get("module_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let b_module = b
+            .get("module_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let a_op = a.get("op").and_then(|v| v.as_str()).unwrap_or_default();
+        let b_op = b.get("op").and_then(|v| v.as_str()).unwrap_or_default();
+        a_module.cmp(b_module).then(a_op.cmp(b_op))
+    });
+
+    serde_json::json!({
+        "query": query,
+        "matches": matches,
+    })
+}
+
+#[derive(Serialize)]
+struct CompactModuleOp {
+    op: String,
+    effect: grapheme_runtime::EffectKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    input_object_type: Option<OperationObjectType>,
+    output_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_object_type: Option<OperationObjectType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    input_schema_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_schema_ref: Option<String>,
+}
+
+#[derive(Serialize)]
+struct OperationObjectField {
+    ty: String,
+    required: bool,
+}
+
+#[derive(Serialize)]
+struct OperationObjectType {
+    kind: String,
+    required: Vec<String>,
+    properties: BTreeMap<String, OperationObjectField>,
+}
+
+#[derive(Serialize)]
+struct EffectGroup {
+    effect: String,
+    ops: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct ModuleOpSummary {
+    total_ops: usize,
+    typed_ops: usize,
+    untyped_ops: usize,
+    input_schema_refs: usize,
+    output_schema_refs: usize,
+}
+
+#[derive(Serialize)]
+struct ModuleInfoPayload {
+    module_id: String,
+    version: String,
+    abi: grapheme_runtime::ModuleAbi,
+    entrypoint: String,
+    required_capabilities: Vec<String>,
+    limits: grapheme_runtime::ResourceLimits,
+    op_summary: ModuleOpSummary,
+    exported_ops_by_effect: Vec<EffectGroup>,
+    exported_ops: Vec<CompactModuleOp>,
+}
+
+#[derive(Serialize)]
+struct ModuleTypesPayload {
+    module_id: String,
+    type_summary: ModuleOpSummary,
+    types_by_effect: Vec<EffectGroup>,
+    types: Vec<CompactModuleOp>,
+}
+
+fn effect_name(effect: &grapheme_runtime::EffectKind) -> &'static str {
+    match effect {
+        grapheme_runtime::EffectKind::Pure => "pure",
+        grapheme_runtime::EffectKind::Network => "network",
+        grapheme_runtime::EffectKind::Io => "io",
+        grapheme_runtime::EffectKind::State => "state",
+        grapheme_runtime::EffectKind::Secrets => "secrets",
+        grapheme_runtime::EffectKind::Control => "control",
+    }
+}
+
+fn arg_type_label(ty: ArgType) -> &'static str {
+    match ty {
+        ArgType::String => "string",
+        ArgType::Number => "number",
+        ArgType::Boolean => "boolean",
+        ArgType::Object => "object",
+        ArgType::Array => "array",
+        ArgType::Any => "any",
+    }
+}
+
+fn output_type_label(
+    module_id: &str,
+    op_name: &str,
+    output_schema_ref: Option<&str>,
+) -> String {
+    if let Some(shape) = output_schema_ref {
+        return shape.to_string();
+    }
+
+    arg_type_label(op_output_type(module_id, op_name)).to_string()
+}
+
+fn op_input_object_type(module_id: &str, op_name: &str) -> Option<OperationObjectType> {
+    let spec = find_op_spec(module_id, op_name)?;
+    if spec.args.is_empty() {
+        return None;
+    }
+
+    let mut required = Vec::new();
+    let mut properties = BTreeMap::new();
+
+    for arg in spec.args {
+        if arg.required {
+            required.push(arg.name.to_string());
+        }
+
+        properties.insert(
+            arg.name.to_string(),
+            OperationObjectField {
+                ty: arg_type_label(arg.ty).to_string(),
+                required: arg.required,
+            },
+        );
+    }
+
+    Some(OperationObjectType {
+        kind: "object".to_string(),
+        required,
+        properties,
+    })
+}
+
+fn op_output_object_type(module_id: &str, op_name: &str) -> Option<OperationObjectType> {
+    let fields = op_output_object_fields(module_id, op_name)?;
+
+    let mut required = Vec::new();
+    let mut properties = BTreeMap::new();
+
+    for field in fields {
+        if field.required {
+            required.push(field.name.to_string());
+        }
+
+        properties.insert(
+            field.name.to_string(),
+            OperationObjectField {
+                ty: arg_type_label(field.ty).to_string(),
+                required: field.required,
+            },
+        );
+    }
+
+    Some(OperationObjectType {
+        kind: "object".to_string(),
+        required,
+        properties,
+    })
+}
+
+fn compact_module_ops(module_id: &str, ops: &[grapheme_runtime::ExportedOp]) -> Vec<CompactModuleOp> {
+    ops.iter()
+        .map(|op| CompactModuleOp {
+            op: op.op.clone(),
+            effect: op.effect.clone(),
+            input_object_type: op_input_object_type(module_id, &op.op),
+            output_type: output_type_label(module_id, &op.op, op.output_schema_ref.as_deref()),
+            output_object_type: op_output_object_type(module_id, &op.op),
+            input_schema_ref: op.input_schema_ref.clone(),
+            output_schema_ref: op.output_schema_ref.clone(),
+        })
+        .collect()
+}
+
+fn module_op_summary(ops: &[grapheme_runtime::ExportedOp]) -> ModuleOpSummary {
+    let total_ops = ops.len();
+    let input_schema_refs = ops
+        .iter()
+        .filter(|op| op.input_schema_ref.is_some())
+        .count();
+    let output_schema_refs = ops
+        .iter()
+        .filter(|op| op.output_schema_ref.is_some())
+        .count();
+    let typed_ops = ops
+        .iter()
+        .filter(|op| op.input_schema_ref.is_some() || op.output_schema_ref.is_some())
+        .count();
+
+    ModuleOpSummary {
+        total_ops,
+        typed_ops,
+        untyped_ops: total_ops.saturating_sub(typed_ops),
+        input_schema_refs,
+        output_schema_refs,
+    }
+}
+
+fn grouped_module_ops(ops: &[grapheme_runtime::ExportedOp]) -> Vec<EffectGroup> {
+    let mut groups: BTreeMap<&'static str, Vec<String>> = BTreeMap::new();
+
+    for op in ops {
+        groups
+            .entry(effect_name(&op.effect))
+            .or_default()
+            .push(op.op.clone());
+    }
+
+    groups
+        .into_iter()
+        .map(|(effect, ops)| EffectGroup {
+            effect: effect.to_string(),
+            ops,
+        })
+        .collect()
+}
+
+/// Build `modules info` payload for a module id.
+pub fn modules_info_payload(module_id: &str) -> Option<JsonValue> {
+    let manifest = module_manifest_by_id(module_id)?;
+    let op_summary = module_op_summary(&manifest.exported_ops);
+    let module_id = manifest.module_id.clone();
+    let payload = ModuleInfoPayload {
+        module_id: module_id.clone(),
+        version: manifest.version,
+        abi: manifest.abi,
+        entrypoint: manifest.entrypoint,
+        required_capabilities: manifest.required_capabilities,
+        limits: manifest.limits,
+        op_summary,
+        exported_ops_by_effect: grouped_module_ops(&manifest.exported_ops),
+        exported_ops: compact_module_ops(&module_id, &manifest.exported_ops),
+    };
+
+    serde_json::to_value(payload).ok()
+}
+
+/// Build `modules types` payload for a module id.
+pub fn modules_types_payload(module_id: &str) -> Option<JsonValue> {
+    let manifest = module_manifest_by_id(module_id)?;
+    let module_id = manifest.module_id.clone();
+    let payload = ModuleTypesPayload {
+        module_id: module_id.clone(),
+        type_summary: module_op_summary(&manifest.exported_ops),
+        types_by_effect: grouped_module_ops(&manifest.exported_ops),
+        types: compact_module_ops(&module_id, &manifest.exported_ops),
+    };
+
+    serde_json::to_value(payload).ok()
+}
+
+/// Build `modules examples` payload for a module id.
+pub fn modules_examples_payload(module_id: &str) -> Option<JsonValue> {
+    let normalized = module_id.to_lowercase();
+    let examples = curated_examples_for_module(&normalized);
+    if examples.is_empty() {
+        return None;
+    }
+
+    Some(serde_json::json!({
+        "module_id": normalized,
+        "examples": examples,
+    }))
+}
+
+fn module_search_guidance(module_id: &str) -> ModuleSearchGuidance {
+    match module_id.to_lowercase().as_str() {
+        "core" => ModuleSearchGuidance {
+            summary: "General-purpose transforms, branching helpers, and state shaping.",
+            use_when: "You need data reshaping, list operations, path access, or debug helpers.",
+            avoid_when: "You need external network/database side effects.",
+        },
+        "web" | "websearch" => ModuleSearchGuidance {
+            summary: "Search and research primitives over web providers.",
+            use_when: "You need source discovery, provider routing, or report/material generation.",
+            avoid_when: "You already have trusted local content and do not need web fetch/search.",
+        },
+        "http" | "tcp" | "smtp" => ModuleSearchGuidance {
+            summary: "Network side-effect modules for transport and external I/O.",
+            use_when: "You need outbound calls, socket interactions, or email delivery.",
+            avoid_when: "You can complete the workflow with local transforms only.",
+        },
+        "sql" | "surreal" => ModuleSearchGuidance {
+            summary: "Database capability modules for read/write and transactional patterns.",
+            use_when: "You need persistent state queries and durable updates.",
+            avoid_when: "You only need ephemeral in-memory state.",
+        },
+        "memory" => ModuleSearchGuidance {
+            summary: "In-memory storage/roundtrip examples and lightweight persistence patterns.",
+            use_when: "You need temporary memory interactions within bounded runtime scope.",
+            avoid_when: "You need durable relational/document persistence.",
+        },
+        "io" | "docs" | "json" | "csv" | "yaml" | "html" => ModuleSearchGuidance {
+            summary: "Document and content transformation helpers.",
+            use_when: "You need file/text conversion or structured format transforms.",
+            avoid_when: "You need network search or database transactions.",
+        },
+        "secrets" => ModuleSearchGuidance {
+            summary: "Secret handling and signing-oriented capability flows.",
+            use_when: "You need governed secret retrieval or signing operations.",
+            avoid_when: "Your workflow does not require secret material.",
+        },
+        _ => ModuleSearchGuidance {
+            summary: "Runtime module capability surface.",
+            use_when: "You need operation-level capabilities for workflow execution.",
+            avoid_when: "No matching capabilities are needed for your task.",
+        },
+    }
+}
+
+fn compute_module_relevance_score(
+    query_lower: &str,
+    module_id: &str,
+    matching_ops: &[String],
+    module_match: bool,
+) -> f64 {
+    let mut score = 0.0;
+
+    if module_id.eq_ignore_ascii_case(query_lower) {
+        score += 100.0;
+    } else if module_match {
+        score += 55.0;
+    }
+
+    score += matching_ops.len() as f64 * 7.5;
+
+    if matching_ops
+        .iter()
+        .any(|op| op.eq_ignore_ascii_case(query_lower))
+    {
+        score += 35.0;
+    }
+
+    score
+}
+
+fn example_catalog_row(entry: &ExampleCatalogEntry) -> ExampleDiscoveryItem {
+    let mut run = format!("grapheme run {}", entry.path);
+    if entry.requires_native_modules {
+        run.push_str(" --native-modules");
+    }
+
+    ExampleDiscoveryItem {
+        name: entry.name.to_string(),
+        path: entry.path.to_string(),
+        summary: entry.summary.to_string(),
+        use_when: entry.use_when.to_string(),
+        complexity: entry.complexity.to_string(),
+        tags: entry.tags.iter().map(|t| (*t).to_string()).collect(),
+        requires_native_modules: entry.requires_native_modules,
+        run,
+    }
+}
+
+/// Discover examples with optional filtering by query/tag/complexity/native requirement.
+pub fn discover_examples(
+    query: Option<&str>,
+    tag: Option<&str>,
+    complexity: Option<&str>,
+    native_only: bool,
+) -> Vec<ExampleDiscoveryItem> {
+    let query = query.map(|q| q.to_lowercase());
+    let tag = tag.map(|t| t.to_lowercase());
+    let complexity = complexity.map(|c| c.to_lowercase());
+
+    EXAMPLE_CATALOG
+        .iter()
+        .map(example_catalog_row)
+        .filter(|item| {
+            if native_only && !item.requires_native_modules {
+                return false;
+            }
+
+            if let Some(ref c) = complexity {
+                if item.complexity.to_lowercase() != *c {
+                    return false;
+                }
+            }
+
+            if let Some(ref t) = tag {
+                if !item.tags.iter().any(|entry| entry.eq_ignore_ascii_case(t)) {
+                    return false;
+                }
+            }
+
+            if let Some(ref q) = query {
+                let tags = item.tags.join(" ").to_lowercase();
+                if !(item.name.to_lowercase().contains(q)
+                    || item.summary.to_lowercase().contains(q)
+                    || item.use_when.to_lowercase().contains(q)
+                    || tags.contains(q))
+                {
+                    return false;
+                }
+            }
+
+            true
+        })
+        .collect()
+}
+
+/// Get one example discovery row by stable name.
+pub fn example_by_name(name: &str) -> Option<ExampleDiscoveryItem> {
+    EXAMPLE_CATALOG
+        .iter()
+        .find(|entry| entry.name.eq_ignore_ascii_case(name))
+        .map(example_catalog_row)
+}
+
 struct StdlibHost {
     capability_observer: Option<CapabilityObserver>,
     capability_interceptor: Option<CapabilityInterceptor>,
@@ -380,6 +1272,177 @@ mod tests {
     use grapheme_artifact::ExecutionOutcome;
     use grapheme_runtime::PolicyGuard;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn modules_search_payload_concise_returns_ranked_matches() {
+        let payload = modules_search_payload(
+            "web",
+            &ModuleSearchOptions {
+                explain: true,
+                detail: ModuleSearchDetail::Concise,
+                top: Some(1),
+                min_score: Some(100.0),
+            },
+        );
+
+        assert_eq!(payload.get("count").and_then(|v| v.as_u64()), Some(1));
+        let first = payload
+            .get("matches")
+            .and_then(|v| v.as_array())
+            .and_then(|items| items.first())
+            .expect("first ranked match");
+        assert_eq!(
+            first.get("module_id").and_then(|v| v.as_str()),
+            Some("web")
+        );
+    }
+
+    #[test]
+    fn modules_search_payload_default_includes_compact_module_metadata() {
+        let payload = modules_search_payload("html", &ModuleSearchOptions::default());
+
+        assert_eq!(payload.get("query").and_then(|v| v.as_str()), Some("html"));
+        assert_eq!(payload.get("count").and_then(|v| v.as_u64()), Some(1));
+
+        let first = payload
+            .get("matches")
+            .and_then(|v| v.as_array())
+            .and_then(|items| items.first())
+            .expect("first compact match");
+
+        assert_eq!(
+            first.get("module_id").and_then(|v| v.as_str()),
+            Some("html")
+        );
+        assert!(first
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.is_empty()));
+        assert!(first.get("op_count").and_then(|v| v.as_u64()).is_some());
+        assert!(first
+            .get("effects")
+            .and_then(|v| v.as_array())
+            .is_some_and(|effects| !effects.is_empty()));
+    }
+
+    #[test]
+    fn modules_ops_payload_includes_core_ops_for_core_query() {
+        let payload = modules_ops_payload("core");
+        let matches = payload
+            .get("matches")
+            .and_then(|v| v.as_array())
+            .expect("matches array");
+
+        assert!(matches.iter().any(|row| {
+            row.get("module_id").and_then(|v| v.as_str()) == Some("core")
+        }));
+    }
+
+    #[test]
+    fn modules_info_payload_groups_ops_and_compacts_null_schema_refs() {
+        let payload = modules_info_payload("web").expect("web module payload");
+
+        assert_eq!(payload.get("module_id").and_then(|v| v.as_str()), Some("web"));
+        assert_eq!(payload.get("op_summary").and_then(|v| v.get("total_ops")).and_then(|v| v.as_u64()), Some(5));
+
+        let groups = payload
+            .get("exported_ops_by_effect")
+            .and_then(|v| v.as_array())
+            .expect("effect groups");
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].get("effect").and_then(|v| v.as_str()), Some("control"));
+        assert_eq!(groups[1].get("effect").and_then(|v| v.as_str()), Some("network"));
+
+        let exported_ops = payload
+            .get("exported_ops")
+            .and_then(|v| v.as_array())
+            .expect("exported ops");
+        let first = exported_ops.first().expect("first exported op");
+        assert_eq!(first.get("op").and_then(|v| v.as_str()), Some("duckduckgo"));
+        assert_eq!(first.get("output_type").and_then(|v| v.as_str()), Some("object"));
+        assert_eq!(
+            first
+                .get("output_object_type")
+                .and_then(|v| v.get("properties"))
+                .and_then(|v| v.get("results"))
+                .and_then(|v| v.get("ty"))
+                .and_then(|v| v.as_str()),
+            Some("array")
+        );
+        assert_eq!(
+            first
+                .get("input_object_type")
+                .and_then(|v| v.get("properties"))
+                .and_then(|v| v.get("query"))
+                .and_then(|v| v.get("ty"))
+                .and_then(|v| v.as_str()),
+            Some("string")
+        );
+        assert!(first.get("input_schema_ref").is_none());
+        assert!(first.get("output_schema_ref").is_none());
+    }
+
+    #[test]
+    fn modules_types_payload_reports_type_summary_and_compacts_null_schema_refs() {
+        let payload = modules_types_payload("web").expect("web module payload");
+
+        assert_eq!(payload.get("module_id").and_then(|v| v.as_str()), Some("web"));
+        assert_eq!(payload.get("type_summary").and_then(|v| v.get("typed_ops")).and_then(|v| v.as_u64()), Some(0));
+
+        let types = payload
+            .get("types")
+            .and_then(|v| v.as_array())
+            .expect("types array");
+        assert_eq!(types.len(), 5);
+        assert!(types.iter().all(|row| row.get("output_type").and_then(|v| v.as_str()) == Some("object")));
+        let duckduckgo = types
+            .iter()
+            .find(|row| row.get("op").and_then(|v| v.as_str()) == Some("duckduckgo"))
+            .expect("duckduckgo op row");
+        assert!(duckduckgo.get("input_object_type").is_some());
+
+        let providers = types
+            .iter()
+            .find(|row| row.get("op").and_then(|v| v.as_str()) == Some("providers"))
+            .expect("providers op row");
+        assert!(providers.get("input_object_type").is_none());
+        assert_eq!(
+            providers
+                .get("output_object_type")
+                .and_then(|v| v.get("properties"))
+                .and_then(|v| v.get("providers"))
+                .and_then(|v| v.get("ty"))
+                .and_then(|v| v.as_str()),
+            Some("array")
+        );
+        assert!(types.iter().all(|row| row.get("input_schema_ref").is_none()));
+        assert!(types.iter().all(|row| row.get("output_schema_ref").is_none()));
+    }
+
+    #[test]
+    fn modules_examples_payload_returns_none_for_unknown_module() {
+        assert!(modules_examples_payload("unknown").is_none());
+    }
+
+    #[test]
+    fn discover_examples_filters_query_tag_and_complexity() {
+        let matches = discover_examples(
+            Some("fallback"),
+            Some("routing"),
+            Some("advanced"),
+            false,
+        );
+
+        assert!(matches.iter().any(|row| row.name == "web-provider-routing"));
+        assert_eq!(matches.len(), 1);
+    }
+
+    #[test]
+    fn example_by_name_returns_expected_run_hint() {
+        let row = example_by_name("main").expect("main example exists");
+        assert_eq!(row.path, "examples/main.gr");
+        assert_eq!(row.run, "grapheme run examples/main.gr");
+    }
 
     #[test]
     fn execute_source_runs_core_echo() {
@@ -830,3 +1893,4 @@ query HelloAot {
             .contains("strict stage_b container execution required"));
     }
 }
+

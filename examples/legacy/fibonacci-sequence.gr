@@ -4,5 +4,5 @@ query FibonacciSequence {
 }
 
 iterator PrintFib on Any @loop(each: "$current.items", merge: "none") {
-  core.echo(message: $current)
+  core.echo(message: "fib:{$current}")
 }

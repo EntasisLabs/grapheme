@@ -6,6 +6,8 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArgType {
     String,
+    Number,
+    Boolean,
     Object,
     Array,
     Any,
@@ -13,6 +15,13 @@ pub enum ArgType {
 
 #[derive(Debug, Clone, Copy)]
 pub struct ArgSpec {
+    pub name: &'static str,
+    pub ty: ArgType,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ObjectFieldSpec {
     pub name: &'static str,
     pub ty: ArgType,
     pub required: bool,
@@ -195,11 +204,11 @@ const HTTP_POST_ARGS: &[ArgSpec] = &[
 const WEBSEARCH_SEARCH_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "query", ty: ArgType::String, required: true },
     ArgSpec { name: "provider", ty: ArgType::String, required: false },
-    ArgSpec { name: "max_results", ty: ArgType::Any, required: false },
+    ArgSpec { name: "max_results", ty: ArgType::Number, required: false },
 ];
 const WEB_PROVIDER_SEARCH_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "query", ty: ArgType::String, required: true },
-    ArgSpec { name: "max_results", ty: ArgType::Any, required: false },
+    ArgSpec { name: "max_results", ty: ArgType::Number, required: false },
 ];
 const WEB_CAPABILITIES_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "provider", ty: ArgType::String, required: false },
@@ -207,18 +216,18 @@ const WEB_CAPABILITIES_ARGS: &[ArgSpec] = &[
 const WEBSEARCH_RESEARCH_REPORT_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "query", ty: ArgType::String, required: true },
     ArgSpec { name: "provider", ty: ArgType::String, required: false },
-    ArgSpec { name: "max_results", ty: ArgType::Any, required: false },
-    ArgSpec { name: "per_source_chars", ty: ArgType::Any, required: false },
-    ArgSpec { name: "report_chars", ty: ArgType::Any, required: false },
+    ArgSpec { name: "max_results", ty: ArgType::Number, required: false },
+    ArgSpec { name: "per_source_chars", ty: ArgType::Number, required: false },
+    ArgSpec { name: "report_chars", ty: ArgType::Number, required: false },
     ArgSpec { name: "md_options", ty: ArgType::Object, required: false },
 ];
 const WEBSEARCH_RESEARCH_MATERIALS_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "query", ty: ArgType::String, required: true },
     ArgSpec { name: "provider", ty: ArgType::String, required: false },
-    ArgSpec { name: "max_results", ty: ArgType::Any, required: false },
-    ArgSpec { name: "per_source_chars", ty: ArgType::Any, required: false },
+    ArgSpec { name: "max_results", ty: ArgType::Number, required: false },
+    ArgSpec { name: "per_source_chars", ty: ArgType::Number, required: false },
     ArgSpec { name: "md_options", ty: ArgType::Object, required: false },
-    ArgSpec { name: "include_http_body", ty: ArgType::Any, required: false },
+    ArgSpec { name: "include_http_body", ty: ArgType::Boolean, required: false },
 ];
 
 const TCP_CONNECT_ARGS: &[ArgSpec] = &[ArgSpec { name: "target", ty: ArgType::String, required: true }];
@@ -230,7 +239,7 @@ const TCP_SEND_ARGS: &[ArgSpec] = &[
 const TCP_RECEIVE_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "session", ty: ArgType::String, required: false },
     ArgSpec { name: "target", ty: ArgType::String, required: false },
-    ArgSpec { name: "max_bytes", ty: ArgType::Any, required: false },
+    ArgSpec { name: "max_bytes", ty: ArgType::Number, required: false },
 ];
 
 const SMTP_SEND_ARGS: &[ArgSpec] = &[
@@ -261,7 +270,7 @@ const HTML_TO_MD_ARGS: &[ArgSpec] = &[
 ];
 const HTML_CLEAN_TEXT_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "text", ty: ArgType::String, required: false },
-    ArgSpec { name: "max_chars", ty: ArgType::Any, required: false },
+    ArgSpec { name: "max_chars", ty: ArgType::Number, required: false },
 ];
 const JSON_PARSE_ARGS: &[ArgSpec] = &[ArgSpec { name: "text", ty: ArgType::String, required: false }];
 const CSV_TO_LIST_ARGS: &[ArgSpec] = &[ArgSpec { name: "text", ty: ArgType::String, required: false }];
@@ -270,57 +279,57 @@ const DB_QUERY_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "connection", ty: ArgType::String, required: true },
     ArgSpec { name: "sql", ty: ArgType::String, required: true },
     ArgSpec { name: "params", ty: ArgType::Any, required: false },
-    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Number, required: false },
 ];
 const DB_EXECUTE_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "connection", ty: ArgType::String, required: true },
     ArgSpec { name: "sql", ty: ArgType::String, required: true },
     ArgSpec { name: "params", ty: ArgType::Any, required: false },
-    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Number, required: false },
 ];
 const DB_TRANSACTION_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "connection", ty: ArgType::String, required: true },
     ArgSpec { name: "steps", ty: ArgType::Array, required: true },
     ArgSpec { name: "isolation", ty: ArgType::String, required: false },
-    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Number, required: false },
 ];
 const DB_HEALTH_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "connection", ty: ArgType::String, required: true },
-    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Number, required: false },
 ];
 const SURREAL_QUERY_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "connection", ty: ArgType::String, required: true },
     ArgSpec { name: "query", ty: ArgType::String, required: true },
     ArgSpec { name: "vars", ty: ArgType::Object, required: false },
-    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Number, required: false },
 ];
 const SURREAL_SELECT_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "connection", ty: ArgType::String, required: true },
     ArgSpec { name: "thing_or_table", ty: ArgType::String, required: true },
     ArgSpec { name: "where", ty: ArgType::String, required: false },
-    ArgSpec { name: "limit", ty: ArgType::Any, required: false },
-    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+    ArgSpec { name: "limit", ty: ArgType::Number, required: false },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Number, required: false },
 ];
 const SURREAL_CREATE_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "connection", ty: ArgType::String, required: true },
     ArgSpec { name: "thing_or_table", ty: ArgType::String, required: true },
     ArgSpec { name: "data", ty: ArgType::Any, required: true },
-    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Number, required: false },
 ];
 const SURREAL_UPDATE_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "connection", ty: ArgType::String, required: true },
     ArgSpec { name: "thing_or_table", ty: ArgType::String, required: true },
     ArgSpec { name: "data", ty: ArgType::Any, required: true },
-    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Number, required: false },
 ];
 const SURREAL_DELETE_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "connection", ty: ArgType::String, required: true },
     ArgSpec { name: "thing_or_table", ty: ArgType::String, required: true },
-    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Number, required: false },
 ];
 const SURREAL_HEALTH_ARGS: &[ArgSpec] = &[
     ArgSpec { name: "connection", ty: ArgType::String, required: true },
-    ArgSpec { name: "timeout_ms", ty: ArgType::Any, required: false },
+    ArgSpec { name: "timeout_ms", ty: ArgType::Number, required: false },
 ];
 
 pub const OP_SPECS: &[OpSpec] = &[
@@ -415,4 +424,337 @@ pub fn module_ops(module: &str) -> Vec<&'static OpSpec> {
         .iter()
         .filter(|spec| spec.module.eq_ignore_ascii_case(module))
         .collect()
+}
+
+pub fn op_output_type(module: &str, op: &str) -> ArgType {
+    match (module, op) {
+        ("core", "tap") | ("core", "get_state") | ("core", "get_data") | ("core", "find") | ("core", "reduce") | ("core", "get_path") => ArgType::Any,
+        ("core", "map") | ("core", "filter") | ("core", "split") => ArgType::Array,
+        ("core", "add") | ("core", "sub") | ("core", "inc") | ("core", "dec") => ArgType::Number,
+        ("core", "echo") | ("core", "pack_state_data") | ("core", "apply_lane") | ("core", "group_by") | ("core", "merge") | ("core", "pick") | ("core", "validate_schema") | ("core", "eq") | ("core", "lt") | ("core", "gt") | ("core", "gte") | ("core", "lte") | ("core", "inc_field") | ("core", "dec_field") | ("core", "set_fields") | ("core", "join") | ("core", "replace") | ("core", "trim") | ("core", "lower") | ("core", "upper") | ("core", "contains") | ("core", "set_path") | ("core", "has_path") => ArgType::Object,
+        ("io", "list_dir") => ArgType::Array,
+        ("io", "read_text") | ("io", "write_text") => ArgType::Object,
+        ("http", "get") | ("http", "post") => ArgType::Object,
+        ("web", _) | ("websearch", _) => ArgType::Object,
+        ("tcp", _) | ("smtp", _) => ArgType::Object,
+        ("sql", _) | ("surreal", _) => ArgType::Object,
+        ("secrets", _) | ("memory", _) | ("docs", _) => ArgType::Object,
+        ("html", _) => ArgType::Object,
+        ("json", "parse") | ("yaml", "to_json") => ArgType::Any,
+        ("csv", "to_list") => ArgType::Array,
+        ("runtime", _) | ("policy", _) => ArgType::Object,
+        _ => ArgType::Any,
+    }
+}
+
+const CORE_MESSAGE_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "message", ty: ArgType::String, required: true },
+];
+
+const CORE_STATE_DATA_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "state", ty: ArgType::Any, required: true },
+    ObjectFieldSpec { name: "data", ty: ArgType::Any, required: true },
+];
+
+const CORE_BOOL_VALUE_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "value", ty: ArgType::Boolean, required: true },
+];
+
+const CORE_TEXT_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "text", ty: ArgType::String, required: true },
+];
+
+const CORE_VALIDATE_SCHEMA_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "ok", ty: ArgType::Boolean, required: true },
+    ObjectFieldSpec { name: "missing", ty: ArgType::Array, required: true },
+];
+
+const CORE_CONTAINS_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "contains", ty: ArgType::Boolean, required: true },
+];
+
+const CORE_HAS_PATH_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "has_path", ty: ArgType::Boolean, required: true },
+];
+
+const DYNAMIC_OBJECT_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[];
+
+const WEB_PROVIDER_SEARCH_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "count", ty: ArgType::Number, required: false },
+    ObjectFieldSpec { name: "results", ty: ArgType::Array, required: true },
+    ObjectFieldSpec { name: "provider", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "query", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+const WEB_PROVIDERS_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "count", ty: ArgType::Number, required: true },
+    ObjectFieldSpec { name: "providers", ty: ArgType::Array, required: true },
+];
+
+const WEB_CAPABILITIES_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "provider", ty: ArgType::Object, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "available_providers", ty: ArgType::Array, required: false },
+];
+
+const WEBSEARCH_MATERIALS_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "query", ty: ArgType::String, required: true },
+    ObjectFieldSpec { name: "provider", ty: ArgType::String, required: true },
+    ObjectFieldSpec { name: "count", ty: ArgType::Number, required: true },
+    ObjectFieldSpec { name: "sources", ty: ArgType::Array, required: true },
+];
+
+const WEBSEARCH_REPORT_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "query", ty: ArgType::String, required: true },
+    ObjectFieldSpec { name: "provider", ty: ArgType::String, required: true },
+    ObjectFieldSpec { name: "count", ty: ArgType::Number, required: true },
+    ObjectFieldSpec { name: "sources", ty: ArgType::Array, required: true },
+    ObjectFieldSpec { name: "report", ty: ArgType::String, required: true },
+    ObjectFieldSpec { name: "materials", ty: ArgType::Object, required: true },
+];
+
+const HTTP_RESPONSE_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "method", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "url", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "status", ty: ArgType::Number, required: true },
+    ObjectFieldSpec { name: "status_line", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "body", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+const TCP_CONNECT_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "connected", ty: ArgType::Boolean, required: true },
+    ObjectFieldSpec { name: "target", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "session", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+const TCP_SEND_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "sent", ty: ArgType::Boolean, required: true },
+    ObjectFieldSpec { name: "target", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "bytes", ty: ArgType::Number, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+const TCP_RECEIVE_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "target", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "bytes", ty: ArgType::Number, required: false },
+    ObjectFieldSpec { name: "data", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+const SMTP_SEND_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "accepted", ty: ArgType::Boolean, required: true },
+    ObjectFieldSpec { name: "server", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "from", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "to", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "subject", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+const SQL_QUERY_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "ok", ty: ArgType::Boolean, required: false },
+    ObjectFieldSpec { name: "connection", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "row_count", ty: ArgType::Number, required: false },
+    ObjectFieldSpec { name: "rows", ty: ArgType::Array, required: false },
+    ObjectFieldSpec { name: "elapsed_ms", ty: ArgType::Number, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::Object, required: false },
+];
+
+const SQL_EXECUTE_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "ok", ty: ArgType::Boolean, required: false },
+    ObjectFieldSpec { name: "connection", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "rows_affected", ty: ArgType::Number, required: false },
+    ObjectFieldSpec { name: "elapsed_ms", ty: ArgType::Number, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::Object, required: false },
+];
+
+const SQL_HEALTH_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "ok", ty: ArgType::Boolean, required: false },
+    ObjectFieldSpec { name: "connection", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "latency_ms", ty: ArgType::Number, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::Object, required: false },
+];
+
+const SQL_TRANSACTION_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "ok", ty: ArgType::Boolean, required: false },
+    ObjectFieldSpec { name: "connection", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "committed", ty: ArgType::Boolean, required: false },
+    ObjectFieldSpec { name: "results", ty: ArgType::Array, required: false },
+    ObjectFieldSpec { name: "elapsed_ms", ty: ArgType::Number, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::Object, required: false },
+];
+
+const SURREAL_QUERY_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "ok", ty: ArgType::Boolean, required: false },
+    ObjectFieldSpec { name: "connection", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "query", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "result", ty: ArgType::Array, required: false },
+    ObjectFieldSpec { name: "elapsed_ms", ty: ArgType::Number, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::Object, required: false },
+];
+
+const SURREAL_HEALTH_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "ok", ty: ArgType::Boolean, required: false },
+    ObjectFieldSpec { name: "connection", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "latency_ms", ty: ArgType::Number, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::Object, required: false },
+];
+
+const HTML_TO_MD_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "text", ty: ArgType::String, required: true },
+    ObjectFieldSpec { name: "markdown", ty: ArgType::String, required: true },
+    ObjectFieldSpec { name: "result", ty: ArgType::Object, required: false },
+    ObjectFieldSpec { name: "used_options", ty: ArgType::Object, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+const HTML_CLEAN_TEXT_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "text", ty: ArgType::String, required: true },
+    ObjectFieldSpec { name: "length", ty: ArgType::Number, required: true },
+];
+
+const IO_READ_TEXT_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "ok", ty: ArgType::Boolean, required: false },
+    ObjectFieldSpec { name: "path", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "text", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+const IO_WRITE_TEXT_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "ok", ty: ArgType::Boolean, required: false },
+    ObjectFieldSpec { name: "path", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "bytes", ty: ArgType::Number, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+const SECRETS_GET_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "handle", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "name", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+const SECRETS_SIGN_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "ok", ty: ArgType::Boolean, required: false },
+    ObjectFieldSpec { name: "signature", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "algorithm", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+const MEMORY_STORE_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "ok", ty: ArgType::Boolean, required: false },
+    ObjectFieldSpec { name: "key", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "stored", ty: ArgType::Boolean, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+const MEMORY_LOAD_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "ok", ty: ArgType::Boolean, required: false },
+    ObjectFieldSpec { name: "key", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "value", ty: ArgType::Any, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+const MEMORY_SUMMARIZE_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "summary", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "count", ty: ArgType::Number, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+const DOCS_GUIDE_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "topic", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "content", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+const DOCS_REGISTRY_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "modules", ty: ArgType::Array, required: false },
+    ObjectFieldSpec { name: "count", ty: ArgType::Number, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+const DOCS_EXAMPLE_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "module", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "examples", ty: ArgType::Array, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+const RUNTIME_POLICY_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec { name: "ok", ty: ArgType::Boolean, required: false },
+    ObjectFieldSpec { name: "allowed", ty: ArgType::Boolean, required: false },
+    ObjectFieldSpec { name: "reason", ty: ArgType::String, required: false },
+    ObjectFieldSpec { name: "error", ty: ArgType::String, required: false },
+];
+
+pub fn op_output_object_fields(module: &str, op: &str) -> Option<&'static [ObjectFieldSpec]> {
+    match (module, op) {
+        ("core", "echo") => Some(CORE_MESSAGE_OUTPUT_FIELDS),
+        ("core", "pack_state_data") => Some(CORE_STATE_DATA_OUTPUT_FIELDS),
+        ("core", "eq") | ("core", "lt") | ("core", "gt") | ("core", "gte") | ("core", "lte") => {
+            Some(CORE_BOOL_VALUE_OUTPUT_FIELDS)
+        }
+        ("core", "join") | ("core", "replace") | ("core", "trim") | ("core", "lower") | ("core", "upper") => {
+            Some(CORE_TEXT_OUTPUT_FIELDS)
+        }
+        ("core", "validate_schema") => Some(CORE_VALIDATE_SCHEMA_OUTPUT_FIELDS),
+        ("core", "contains") => Some(CORE_CONTAINS_OUTPUT_FIELDS),
+        ("core", "has_path") => Some(CORE_HAS_PATH_OUTPUT_FIELDS),
+        ("core", "apply_lane")
+        | ("core", "group_by")
+        | ("core", "merge")
+        | ("core", "pick")
+        | ("core", "inc_field")
+        | ("core", "dec_field")
+        | ("core", "set_fields")
+        | ("core", "set_path") => Some(DYNAMIC_OBJECT_OUTPUT_FIELDS),
+
+        ("web", "duckduckgo") | ("web", "google") | ("web", "xaviv") => {
+            Some(WEB_PROVIDER_SEARCH_OUTPUT_FIELDS)
+        }
+        ("web", "providers") => Some(WEB_PROVIDERS_OUTPUT_FIELDS),
+        ("web", "capabilities") => Some(WEB_CAPABILITIES_OUTPUT_FIELDS),
+        ("websearch", "search") => Some(WEB_PROVIDER_SEARCH_OUTPUT_FIELDS),
+        ("websearch", "research_materials") => Some(WEBSEARCH_MATERIALS_OUTPUT_FIELDS),
+        ("websearch", "research_report") => Some(WEBSEARCH_REPORT_OUTPUT_FIELDS),
+
+        ("http", "get") | ("http", "post") => Some(HTTP_RESPONSE_OUTPUT_FIELDS),
+
+        ("tcp", "connect") => Some(TCP_CONNECT_OUTPUT_FIELDS),
+        ("tcp", "send") => Some(TCP_SEND_OUTPUT_FIELDS),
+        ("tcp", "receive") => Some(TCP_RECEIVE_OUTPUT_FIELDS),
+        ("smtp", "send_mail") => Some(SMTP_SEND_OUTPUT_FIELDS),
+
+        ("sql", "query") => Some(SQL_QUERY_OUTPUT_FIELDS),
+        ("sql", "execute") => Some(SQL_EXECUTE_OUTPUT_FIELDS),
+        ("sql", "health") => Some(SQL_HEALTH_OUTPUT_FIELDS),
+        ("sql", "transaction") => Some(SQL_TRANSACTION_OUTPUT_FIELDS),
+
+        ("surreal", "query")
+        | ("surreal", "select")
+        | ("surreal", "create")
+        | ("surreal", "update")
+        | ("surreal", "delete") => Some(SURREAL_QUERY_OUTPUT_FIELDS),
+        ("surreal", "health") => Some(SURREAL_HEALTH_OUTPUT_FIELDS),
+
+        ("html", "to_md") => Some(HTML_TO_MD_OUTPUT_FIELDS),
+        ("html", "clean_text") => Some(HTML_CLEAN_TEXT_OUTPUT_FIELDS),
+
+        ("io", "read_text") => Some(IO_READ_TEXT_OUTPUT_FIELDS),
+        ("io", "write_text") => Some(IO_WRITE_TEXT_OUTPUT_FIELDS),
+
+        ("secrets", "get_secret_handle") => Some(SECRETS_GET_OUTPUT_FIELDS),
+        ("secrets", "sign_request") => Some(SECRETS_SIGN_OUTPUT_FIELDS),
+
+        ("memory", "store_context") => Some(MEMORY_STORE_OUTPUT_FIELDS),
+        ("memory", "load_context") => Some(MEMORY_LOAD_OUTPUT_FIELDS),
+        ("memory", "summarize_context") => Some(MEMORY_SUMMARIZE_OUTPUT_FIELDS),
+
+        ("docs", "native_module_guide") => Some(DOCS_GUIDE_OUTPUT_FIELDS),
+        ("docs", "native_module_registry") => Some(DOCS_REGISTRY_OUTPUT_FIELDS),
+        ("docs", "native_module_example") => Some(DOCS_EXAMPLE_OUTPUT_FIELDS),
+
+        ("runtime", _) | ("policy", _) => Some(RUNTIME_POLICY_OUTPUT_FIELDS),
+        _ => None,
+    }
 }

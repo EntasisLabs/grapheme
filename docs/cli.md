@@ -7,14 +7,17 @@ The CLI binary is `grapheme` (package `grapheme-cli`, crate path `crates/graphem
 ```bash
 grapheme <file.gr>
 grapheme parse <file.gr> [--yaml|--json]
-grapheme compile <file.gr> [--emit ast|hir|mir|artifact|aot] [--aot-stage stage_a|stage_b] [--yaml|--json]
+grapheme compile <file.gr> [--emit ast|hir|mir|artifact|aot] [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--yaml|--json]
 grapheme build <file.gr> [--aot-stage stage_a|stage_b] [--out path] [--yaml|--json]
 grapheme plugins build [all|core|docs|io|http|memory|tcp|smtp|secrets ...]
-grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules] [--aot-stage stage_a|stage_b] [--strict-stage-b] [--allow-stage-b-fallback] [--stream-steps]
+grapheme examples [list] [--yaml|--json] [--query q] [--tag tag] [--complexity level] [--native-only]
+grapheme examples show <name> [--summary] [--raw] [--yaml|--json]
+grapheme examples init [--out dir]
+grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules] [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--strict-stage-b] [--allow-stage-b-fallback] [--stream-steps]
                     [--trace-profile lean|debug] [--trace-steps N]
                     [--trace-projection minimal|full] [--trace-max-string-bytes N]
 grapheme modules [--yaml|--json]
-grapheme modules search <query> [--yaml|--json]
+grapheme modules search <query> [--explain] [--detail concise|full] [--top N] [--min-score X] [--yaml|--json]
 grapheme modules ops <query> [--yaml|--json]
 grapheme modules info <module> [--yaml|--json]
 grapheme modules types <module> [--yaml|--json]
@@ -47,6 +50,8 @@ cargo run -- compile examples/hello-world.gr --emit aot --aot-stage stage_b --js
 Notes:
 
 - `--aot-stage` is only valid with `--emit aot`.
+- `--type-policy warn` is the default and preserves compatibility-mode lint behavior.
+- `--type-policy strict` enables strict mutation-boundary enforcement at compile time.
 - For `compile`, default emit target is `mir`.
 - For `compile`, default output format is YAML.
 
@@ -137,6 +142,61 @@ cargo run -- plugins build all
 cargo run -- plugins build core io http
 ```
 
+### `examples`
+
+List bundled examples with quick guidance:
+
+```bash
+cargo run -- examples list
+```
+
+Machine-readable list output:
+
+```bash
+cargo run -- examples list --yaml
+cargo run -- examples list --json
+```
+
+Filter examples by intent/tags/complexity:
+
+```bash
+cargo run -- examples list --query web
+cargo run -- examples list --tag routing --complexity advanced
+cargo run -- examples list --query mutation --complexity intermediate
+```
+
+Show summary + usage guidance + source:
+
+```bash
+cargo run -- examples show web-provider-routing
+```
+
+The default `examples show` output now includes:
+
+- summary and `use_when` guidance
+- complexity and tags
+- whether native modules are required
+- ready-to-run command hint
+
+Show summary-only metadata:
+
+```bash
+cargo run -- examples show web-provider-routing --summary --yaml
+```
+
+Show raw source only (legacy behavior):
+
+```bash
+cargo run -- examples show web-provider-routing --raw
+```
+
+Initialize bundled examples in your current directory (or a target dir):
+
+```bash
+cargo run -- examples init
+cargo run -- examples init --out .
+```
+
 ### `modules`
 
 Prints runtime module manifests.
@@ -152,6 +212,37 @@ Search manifests by module id or op name:
 ```bash
 cargo run -- modules search http
 ```
+
+Default `modules search` now returns compact metadata per hit:
+
+- `module_id`
+- `summary`
+- `op_count`
+- `effects`
+- `matching_ops`
+- `related_examples`
+
+Explain search matches with quick guidance (recommended for discovery and agent planning):
+
+```bash
+cargo run -- modules search web --explain --yaml
+cargo run -- modules search web --detail concise --yaml
+cargo run -- modules search web --detail concise --top 1 --min-score 90 --yaml
+```
+
+`--explain` includes guidance fields for each match such as:
+
+- `why_matched`
+- `score` (relevance score; higher is more relevant)
+- `summary`
+- `use_when`
+- `avoid_when`
+- `related_examples`
+
+`--detail concise` returns a smaller payload for fast ranking/selection.
+`--detail full` (default explain detail tier) returns full guidance fields.
+`--top` limits match count after ranking.
+`--min-score` filters low-relevance matches.
 
 Search operations across modules:
 
