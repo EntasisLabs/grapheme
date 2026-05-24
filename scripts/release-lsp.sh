@@ -7,6 +7,8 @@ REPO="${GITHUB_REPOSITORY:-entasislabs/grapheme}"
 TAG=""
 PUBLISH=0
 
+cd "$ROOT_DIR"
+
 TARGETS=()
 
 usage() {

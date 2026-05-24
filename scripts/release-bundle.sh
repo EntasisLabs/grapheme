@@ -13,6 +13,8 @@ SKIP_VSIX=0
 
 TARGETS=()
 
+cd "$ROOT_DIR"
+
 usage() {
   cat <<EOF
 Usage: scripts/release-bundle.sh [options]
