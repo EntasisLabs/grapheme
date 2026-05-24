@@ -2,6 +2,8 @@
 
 These are practical, outcome-first paths for common Grapheme jobs.
 
+Before running this page, complete `tutorials/README.md` if you want the full end-to-end learning path.
+
 ## 0) Flagship Workflow: Research to Action Brief
 
 Start here for the canonical end-to-end story:
@@ -88,3 +90,11 @@ For each new use case:
 3. adapt incrementally,
 4. lock policy boundaries,
 5. validate output shape in JSON mode.
+
+## Real-World Scenario Pack
+
+For deeper operational workflows, use:
+
+- `examples/realworld/README.md`
+
+This pack includes release control, blue/green cutover, incident escalation, progressive rollout, and research decision loops.

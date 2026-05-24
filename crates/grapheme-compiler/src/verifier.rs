@@ -339,7 +339,7 @@ fn emit_echo_shape_clobber_lints(
             out.push(LintWarning {
                 code: "llm-shape-clobber".to_string(),
                 message: format!(
-                    "definition '{}', pipeline {}, step {} uses core.echo before step {} reads $current.<field>; core.echo rewrites state shape. Consider core.tap for non-mutating diagnostics.",
+                    "definition '{}', pipeline {}, step {} uses core.echo before step {} reads $state.<field>; core.echo rewrites state shape. Consider core.tap for non-mutating diagnostics.",
                     def_name,
                     pipeline_idx,
                     idx,
@@ -770,7 +770,11 @@ fn verify_typed_current_field_access(
     collect_current_field_refs(&step.args, &mut refs);
 
     for current_ref in refs {
-        if let Some(field) = current_ref.strip_prefix("current.") {
+        let state_field = current_ref
+            .strip_prefix("state.")
+            .or_else(|| current_ref.strip_prefix("current."));
+
+        if let Some(field) = state_field {
             if field.is_empty() {
                 continue;
             }
@@ -815,7 +819,15 @@ fn collect_current_refs_from_text(text: &str, out: &mut Vec<String>) {
     for token in
         text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '$' || c == '_' || c == '.'))
     {
-        if token == "$current" || token.starts_with("$current.") {
+        if token == "$state"
+            || token.starts_with("$state.")
+            || token == "$current"
+            || token.starts_with("$current.")
+            || token == "$item"
+            || token.starts_with("$item.")
+            || token == "$loop"
+            || token.starts_with("$loop.")
+        {
             out.push(token.trim_start_matches('$').to_string());
         }
     }
@@ -949,9 +961,13 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
             )));
         }
 
-        if selector != "$current" && !selector.starts_with("$current.") {
+        if selector != "$state"
+            && !selector.starts_with("$state.")
+            && selector != "$current"
+            && !selector.starts_with("$current.")
+        {
             return Err(GraphemeError::TypeError(format!(
-                "definition '{}': @loop each must start with '$current'",
+                "definition '{}': @loop each must start with '$state'",
                 def.name
             )));
         }
@@ -1434,7 +1450,7 @@ fn verify_flow_branch_step(
         struct_field_types_by_name,
         enum_members_by_name,
     ) {
-        enum_context = Some((field.to_string(), enum_name.clone()));
+        enum_context = Some((strip_scope_prefix(field).to_string(), enum_name.clone()));
         if cmp_key != "eq" {
             return Err(GraphemeError::TypeError(format!(
                 "definition '{}', pipeline {}, step {}: enum field '{}' only supports eq comparator",
@@ -1647,7 +1663,7 @@ fn verify_flow_match_step(
         struct_field_types_by_name,
         enum_members_by_name,
     );
-    let enum_field = field.to_string();
+    let enum_field = strip_scope_prefix(field).to_string();
 
     for (case_idx, case) in cases.iter().enumerate() {
         let case_obj = case.as_object().ok_or_else(|| {
@@ -1937,7 +1953,8 @@ fn resolve_enum_name_for_when_field(
     };
 
     let field_types = struct_field_types_by_name.get(input_type_name)?;
-    let root_field = field.split('.').next().unwrap_or(field);
+    let normalized = strip_scope_prefix(field);
+    let root_field = normalized.split('.').next().unwrap_or(normalized);
     let TypeRef::Named(field_type_name, _) = field_types.get(root_field)? else {
         return None;
     };
@@ -1947,6 +1964,15 @@ fn resolve_enum_name_for_when_field(
     } else {
         None
     }
+}
+
+fn strip_scope_prefix(field: &str) -> &str {
+    field
+        .strip_prefix("current.")
+        .or_else(|| field.strip_prefix("state."))
+        .or_else(|| field.strip_prefix("item."))
+        .or_else(|| field.strip_prefix("loop."))
+        .unwrap_or(field)
 }
 
 fn parse_enum_member_value(value: &JsonValue) -> Option<&str> {

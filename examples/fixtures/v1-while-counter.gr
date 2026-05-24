@@ -13,6 +13,6 @@ iterator Step on Any @recursive {
 }
 
 iterator Increment on Any {
-  core.add(a: $current.value, b: 1)
+  core.add(a: $state.value, b: 1)
   |> Step
 }

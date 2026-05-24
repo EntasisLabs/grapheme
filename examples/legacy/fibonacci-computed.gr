@@ -4,8 +4,8 @@ query FibonacciComputed {
 }
 
 iterator FibIter on Any @loop(max: 10, merge: "replace") {
-  core.echo(message: "fib:$current.a")
-  |> core.add(a: $current.a, b: $current.b)
-  |> core.merge(left: $current, right: { a: $current.b, b: $current.value })
+  core.echo(message: "fib:$state.a")
+  |> core.add(a: $state.a, b: $state.b)
+  |> core.merge(left: $state, right: { a: $state.b, b: $state.value })
   |> core.inc_field(field: "i")
 }

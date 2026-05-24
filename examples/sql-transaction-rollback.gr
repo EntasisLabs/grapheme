@@ -19,5 +19,5 @@ query SqlTransactionRollbackDemo {
       }
     ]
   }
-  |> sql.transaction(connection: $current.connection, steps: $current.steps)
+  |> sql.transaction(connection: $state.connection, steps: $state.steps)
 }

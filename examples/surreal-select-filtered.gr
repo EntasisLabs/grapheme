@@ -8,9 +8,9 @@ query SurrealSelectFiltered {
     limit: 10
   }
   |> surreal.select(
-    connection: $current.connection,
-    thing_or_table: $current.target,
-    where: $current.where,
-    limit: $current.limit
+    connection: $state.connection,
+    thing_or_table: $state.target,
+    where: $state.where,
+    limit: $state.limit
   )
 }

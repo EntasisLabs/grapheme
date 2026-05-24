@@ -10,10 +10,11 @@ This directory is the product track: outcome-first, language-first, and operator
 
 1. why-grapheme.md
 2. quickstart.md
-3. hero-workflow.md
-4. language-tour.md
-5. playbooks.md
-6. faq.md
+3. tutorials/README.md
+4. hero-workflow.md
+5. language-tour.md
+6. playbooks.md
+7. faq.md
 
 ## Who This Is For
 
@@ -33,3 +34,11 @@ Grapheme aims to make workflow automation:
 
 Legacy and deep technical documentation now lives under `docs/internal/`.
 Use that tree for compiler/runtime internals, release workflows, and contributor-facing references.
+
+## Learning Tracks
+
+- Full tutorial curriculum: `docs/tutorials/README.md`
+- Real-world scenario pack: `examples/realworld/README.md`
+- Flagship practical build-along: `docs/tutorials/08-weekly-kpi-build-along.md`
+- Support triage build-along: `docs/tutorials/09-support-triage-build-along.md`
+- Invoice intake build-along: `docs/tutorials/10-invoice-intake-build-along.md`

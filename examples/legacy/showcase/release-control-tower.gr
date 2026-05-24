@@ -17,16 +17,16 @@ query ReleaseControlTower on Release::DeployState -> Release::DeployState {
 }
 
 iterator RunDeployment on Release::DeployState -> Release::DeployState @loop(max: 32, merge: "replace") @retry(max: 2, backoff_ms: 25, on_fail: RecordRetryExhaustion) @timeout(ms: 25000, on_timeout: RecordTimeout) {
-  core.echo(message: "deploy:{$current.service}:{$current.status}:attempt={$current.attempt}")
-  |> if $current.status == "stabilized" then return else RouteLifecycle
+  core.echo(message: "deploy:{$state.service}:{$state.status}:attempt={$state.attempt}")
+  |> if $state.status == "stabilized" then return else RouteLifecycle
 }
 
 iterator RouteLifecycle on Release::DeployState -> Release::DeployState {
-  match $current.status {
+  match $state.status {
     case planned => StartValidation
     case validating => StartBuild
     case building => StartTesting
-    case testing => match $current.priority {
+    case testing => match $state.priority {
       case critical => DecideTestingOutcome
       default => PromoteCanary
     }
@@ -54,7 +54,7 @@ iterator StartTesting on Release::DeployState -> Release::DeployState {
 }
 
 iterator DecideTestingOutcome on Release::DeployState -> Release::DeployState {
-  if $current.attempt == $current.test_fail_at then FailFromTesting else PromoteCanary
+  if $state.attempt == $state.test_fail_at then FailFromTesting else PromoteCanary
 }
 
 iterator PromoteCanary on Release::DeployState -> Release::DeployState {
@@ -66,7 +66,7 @@ iterator FailFromTesting on Release::DeployState -> Release::DeployState {
 }
 
 iterator DecideCanaryOutcome on Release::DeployState -> Release::DeployState {
-  if $current.attempt == $current.canary_fail_at then FailFromCanary else PromoteRolling
+  if $state.attempt == $state.canary_fail_at then FailFromCanary else PromoteRolling
 }
 
 iterator PromoteRolling on Release::DeployState -> Release::DeployState {
@@ -78,7 +78,7 @@ iterator FailFromCanary on Release::DeployState -> Release::DeployState {
 }
 
 iterator DecideRollingOutcome on Release::DeployState -> Release::DeployState {
-  if $current.attempt >= $current.max_attempts then StabilizeRelease else ContinueRolling
+  if $state.attempt >= $state.max_attempts then StabilizeRelease else ContinueRolling
 }
 
 iterator ContinueRolling on Release::DeployState -> Release::DeployState {

@@ -1112,15 +1112,22 @@ fn parse_if_step_as_branch_call(
 
 fn parse_current_field_name(var_expr: &str, context: &str) -> Result<String, GraphemeError> {
     let var_name = var_expr.trim_start_matches('$');
-    var_name
-        .strip_prefix("current.")
-        .map(|s| s.to_string())
-        .ok_or_else(|| {
-            GraphemeError::ParseError(format!(
-                "{} expression must reference $current.<field>",
-                context
-            ))
-        })
+    if let Some(path) = var_name.strip_prefix("current.") {
+        return Ok(path.to_string());
+    }
+
+    if let Some(path) = var_name.strip_prefix("item.") {
+        return Ok(format!("item.{path}"));
+    }
+
+    if let Some(path) = var_name.strip_prefix("state.") {
+        return Ok(format!("state.{path}"));
+    }
+
+    Err(GraphemeError::ParseError(format!(
+        "{} expression must reference $state.<field> or $item.<field>",
+        context
+    )))
 }
 
 fn parse_struct_init_step(pair: Pair<Rule>) -> Result<StructInitStep, GraphemeError> {

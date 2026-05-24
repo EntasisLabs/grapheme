@@ -3,5 +3,5 @@ glyph WebProviderCatalog {
   |> core.get_path(path: "providers")
   |> core.map(field: "id")
   |> core.join(sep: ", ")
-  |> core.echo(message: $current)
+  |> core.echo(message: $state)
 }

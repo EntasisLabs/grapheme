@@ -17,7 +17,7 @@ iterator SeedPreferences on Any {
 
 iterator ApplyPreferences on Any {
   core.merge(
-    left: $current,
+    left: $state,
     right: {
       preferences: {
         mode: "safe",
@@ -30,5 +30,5 @@ iterator ApplyPreferences on Any {
       }
     }
   )
-  |> transition $current.status -> updated { message: "preferences updated" }
+  |> transition $state.status -> updated { message: "preferences updated" }
 }

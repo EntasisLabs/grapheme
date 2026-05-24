@@ -17,13 +17,13 @@ iterator RunWithResilience on Any @core_default @resilient {
   retry: { max: 2, backoff_ms: 25, on_fail: OnRetryExhausted },
   timeout: { ms: 5000, on_timeout: OnTimeout }
 } {
-  echo(message: "resilience:{$current.attempt}:{$current.status}")
-  |> if $current.status == "done" then return else Tick
+  echo(message: "resilience:{$state.attempt}:{$state.status}")
+  |> if $state.status == "done" then return else Tick
 }
 
 iterator Tick on Any @core_default {
   inc_field(field: "attempt")
-  |> if $current.attempt >= 3.0 then transition $current.status -> done { timeline: "stabilized" } else set { status: "running", timeline: "retrying" }
+  |> if $state.attempt >= 3.0 then transition $state.status -> done { timeline: "stabilized" } else set { status: "running", timeline: "retrying" }
 }
 
 iterator OnRetryExhausted on Any {

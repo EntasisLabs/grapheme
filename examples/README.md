@@ -2,6 +2,8 @@
 
 This directory now prioritizes a small, high-signal set of canonical examples for the stdlib surface.
 
+It now also includes a first-class real-world scenario pack under `examples/realworld/`.
+
 Canonical examples prefer the newer language sugar when behavior is stateful/branching (`set`, `transition`, inline `if/match`, bare iterator invocation).
 
 Authoring convention:
@@ -54,6 +56,20 @@ Pipeline tip:
 
 - Every step rewrites `$current`, so prefer extracting fields (`core.get_path`, `core.pick`) before replacing shape-heavy payloads with `core.echo`.
 
+## Real-World Scenario Pack
+
+Run these to see production-like automation workflows with meaningful branching and operational outcomes:
+
+- `examples/realworld/automated-release-control-tower.gr`
+- `examples/realworld/blue-green-cutover-guarded.gr`
+- `examples/realworld/feature-flag-progressive-rollout.gr`
+- `examples/realworld/oncall-escalation-ladder.gr`
+- `examples/realworld/research-decision-loop.gr`
+
+Scenario index and intent notes:
+
+- `examples/realworld/README.md`
+
 ## Legacy and Exploratory
 
 Earlier exploratory material is preserved under `examples/legacy/`.
@@ -85,4 +101,11 @@ For SQL examples, allow the selected connection id in policy:
 ```bash
 GRAPHEME_ALLOWED_SQL_CONNECTIONS=sqlite::memory: \
 	cargo run -- run examples/sql-query-params.gr --json
+```
+
+Run real-world scenarios:
+
+```bash
+cargo run -- run examples/realworld/automated-release-control-tower.gr --json
+cargo run -- run examples/realworld/blue-green-cutover-guarded.gr --json
 ```

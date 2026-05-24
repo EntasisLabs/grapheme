@@ -15,30 +15,30 @@ query JobCoordinatorLifecycle on Ops::JobState -> Ops::JobState {
 }
 
 iterator RunCoordinator on Ops::JobState -> Ops::JobState @loop(max: 16, merge: "replace") @retry(max: 3, backoff_ms: 50, on_fail: MarkTimeout) @timeout(ms: 20000, on_timeout: MarkTimeout) {
-  core.echo(message: "cycle:{$current.attempt}:{$current.status}")
-  |> if $current.status == "done" then return else CheckTimeout
+  core.echo(message: "cycle:{$state.attempt}:{$state.status}")
+  |> if $state.status == "done" then return else CheckTimeout
 }
 
 iterator CheckTimeout on Ops::JobState -> Ops::JobState {
-  if $current.status == "timeout" then return else Tick
+  if $state.status == "timeout" then return else Tick
 }
 
 iterator Tick on Ops::JobState -> Ops::JobState {
   core.inc_field(field: "attempt")
-  |> if $current.attempt >= $current.max_attempts then MarkTimeout else EvaluateSignal
+  |> if $state.attempt >= $state.max_attempts then MarkTimeout else EvaluateSignal
 }
 
 iterator EvaluateSignal on Ops::JobState -> Ops::JobState {
-  if $current.attempt == $current.failure_at then HandleTransientFailure else MaybeComplete
+  if $state.attempt == $state.failure_at then HandleTransientFailure else MaybeComplete
 }
 
 iterator HandleTransientFailure on Ops::JobState -> Ops::JobState {
   core.set_fields(fields: { status: "blocked", last_error: "upstream_429", timeline: "blocked" })
-  |> if $current.priority == "high" then EscalateIfNeeded else RetryQueued
+  |> if $state.priority == "high" then EscalateIfNeeded else RetryQueued
 }
 
 iterator EscalateIfNeeded on Ops::JobState -> Ops::JobState {
-  if $current.escalated == true then RetryQueued else MarkEscalated
+  if $state.escalated == true then RetryQueued else MarkEscalated
 }
 
 iterator MarkEscalated on Ops::JobState -> Ops::JobState {
@@ -51,7 +51,7 @@ iterator RetryQueued on Ops::JobState -> Ops::JobState {
 }
 
 iterator MaybeComplete on Ops::JobState -> Ops::JobState {
-  if $current.attempt >= $current.ready_at then MarkDone else KeepRunning
+  if $state.attempt >= $state.ready_at then MarkDone else KeepRunning
 }
 
 iterator KeepRunning on Ops::JobState -> Ops::JobState {

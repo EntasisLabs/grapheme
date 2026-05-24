@@ -1,11 +1,11 @@
 glyph WebProviderRouting {
   web.capabilities(provider: "google")
   |> DecideProvider
-  |> core.echo(message: "{$current.results}")
+  |> core.echo(message: "{$state.results}")
 }
 
 iterator DecideProvider on Any {
-  if $current.provider.supports.search == true then UseGoogle else UseDuckDuckGo
+  if $state.provider.supports.search == true then UseGoogle else UseDuckDuckGo
 }
 
 iterator UseGoogle on Any {

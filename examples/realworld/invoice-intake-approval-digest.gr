@@ -1,0 +1,19 @@
+import sql from "grapheme/sql"
+import core from "grapheme/core"
+import smtp from "grapheme/smtp"
+
+query InvoiceIntakeApprovalDigest {
+  set {
+    connection: "sqlite::memory:",
+    routing_sql: "with invoices(invoice_id, vendor, amount_usd, po_number, due_days) as ( values ('inv-1001', 'Acme Cloud', 1200, 'PO-4431', 14), ('inv-1002', 'DataForge', 8700, 'PO-4432', 7), ('inv-1003', 'Northwind', 950, null, 21), ('inv-1004', 'Lumina SaaS', 4200, 'PO-4433', 30) ), routed as ( select invoice_id, vendor, amount_usd, coalesce(po_number, '') as po_number, due_days, case when amount_usd > 5000 then 'finance_review' when po_number is null or po_number = '' then 'needs_po' else 'auto_approve' end as route from invoices ) select printf('invoice=%s | vendor=%s | amount=$%.0f | due_days=%d | route=%s', invoice_id, vendor, amount_usd, due_days, route) as line from routed union all select printf('SUMMARY | total=%d | auto_approve=%d | finance_review=%d | needs_po=%d', count(*), sum(case when route = 'auto_approve' then 1 else 0 end), sum(case when route = 'finance_review' then 1 else 0 end), sum(case when route = 'needs_po' then 1 else 0 end)) as line from routed"
+  }
+  |> sql.query(connection: $state.connection, sql: $state.routing_sql)
+  |> core.get_path(path: "rows")
+  |> core.map(field: "line")
+  |> core.join(sep: "\n")
+  |> smtp.send_mail(
+    to: "ap-ops@example.com",
+    subject: "Invoice intake routing digest",
+    body: $state.text
+  )
+}

@@ -12,21 +12,21 @@ query QueueTriageEach {
   |> Triage
 }
 
-iterator Triage on Any @loop(each: "$current.tasks", merge: "append") {
-  match $current.priority {
+iterator Triage on Any @loop(each: "$state.tasks", merge: "append") {
+  match $item.priority {
     case high, critical => EscalateTask
     default => StandardTask
   }
 }
 
 iterator EscalateTask on Any {
-  core.merge(left: $current, right: { queue: "expedite" })
-  |> core.echo(message: "expedite:$current.id")
+  core.merge(left: $item, right: { queue: "expedite" })
+  |> core.echo(message: "expedite:$item.id")
   |> core.pick(fields: ["id", "priority", "queue", "message"])
 }
 
 iterator StandardTask on Any {
-  core.merge(left: $current, right: { queue: "standard" })
-  |> core.echo(message: "standard:$current.id")
+  core.merge(left: $item, right: { queue: "standard" })
+  |> core.echo(message: "standard:$item.id")
   |> core.pick(fields: ["id", "priority", "queue", "message"])
 }

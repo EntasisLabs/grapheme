@@ -15,11 +15,11 @@ query Research on Any {
     }
   }
   |> websearch.research_report(
-    query: $current.request.query,
-    max_results: $current.request.max_results,
-    per_source_chars: $current.request.per_source_chars,
-    report_chars: $current.request.report_chars,
-    md_options: $current.request.md_options
+    query: $state.request.query,
+    max_results: $state.request.max_results,
+    per_source_chars: $state.request.per_source_chars,
+    report_chars: $state.request.report_chars,
+    md_options: $state.request.md_options
   )
-  |> core.echo(message: $current.report)
+  |> core.echo(message: $state.report)
 }

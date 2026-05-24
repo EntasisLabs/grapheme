@@ -10,8 +10,8 @@ query SurrealQueryVars {
     }
   }
   |> surreal.query(
-    connection: $current.connection,
-    query: $current.statement,
-    vars: $current.vars
+    connection: $state.connection,
+    query: $state.statement,
+    vars: $state.vars
   )
 }

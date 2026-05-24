@@ -72,5 +72,7 @@ grapheme modules examples core
 ## Next Step
 
 - Run the flagship end-to-end tutorial in `hero-workflow.md`.
+- Follow the full curriculum in `tutorials/README.md`.
+- Run production-style scenario labs in `../examples/realworld/README.md`.
 - Learn language concepts in `language-tour.md`.
 - Run practical scenarios in `playbooks.md`.

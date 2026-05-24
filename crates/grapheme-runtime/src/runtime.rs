@@ -5,7 +5,7 @@ use grapheme_artifact::{
     TraceSummary,
 };
 use grapheme_signatures::module_ops;
-use serde_json::{Map, Value as JsonValue};
+use serde_json::{json, Map, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
@@ -102,6 +102,13 @@ struct LoopFrame<'a> {
     iteration_outputs: Vec<JsonValue>,
 }
 
+struct TemplateScope<'a> {
+    current: &'a JsonValue,
+    state: &'a JsonValue,
+    item: Option<&'a JsonValue>,
+    loop_meta: Option<JsonValue>,
+}
+
 impl<'a> LoopFrame<'a> {
     fn new(function: &'a MirFunction, state: &AgentState) -> Self {
         let input_snapshot = state.current.clone();
@@ -149,6 +156,35 @@ impl<'a> LoopFrame<'a> {
         if let Some(input) = inputs.get(iteration) {
             state.current = input.clone();
             state.diff = None;
+        }
+    }
+
+    fn template_scope<'b>(&'b self, state: &'b AgentState, iteration: usize) -> TemplateScope<'b> {
+        let in_each = self.each_inputs.is_some();
+        let state_scope = if in_each {
+            &self.input_snapshot
+        } else {
+            &state.current
+        };
+        let item_scope = self.each_inputs.as_ref().and_then(|items| items.get(iteration));
+
+        let loop_meta = if self.function.loop_config.is_some() {
+            Some(json!({
+                "index": iteration,
+                "count": iteration + 1,
+                "max": self.max_iterations,
+                "is_first": iteration == 0,
+                "is_last": iteration + 1 >= self.max_iterations,
+            }))
+        } else {
+            None
+        };
+
+        TemplateScope {
+            current: &state.current,
+            state: state_scope,
+            item: item_scope,
+            loop_meta,
         }
     }
 
@@ -844,7 +880,8 @@ impl RuntimeEngine {
                                     ))
                                 })?;
 
-                            let call_args = args_with_pipeline_input(args, &state.current);
+                            let scope = loop_frame.template_scope(state, iteration);
+                            let call_args = args_with_pipeline_input(args, &state.current, &scope);
 
                             if let Err(err) = self.options.policy_guard.check(&resolved, &call_args)
                             {
@@ -963,8 +1000,9 @@ impl RuntimeEngine {
                                 intent_risk: intent_risk.clone(),
                             };
 
-                            let compare_to = resolve_current_templates(value, &state.current);
-                            let branch_matches = select_json_path(&state.current, field)
+                            let scope = loop_frame.template_scope(state, iteration);
+                            let compare_to = resolve_current_templates(value, &scope);
+                            let branch_matches = select_scoped_json_path(&scope, &state.current, field)
                                 .map(|current_value| {
                                     branch_compare(current_value, cmp, &compare_to)
                                 })
@@ -1018,13 +1056,15 @@ impl RuntimeEngine {
                                 intent_risk: intent_risk.clone(),
                             };
 
-                            let compare_value = select_json_path(&state.current, field);
+                            let scope = loop_frame.template_scope(state, iteration);
+
+                            let compare_value = select_scoped_json_path(&scope, &state.current, field);
                             let mut chosen = None;
 
                             if let Some(current_value) = compare_value {
                                 for case in cases {
                                     let expected =
-                                        resolve_current_templates(&case.eq, &state.current);
+                                        resolve_current_templates(&case.eq, &scope);
                                     if current_value == &expected {
                                         chosen = Some(&case.then_target);
                                         break;
@@ -1033,8 +1073,8 @@ impl RuntimeEngine {
                             }
 
                             let resolved_target = chosen
-                                .and_then(|target| resolve_match_target(&state.current, target))
-                                .or_else(|| resolve_match_target(&state.current, default_target));
+                                .and_then(|target| resolve_match_target(&state.current, target, &scope))
+                                .or_else(|| resolve_match_target(&state.current, default_target, &scope));
 
                             if let Some(target) = resolved_target {
                                 if target == "$return" {
@@ -1152,7 +1192,11 @@ impl RuntimeEngine {
     }
 }
 
-fn resolve_match_target(current: &JsonValue, target: &MirMatchTarget) -> Option<String> {
+fn resolve_match_target(
+    current: &JsonValue,
+    target: &MirMatchTarget,
+    scope: &TemplateScope<'_>,
+) -> Option<String> {
     match target {
         MirMatchTarget::Target(target) => Some(target.clone()),
         MirMatchTarget::Nested {
@@ -1160,17 +1204,17 @@ fn resolve_match_target(current: &JsonValue, target: &MirMatchTarget) -> Option<
             cases,
             default_target,
         } => {
-            let compare_value = select_json_path(current, field);
+            let compare_value = select_scoped_json_path(scope, current, field);
             if let Some(current_value) = compare_value {
                 for case in cases {
-                    let expected = resolve_current_templates(&case.eq, current);
+                    let expected = resolve_current_templates(&case.eq, scope);
                     if current_value == &expected {
-                        return resolve_match_target(current, &case.then_target);
+                        return resolve_match_target(current, &case.then_target, scope);
                     }
                 }
             }
 
-            resolve_match_target(current, default_target)
+            resolve_match_target(current, default_target, scope)
         }
     }
 }
@@ -1183,6 +1227,33 @@ fn branch_compare(current_value: &JsonValue, cmp: &MirCompareOp, compare_to: &Js
         MirCompareOp::Lt => compare_numbers(current_value, compare_to, |a, b| a < b),
         MirCompareOp::Lte => compare_numbers(current_value, compare_to, |a, b| a <= b),
     }
+}
+
+fn select_scoped_json_path<'a>(
+    scope: &'a TemplateScope<'_>,
+    current: &'a JsonValue,
+    field: &str,
+) -> Option<&'a JsonValue> {
+    if let Some(path) = field.strip_prefix("state.") {
+        return select_json_path(scope.state, path);
+    }
+
+    if let Some(path) = field.strip_prefix("current.") {
+        return select_json_path(scope.current, path);
+    }
+
+    if let Some(path) = field.strip_prefix("item.") {
+        return scope.item.and_then(|item| select_json_path(item, path));
+    }
+
+    if let Some(path) = field.strip_prefix("loop.") {
+        return scope
+            .loop_meta
+            .as_ref()
+            .and_then(|meta| select_json_path(meta, path));
+    }
+
+    select_json_path(current, field)
 }
 
 fn compare_numbers(
@@ -1387,8 +1458,12 @@ fn verify_artifact_integrity(artifact: &ArtifactEnvelope) -> Result<(), Grapheme
     Ok(())
 }
 
-fn args_with_pipeline_input(args: &JsonValue, input: &JsonValue) -> JsonValue {
-    let mut merged = match resolve_current_templates(args, input) {
+fn args_with_pipeline_input(
+    args: &JsonValue,
+    input: &JsonValue,
+    scope: &TemplateScope<'_>,
+) -> JsonValue {
+    let mut merged = match resolve_current_templates(args, scope) {
         JsonValue::Object(map) => map,
         _ => Map::new(),
     };
@@ -1411,11 +1486,14 @@ fn consume_step_budget(remaining_steps: &mut Option<usize>) -> bool {
 }
 
 fn resolve_each_inputs(selector: &str, input_snapshot: &JsonValue) -> Vec<JsonValue> {
-    if selector == "$current" {
+    if selector == "$state" || selector == "$current" {
         return input_snapshot.as_array().cloned().unwrap_or_default();
     }
 
-    let Some(path) = selector.strip_prefix("$current.") else {
+    let path = selector
+        .strip_prefix("$state.")
+        .or_else(|| selector.strip_prefix("$current."));
+    let Some(path) = path else {
         return Vec::new();
     };
 
@@ -1426,26 +1504,26 @@ fn resolve_each_inputs(selector: &str, input_snapshot: &JsonValue) -> Vec<JsonVa
     selected.as_array().cloned().unwrap_or_default()
 }
 
-fn resolve_current_templates(value: &JsonValue, current: &JsonValue) -> JsonValue {
+fn resolve_current_templates(value: &JsonValue, scope: &TemplateScope<'_>) -> JsonValue {
     match value {
         JsonValue::Object(map) => {
             if let Some(var_ref) = variable_ref_from_object(map) {
-                return resolve_variable_reference(var_ref, current);
+                return resolve_variable_reference(var_ref, scope);
             }
 
             let mapped = map
                 .iter()
-                .map(|(k, v)| (k.clone(), resolve_current_templates(v, current)))
+                .map(|(k, v)| (k.clone(), resolve_current_templates(v, scope)))
                 .collect::<Map<String, JsonValue>>();
             JsonValue::Object(mapped)
         }
         JsonValue::Array(items) => JsonValue::Array(
             items
                 .iter()
-                .map(|item| resolve_current_templates(item, current))
+                .map(|item| resolve_current_templates(item, scope))
                 .collect(),
         ),
-        JsonValue::String(s) => resolve_current_string_template(s, current),
+        JsonValue::String(s) => resolve_current_string_template(s, scope),
         _ => value.clone(),
     }
 }
@@ -1458,13 +1536,50 @@ fn variable_ref_from_object(map: &Map<String, JsonValue>) -> Option<&str> {
     map.get("$var")?.as_str()
 }
 
-fn resolve_variable_reference(reference: &str, current: &JsonValue) -> JsonValue {
+fn resolve_variable_reference(reference: &str, scope: &TemplateScope<'_>) -> JsonValue {
+    if reference == "state" {
+        return scope.state.clone();
+    }
+
     if reference == "current" {
-        return current.clone();
+        return scope.current.clone();
+    }
+
+    if let Some(path) = reference
+        .strip_prefix("state.")
+    {
+        return select_json_path(scope.state, path)
+            .cloned()
+            .unwrap_or(JsonValue::Null);
     }
 
     if let Some(path) = reference.strip_prefix("current.") {
-        return select_json_path(current, path)
+        return select_json_path(scope.current, path)
+            .cloned()
+            .unwrap_or(JsonValue::Null);
+    }
+
+    if reference == "item" {
+        return scope.item.cloned().unwrap_or(JsonValue::Null);
+    }
+
+    if let Some(path) = reference.strip_prefix("item.") {
+        return scope
+            .item
+            .and_then(|item| select_json_path(item, path))
+            .cloned()
+            .unwrap_or(JsonValue::Null);
+    }
+
+    if reference == "loop" {
+        return scope.loop_meta.clone().unwrap_or(JsonValue::Null);
+    }
+
+    if let Some(path) = reference.strip_prefix("loop.") {
+        return scope
+            .loop_meta
+            .as_ref()
+            .and_then(|meta| select_json_path(meta, path))
             .cloned()
             .unwrap_or(JsonValue::Null);
     }
@@ -1472,14 +1587,57 @@ fn resolve_variable_reference(reference: &str, current: &JsonValue) -> JsonValue
     JsonValue::String(format!("${reference}"))
 }
 
-fn resolve_current_string_template(template: &str, current: &JsonValue) -> JsonValue {
+fn resolve_current_string_template(template: &str, scope: &TemplateScope<'_>) -> JsonValue {
+    if template == "$state" {
+        return scope.state.clone();
+    }
+
     if template == "$current" {
-        return current.clone();
+        return scope.current.clone();
+    }
+
+    if let Some(path) = template
+        .strip_prefix("$state.")
+    {
+        if path.chars().all(is_selector_char) {
+            return select_json_path(scope.state, path)
+                .cloned()
+                .unwrap_or(JsonValue::Null);
+        }
     }
 
     if let Some(path) = template.strip_prefix("$current.") {
         if path.chars().all(is_selector_char) {
-            return select_json_path(current, path)
+            return select_json_path(scope.current, path)
+                .cloned()
+                .unwrap_or(JsonValue::Null);
+        }
+    }
+
+    if template == "$item" {
+        return scope.item.cloned().unwrap_or(JsonValue::Null);
+    }
+
+    if let Some(path) = template.strip_prefix("$item.") {
+        if path.chars().all(is_selector_char) {
+            return scope
+                .item
+                .and_then(|item| select_json_path(item, path))
+                .cloned()
+                .unwrap_or(JsonValue::Null);
+        }
+    }
+
+    if template == "$loop" {
+        return scope.loop_meta.clone().unwrap_or(JsonValue::Null);
+    }
+
+    if let Some(path) = template.strip_prefix("$loop.") {
+        if path.chars().all(is_selector_char) {
+            return scope
+                .loop_meta
+                .as_ref()
+                .and_then(|meta| select_json_path(meta, path))
                 .cloned()
                 .unwrap_or(JsonValue::Null);
         }
@@ -1490,8 +1648,22 @@ fn resolve_current_string_template(template: &str, current: &JsonValue) -> JsonV
     let mut i = 0usize;
 
     while i < bytes.len() {
-        if bytes[i] == b'{' && i + 1 < bytes.len() && template[i + 1..].starts_with("$current") {
-            let mut j = i + 1 + "$current".len();
+        if bytes[i] == b'{' && i + 1 < bytes.len() && template[i + 1..].starts_with("$") {
+            let refs = ["$state", "$current", "$item", "$loop"];
+            let mut matched = None;
+            for r in refs {
+                if template[i + 1..].starts_with(r) {
+                    matched = Some(r);
+                    break;
+                }
+            }
+            let Some(prefix) = matched else {
+                out.push(bytes[i] as char);
+                i += 1;
+                continue;
+            };
+
+            let mut j = i + 1 + prefix.len();
             let mut resolved = None;
 
             if j < bytes.len() && bytes[j] == b'.' {
@@ -1502,15 +1674,28 @@ fn resolve_current_string_template(template: &str, current: &JsonValue) -> JsonV
                 }
                 if j < bytes.len() && bytes[j] == b'}' {
                     let path = &template[path_start..j];
-                    resolved = Some(
-                        select_json_path(current, path)
-                            .map(json_value_to_inline_string)
-                            .unwrap_or_default(),
-                    );
+                    let scoped = match prefix {
+                        "$state" => select_json_path(scope.state, path),
+                        "$current" => select_json_path(scope.current, path),
+                        "$item" => scope.item.and_then(|item| select_json_path(item, path)),
+                        "$loop" => scope
+                            .loop_meta
+                            .as_ref()
+                            .and_then(|meta| select_json_path(meta, path)),
+                        _ => None,
+                    };
+                    resolved = Some(scoped.map(json_value_to_inline_string).unwrap_or_default());
                     j += 1;
                 }
             } else if j < bytes.len() && bytes[j] == b'}' {
-                resolved = Some(json_value_to_inline_string(current));
+                let scoped = match prefix {
+                    "$state" => Some(scope.state),
+                    "$current" => Some(scope.current),
+                    "$item" => scope.item,
+                    "$loop" => scope.loop_meta.as_ref(),
+                    _ => None,
+                };
+                resolved = Some(scoped.map(json_value_to_inline_string).unwrap_or_default());
                 j += 1;
             }
 
@@ -1521,23 +1706,50 @@ fn resolve_current_string_template(template: &str, current: &JsonValue) -> JsonV
             }
         }
 
-        if bytes[i] == b'$' && template[i..].starts_with("$current") {
-            let mut j = i + "$current".len();
+        let refs = ["$state", "$current", "$item", "$loop"];
+        let mut found = None;
+        for r in refs {
+            if template[i..].starts_with(r) {
+                found = Some(r);
+                break;
+            }
+        }
+        if let Some(prefix) = found {
+            let mut j = i + prefix.len();
             if j < bytes.len() && bytes[j] == b'.' {
                 j += 1;
                 while j < bytes.len() && is_selector_char(bytes[j] as char) {
                     j += 1;
                 }
-                let path = &template[i + "$current.".len()..j];
-                if let Some(value) = select_json_path(current, path) {
+                let path = &template[i + prefix.len() + 1..j];
+                let scoped = match prefix {
+                    "$state" => select_json_path(scope.state, path),
+                    "$current" => select_json_path(scope.current, path),
+                    "$item" => scope.item.and_then(|item| select_json_path(item, path)),
+                    "$loop" => scope
+                        .loop_meta
+                        .as_ref()
+                        .and_then(|meta| select_json_path(meta, path)),
+                    _ => None,
+                };
+                if let Some(value) = scoped {
                     out.push_str(&json_value_to_inline_string(value));
                 }
                 i = j;
                 continue;
             }
 
-            out.push_str(&json_value_to_inline_string(current));
-            i += "$current".len();
+            let scoped = match prefix {
+                "$state" => Some(scope.state),
+                "$current" => Some(scope.current),
+                "$item" => scope.item,
+                "$loop" => scope.loop_meta.as_ref(),
+                _ => None,
+            };
+            if let Some(value) = scoped {
+                out.push_str(&json_value_to_inline_string(value));
+            }
+            i += prefix.len();
             continue;
         }
 
@@ -1825,8 +2037,14 @@ mod tests {
             "id": "$current.id"
         });
         let current = json!({"id": "123", "status": "ready"});
+        let scope = TemplateScope {
+            current: &current,
+            state: &current,
+            item: None,
+            loop_meta: None,
+        };
 
-        let resolved = args_with_pipeline_input(&args, &current);
+        let resolved = args_with_pipeline_input(&args, &current, &scope);
         assert_eq!(
             resolved.get("url"),
             Some(&JsonValue::String(
@@ -1849,8 +2067,14 @@ mod tests {
             "snapshot": "{$current}"
         });
         let current = json!({"a": 21, "status": "ready"});
+        let scope = TemplateScope {
+            current: &current,
+            state: &current,
+            item: None,
+            loop_meta: None,
+        };
 
-        let resolved = args_with_pipeline_input(&args, &current);
+        let resolved = args_with_pipeline_input(&args, &current, &scope);
         assert_eq!(
             resolved.get("message"),
             Some(&JsonValue::String("fib:21".to_string()))

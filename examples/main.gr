@@ -10,5 +10,5 @@ query A {
     project: "agentql",
     message: "Grapheme canonical main entrypoint"
   }
-  |> core.echo(message: $current.message)
+  |> core.echo(message: $state.message)
 }

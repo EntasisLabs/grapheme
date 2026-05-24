@@ -1,0 +1,41 @@
+import core from "grapheme/core"
+
+query MultiQueryWebScrapeDigest on Any {
+  core.merge(
+    left: {
+      settings: {
+        digest_title: "Executive web research digest",
+        recommendation: "review citations and align with policy owners before rollout"
+      },
+      jobs: [
+        { query: "SRE error budget policy", max_results: 2 },
+        { query: "Incident postmortem template", max_results: 2 },
+        { query: "Feature flag rollout best practices", max_results: 2 }
+      ]
+    },
+    right: $state
+  )
+  |> ScrapeEachTopic
+  |> core.map(field: "message")
+  |> core.join(sep: "\n\n")
+  |> core.echo(message: "EXECUTIVE DIGEST
+                        {$state.text}")
+}
+
+iterator ScrapeEachTopic on Any @loop(each: "$state.jobs", merge: "append") {
+  websearch.research_materials(
+    query: $item.query,
+    max_results: $item.max_results,
+    per_source_chars: 1800,
+    md_options: {
+      output_format: "markdown",
+      include_document_structure: true,
+      extract_metadata: true,
+      strip_tags: ["script", "style", "nav", "footer", "aside"],
+      exclude_selectors: [".cookie-banner", "#cookie", ".advertisement"]
+    }
+  )
+  |> core.echo(
+    message: "TOPIC: {$item.query} | SOURCES: {$current.count} | PRIMARY CITATION: {$current.citation} | ACTION: {$state.settings.recommendation}"
+  )
+}

@@ -13,10 +13,10 @@ iterator Poller on Any @core_default @loop(max: 8, until: { field: "status", eq:
 }
 
 iterator MarkReady on Any @core_default {
-  core.merge(left: $current, right: { status: "ready" })
-  |> echo(message: "ready-at:$current.attempt")
+  core.merge(left: $state, right: { status: "ready" })
+  |> echo(message: "ready-at:$state.attempt")
 }
 
 iterator KeepWaiting on Any @core_default {
-  echo(message: "waiting:$current.attempt")
+  echo(message: "waiting:$state.attempt")
 }
