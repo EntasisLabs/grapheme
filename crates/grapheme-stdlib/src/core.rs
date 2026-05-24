@@ -154,10 +154,7 @@ pub fn reduce(args: &JsonValue) -> JsonValue {
             }
         }
         "concat" => {
-            let initial = args
-                .get("initial")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let initial = args.get("initial").and_then(|v| v.as_str()).unwrap_or("");
             let joined = items
                 .iter()
                 .map(core_scalar_to_key)
@@ -409,7 +406,10 @@ pub fn contains(args: &JsonValue) -> JsonValue {
     let contains = match &haystack {
         JsonValue::String(s) => needle.as_str().map(|n| s.contains(n)).unwrap_or(false),
         JsonValue::Array(items) => items.iter().any(|item| item == &needle),
-        JsonValue::Object(map) => needle.as_str().map(|k| map.contains_key(k)).unwrap_or(false),
+        JsonValue::Object(map) => needle
+            .as_str()
+            .map(|k| map.contains_key(k))
+            .unwrap_or(false),
         _ => false,
     };
 
@@ -469,7 +469,10 @@ fn core_scalar_to_key(value: &JsonValue) -> String {
 }
 
 fn json_get_path_value(input: &JsonValue, path: &str) -> Option<JsonValue> {
-    let segments = path.split('.').filter(|s| !s.is_empty()).collect::<Vec<_>>();
+    let segments = path
+        .split('.')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>();
     if segments.is_empty() {
         return Some(input.clone());
     }
@@ -490,7 +493,10 @@ fn json_get_path_value(input: &JsonValue, path: &str) -> Option<JsonValue> {
 }
 
 fn json_set_path_value(input: &JsonValue, path: &str, value: JsonValue) -> JsonValue {
-    let segments = path.split('.').filter(|s| !s.is_empty()).collect::<Vec<_>>();
+    let segments = path
+        .split('.')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>();
     if segments.is_empty() {
         return input.clone();
     }
@@ -536,19 +542,23 @@ fn core_arg_text(args: &JsonValue, key: &str) -> String {
     args.get(key)
         .and_then(|v| v.as_str())
         .map(ToOwned::to_owned)
-        .or_else(|| args.get("__input").and_then(|v| v.as_str()).map(ToOwned::to_owned))
+        .or_else(|| {
+            args.get("__input")
+                .and_then(|v| v.as_str())
+                .map(ToOwned::to_owned)
+        })
         .unwrap_or_default()
 }
 
-    fn core_arg_message(args: &JsonValue, key: &str) -> String {
-        args.get(key)
-        .map(core_scalar_to_key)
-        .unwrap_or_default()
-    }
+fn core_arg_message(args: &JsonValue, key: &str) -> String {
+    args.get(key).map(core_scalar_to_key).unwrap_or_default()
+}
 
 fn core_arg_f64(args: &JsonValue, key: &str) -> Option<f64> {
-    args.get(key)
-        .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok())))
+    args.get(key).and_then(|v| {
+        v.as_f64()
+            .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
+    })
 }
 
 fn compare_numeric(args: &JsonValue, pred: fn(f64, f64) -> bool) -> JsonValue {

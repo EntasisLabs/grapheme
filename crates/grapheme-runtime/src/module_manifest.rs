@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use grapheme_signatures::{module_ops, SignatureEffect};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModuleManifest {

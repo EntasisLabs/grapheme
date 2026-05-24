@@ -8,5 +8,5 @@ query CoreFilterDemo {
       { id: 3, status: "active" }
     ]
   }
-  |> core.filter(items: $current.items, field: "status", equals: "active")
+  |> core.filter(items: $state.items, field: "status", equals: "active")
 }

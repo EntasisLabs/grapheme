@@ -50,6 +50,40 @@ cargo run -p grapheme-lsp
 
 The server communicates over stdio and is intended to be launched by an editor client.
 
+## Embeddable LSP SDK Usage
+
+The LSP crate now exposes library entrypoints so embedders can host the server directly.
+
+Public APIs:
+
+- `grapheme_lsp::run_stdio()`
+- `grapheme_lsp::run_server(stdin, stdout)`
+
+Minimal wrapper (same behavior as the shipped binary):
+
+```rust
+use grapheme_lsp::run_stdio;
+
+#[tokio::main]
+async fn main() {
+	run_stdio().await;
+}
+```
+
+Explicit stream wiring:
+
+```rust
+use grapheme_lsp::run_server;
+use tokio::io::{stdin, stdout};
+
+#[tokio::main]
+async fn main() {
+	run_server(stdin(), stdout()).await;
+}
+```
+
+The binary entrypoint in `crates/grapheme-lsp/src/main.rs` is intentionally thin and delegates to `run_stdio()`, preserving extension startup behavior.
+
 ## Build Release Binary
 
 ```bash

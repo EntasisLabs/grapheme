@@ -11,7 +11,7 @@ query RunEachJobs {
   |> ProcessJobs
 }
 
-iterator ProcessJobs on Any @loop(max: 100, each: "$current.jobs", merge: "append") {
-  core.echo(message: "job-$current.id")
+iterator ProcessJobs on Any @loop(max: 100, each: "$state.jobs", merge: "append") {
+  core.echo(message: "job-$item.id")
   |> core.pick(fields: ["message"])
 }

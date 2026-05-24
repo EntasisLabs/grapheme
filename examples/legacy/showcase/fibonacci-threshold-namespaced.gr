@@ -6,17 +6,17 @@ query FibonacciThresholdNamespaced on Domain::FibState -> Domain::FibState {
 }
 
 iterator FibUntilThreshold on Domain::FibState -> Domain::FibState @loop(max: 64, merge: "replace") {
-  core.echo(message: "fib:{$current.a}")
+  core.echo(message: "fib:{$state.a}")
   |> flow.branch(
-    when: { field: "a", gte: $current.threshold },
+    when: { field: "a", gte: $state.threshold },
     then: return,
     else: AdvanceFib
   )
 }
 
 iterator AdvanceFib on Domain::FibState -> Domain::FibState {
-  core.set_fields(fields: { prev_a: $current.a, prev_b: $current.b })
-  |> core.add(a: $current.prev_a, b: $current.prev_b)
-  |> core.set_fields(fields: { a: $current.prev_b, b: $current.value })
+  core.set_fields(fields: { prev_a: $state.a, prev_b: $state.b })
+  |> core.add(a: $state.prev_a, b: $state.prev_b)
+  |> core.set_fields(fields: { a: $state.prev_b, b: $state.value })
   |> core.inc_field(field: "i")
 }

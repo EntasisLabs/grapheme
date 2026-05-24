@@ -5,5 +5,5 @@ query SmtpSendDemo {
     to: "team@example.com",
     subject: "Grapheme Module Test"
   }
-  |> smtp.send_mail(to: $current.to, subject: $current.subject)
+  |> smtp.send_mail(to: $state.to, subject: $state.subject)
 }

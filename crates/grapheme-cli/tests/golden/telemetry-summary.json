@@ -1,0 +1,26 @@
+{
+  "path": ".grapheme/telemetry/events.jsonl",
+  "event_count": 6,
+  "command_result_count": 2,
+  "success_count": 1,
+  "failure_count": 1,
+  "success_rate": 0.5,
+  "avg_duration_ms": 100.0,
+  "first_success_count": 1,
+  "ttfs_start_count": 1,
+  "ttfs_success_count": 1,
+  "ttfs_failure_count": 1,
+  "ttfs_success_rate": 1.0,
+  "command_counts": {
+    "run": 6
+  },
+  "failure_stage_counts": {
+    "parse": 1
+  },
+  "top_error_classes": [
+    {
+      "error_class": "parse_error",
+      "count": 1
+    }
+  ]
+}

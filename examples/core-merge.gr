@@ -3,7 +3,7 @@ import core from "grapheme/core"
 query CoreMergeDemo {
   set { language: "grapheme", version: "0.1", mode: "dev" }
   |> core.merge(
-    left: $current,
+    left: $state,
     right: { mode: "runtime-native", wasm: true }
   )
 }

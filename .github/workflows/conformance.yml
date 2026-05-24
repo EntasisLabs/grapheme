@@ -19,6 +19,14 @@ jobs:
       - name: Cargo Cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Single-source grammar contract check
+        run: |
+          ./scripts/check-grammar-sync.sh
+
+      - name: Docs smoke checks (getting-started path)
+        run: |
+          ./scripts/docs-smoke-checks.sh
+
       - name: Runtime manifest/stdlib conformance tests
         run: |
           cargo test -p grapheme-runtime module_manifest::tests::manifest_ops_are_registered_or_explicitly_unsupported_for_stdlib_scope

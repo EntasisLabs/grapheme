@@ -1,0 +1,72 @@
+import core from "grapheme/core"
+
+enum TicketStatus { new, triaged, assigned, acknowledged, resolved, breached }
+
+state_machine TicketLifecycle on TicketStatus {
+  transition new -> triaged
+  transition triaged -> assigned
+  transition assigned -> acknowledged
+  transition acknowledged -> resolved
+  transition assigned -> breached
+  transition acknowledged -> breached
+  terminal resolved
+  terminal breached
+}
+
+struct SupportTicketState {
+  status: TicketStatus
+  ticket_id: String
+  service: String
+  priority: String
+  triage_owner: String
+  assigned_owner: String
+  owner: String
+  elapsed_minutes: Float
+  sla_minutes: Float
+  timeline?: String
+  notes?: String
+}
+
+query TypedSupportSlaEscalation on Any -> SupportTicketState {
+  core.merge(
+    left: {
+      status: "new",
+      ticket_id: "t-1302",
+      service: "billing-api",
+      priority: "high",
+      triage_owner: "support-l1",
+      assigned_owner: "support-l2",
+      owner: "queue-triage",
+      elapsed_minutes: 0.0,
+      sla_minutes: 45.0
+    },
+    right: $state
+  )
+  |> Run
+}
+
+iterator Run on SupportTicketState -> SupportTicketState @core_default @loop(max: 10, merge: "replace") {
+  echo(message: "ticket={$state.ticket_id}:{$state.status}:{$state.elapsed_minutes}m")
+  |> match $state.status {
+    case resolved, breached => return
+    default => Step
+  }
+}
+
+iterator Step on SupportTicketState -> SupportTicketState {
+  match $state.status {
+    case new => transition $state.status -> triaged { owner: $state.triage_owner, timeline: "triage" }
+    case triaged => transition $state.status -> assigned { owner: $state.assigned_owner, timeline: "assign" }
+    case assigned => AssignedGate
+    case acknowledged => AcknowledgedGate
+    default => set { timeline: "noop" }
+  }
+}
+
+iterator AssignedGate on SupportTicketState -> SupportTicketState {
+  if $state.elapsed_minutes >= $state.sla_minutes then transition $state.status -> breached { notes: "sla-breached-before-ack", timeline: "breach" } else inc_field(field: "elapsed_minutes") |> transition $state.status -> acknowledged { timeline: "ack" }
+}
+
+iterator AcknowledgedGate on SupportTicketState -> SupportTicketState {
+  if $state.elapsed_minutes >= $state.sla_minutes then transition $state.status -> breached { notes: "sla-breached-post-ack", timeline: "breach" } else transition $state.status -> resolved { timeline: "resolved" }
+}

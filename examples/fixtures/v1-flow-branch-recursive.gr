@@ -12,6 +12,6 @@ iterator Step on Any @recursive(max_depth: 5) {
 }
 
 iterator ContinueStep on Any {
-  core.merge(left: $current, right: { status: "done" })
+  core.merge(left: $state, right: { status: "done" })
   |> Step
 }

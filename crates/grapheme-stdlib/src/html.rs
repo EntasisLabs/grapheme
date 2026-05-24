@@ -147,7 +147,9 @@ impl CleanTextRequest {
     }
 }
 
-fn parse_html_to_md_options(args: &JsonValue) -> Result<Option<html_to_markdown_rs::ConversionOptions>, String> {
+fn parse_html_to_md_options(
+    args: &JsonValue,
+) -> Result<Option<html_to_markdown_rs::ConversionOptions>, String> {
     let Some(raw) = args.get("options") else {
         return Ok(None);
     };
@@ -165,13 +167,19 @@ fn arg_text(args: &JsonValue, key: &str) -> String {
     args.get(key)
         .and_then(|v| v.as_str())
         .map(ToOwned::to_owned)
-        .or_else(|| args.get("__input").and_then(|v| v.as_str()).map(ToOwned::to_owned))
+        .or_else(|| {
+            args.get("__input")
+                .and_then(|v| v.as_str())
+                .map(ToOwned::to_owned)
+        })
         .unwrap_or_default()
 }
 
 fn arg_u64(args: &JsonValue, key: &str) -> Option<u64> {
-    args.get(key)
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok())))
+    args.get(key).and_then(|v| {
+        v.as_u64()
+            .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+    })
 }
 
 #[cfg(test)]

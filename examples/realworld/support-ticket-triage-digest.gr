@@ -1,0 +1,102 @@
+import core from "grapheme/core"
+import smtp from "grapheme/smtp"
+
+query SupportTicketTriageDigest on Any {
+  core.merge(
+    left: {
+      settings: {
+        digest_to: "support-leads@example.com",
+        digest_subject: "Daily support triage digest",
+        queues: {
+          critical: "incident-oncall",
+          high: "priority-response",
+          standard: "standard-backlog"
+        },
+        escalate_enterprise_during_hours: true,
+        business_hours: { start_hour_utc: 8, end_hour_utc: 20 },
+        now_hour_utc: 14
+      },
+      tickets: [
+        {
+          id: "t-901",
+          customer_tier: "enterprise",
+          priority: "critical",
+          topic: "payment outage",
+          sla_minutes: 15
+        },
+        {
+          id: "t-902",
+          customer_tier: "pro",
+          priority: "high",
+          topic: "data export failed",
+          sla_minutes: 60
+        },
+        {
+          id: "t-903",
+          customer_tier: "starter",
+          priority: "normal",
+          topic: "password reset",
+          sla_minutes: 240
+        },
+        {
+          id: "t-904",
+          customer_tier: "enterprise",
+          priority: "low",
+          topic: "billing question",
+          sla_minutes: 480
+        }
+      ]
+    },
+    right: $state
+  )
+  |> TicketRouter
+  |> core.map(field: "message")
+  |> core.join(sep: "\n")
+  |> smtp.send_mail(
+    to: $state.settings.digest_to,
+    subject: $state.settings.digest_subject,
+    body: $state.text
+  )
+}
+
+iterator TicketRouter on Any @loop(each: "$state.tickets", merge: "append") {
+  match $item.priority {
+    case critical => CriticalPath
+    case high => HighPath
+    default => EnterpriseOrStandard
+  }
+}
+
+iterator CriticalPath on Any {
+  core.echo(
+    message: "ticket={$item.id} | queue={$state.settings.queues.critical} | priority={$item.priority} | tier={$item.customer_tier} | sla={$item.sla_minutes}m | topic={$item.topic}"
+  )
+}
+
+iterator HighPath on Any {
+  core.echo(
+    message: "ticket={$item.id} | queue={$state.settings.queues.high} | priority={$item.priority} | tier={$item.customer_tier} | sla={$item.sla_minutes}m | topic={$item.topic}"
+  )
+}
+
+iterator EnterpriseOrStandard on Any {
+  if $item.customer_tier == "enterprise" then MaybeEscalateEnterprise else StandardPath
+}
+
+iterator MaybeEscalateEnterprise on Any {
+  if $state.settings.escalate_enterprise_during_hours == true then HoursGate else StandardPath
+}
+
+iterator HoursGate on Any {
+  if $state.settings.now_hour_utc >= $state.settings.business_hours.start_hour_utc then EndHoursGate else StandardPath
+}
+
+iterator EndHoursGate on Any {
+  if $state.settings.now_hour_utc <= $state.settings.business_hours.end_hour_utc then HighPath else StandardPath
+}
+
+iterator StandardPath on Any {
+  core.echo(
+    message: "ticket={$item.id} | queue={$state.settings.queues.standard} | priority={$item.priority} | tier={$item.customer_tier} | sla={$item.sla_minutes}m | topic={$item.topic}"
+  )
+}

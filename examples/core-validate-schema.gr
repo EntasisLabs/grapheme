@@ -8,7 +8,7 @@ query CoreValidateSchemaDemo {
 iterator ValidateCandidate on Any {
   core.validate_schema(
     required: ["name", "role", "team"],
-    data: $current.candidate
+    data: $state.candidate
   )
-  |> if $current.ok == true then transition $current.status -> valid else transition $current.status -> invalid { missing: $current.missing }
+  |> if $state.ok == true then transition $state.status -> valid else transition $state.status -> invalid { missing: $state.missing }
 }

@@ -2,5 +2,5 @@ import surreal from "grapheme/surreal"
 
 query SurrealHealth {
   set { connection: "local" }
-  |> surreal.health(connection: $current.connection)
+  |> surreal.health(connection: $state.connection)
 }

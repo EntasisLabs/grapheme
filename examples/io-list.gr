@@ -2,5 +2,5 @@ import io from "grapheme/io"
 
 query ListWorkspace {
   set { path: "./bin" }
-  |> io.list_dir(path: $current.path)
+  |> io.list_dir(path: $state.path)
 }

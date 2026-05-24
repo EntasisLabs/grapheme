@@ -7,6 +7,7 @@ This section tracks forward-looking language, runtime, and platform plans.
 1. docs/roadmaps/runtime-platform-evolution-v1.md
 2. docs/roadmaps/language-ergonomics-v2-draft.md
 3. docs/roadmaps/executable-kinds-v1-draft.md
+4. docs/roadmaps/splus-readiness-matrix.md
 
 ## Sprint and Feedback Tracks
 

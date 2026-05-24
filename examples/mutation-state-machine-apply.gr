@@ -36,5 +36,5 @@ query SeedApproval on Any -> ApprovalState {
 
 mutation ApproveRequest on ApprovalState -> ApprovalState {
   apply state { actor: "policy-engine", mutation: "ApproveRequest" }
-  |> transition $current.status -> approved { note: "approved via explicit mutation + apply" }
+  |> transition $state.status -> approved { note: "approved via explicit mutation + apply" }
 }

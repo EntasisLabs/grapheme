@@ -67,5 +67,5 @@ npx --yes @vscode/vsce package --allow-missing-repository
 
 ## Related Docs
 
-- LSP quickstart: `docs/lsp/quickstart.md`
-- Release guide: `docs/release/lsp-release.md`
+- LSP quickstart: `docs/internal/lsp/quickstart.md`
+- Release guide: `docs/internal/release/lsp-release.md`

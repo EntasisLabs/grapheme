@@ -5,8 +5,8 @@ query Q on Any {
   |> ParseResults
 }
 
-iterator ParseResults on Any @loop(max: 3, each: $current.results, merge: "append"){
-  http.get(url: "$current.url")
+iterator ParseResults on Any @loop(max: 3, each: $state.results, merge: "append"){
+  http.get(url: "$item.url")
   |> html.to_md(html: "$current.body", options: {
       output_format: "markdown",
       include_document_structure: true,

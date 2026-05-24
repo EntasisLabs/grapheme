@@ -1,4 +1,4 @@
 query TransformExplicitChain {
   yaml.to_json(text: "payload: |\n  [1,2,3]\n")
-  |> json.parse(text: $current.payload)
+  |> json.parse(text: $state.payload)
 }

@@ -5,5 +5,5 @@ query SurrealQueryDemo {
     connection: "local",
     statement: "select * from person limit 3;"
   }
-  |> surreal.query(connection: $current.connection, query: $current.statement)
+  |> surreal.query(connection: $state.connection, query: $state.statement)
 }

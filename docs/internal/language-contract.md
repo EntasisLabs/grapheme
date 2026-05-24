@@ -70,9 +70,11 @@ A pipeline is an ordered list of call steps.
 Important state-shape rule:
 
 - A step can intentionally or accidentally change the shape of `$current` for all following steps.
+- In `@loop(each: ...)` scopes, use `$state` for parent/root state, `$item` for the stable loop input item, and `$loop` for loop metadata.
 - For example, `core.echo(message: "$current.url")` yields `{ message: ... }`, so a following step like `http.get(url: "$current.url")` will no longer see `url` unless you preserved it earlier.
 - Practical guidance: place transformation/logging steps that narrow shape (like `echo`) after steps that still need the original fields, or explicitly pass required fields forward.
 - Prefer `core.tap` for diagnostics when downstream steps still need unchanged `$current`.
+- `$current` remains supported as a compatibility alias, but `$state/$item/$loop` is the canonical namespace model.
 
 Calls are represented by module/op + capability:
 

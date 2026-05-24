@@ -2,6 +2,12 @@
 
 Grapheme is an AI workflow language and governed runtime platform.
 
+## 10-Minute Success Path
+
+Goal: run, inspect, and execute a real `.gr` program with expected outputs.
+
+Estimated time: 10 minutes.
+
 ## Choose Your Path
 
 - Language author: start here, then read `docs/language-contract.md`, then `docs/cli.md`.
@@ -22,6 +28,49 @@ Install the Wasm target:
 rustup target add wasm32-wasip1
 ```
 
+## Step 1: Verify Workspace Build
+
+```bash
+cargo check --workspace
+```
+
+Expected outcome:
+
+- Cargo completes successfully.
+- You can proceed to parse and run examples.
+
+## Step 2: Parse A Program
+
+```bash
+cargo run -- parse examples/hello-world.gr
+```
+
+Expected outcome:
+
+- Output includes a `definitions` section.
+- A query named `HelloWorld` is present.
+
+## Step 3: Execute A Program
+
+```bash
+cargo run -- run examples/hello-world.gr --json
+```
+
+Expected outcome:
+
+- Output includes `"outcome": "succeeded"`.
+- Final state includes `"message": "LETS GO?!!!!!"`.
+
+## Step 4: Discover Runtime Modules
+
+```bash
+cargo run -- modules
+```
+
+Expected outcome:
+
+- A module list is printed (for example: `core`, `io`, `http`, `sql`, `websearch`).
+
 ## Common Developer Loop
 
 From the repo root:
@@ -32,6 +81,8 @@ cargo run -- parse examples/hello-world.gr
 cargo run -- compile examples/hello-world.gr --emit mir
 cargo run -- run examples/hello-world.gr
 ```
+
+Use this loop after you complete the 10-minute path above.
 
 ## Running with Wasm Plugins
 
@@ -68,6 +119,19 @@ The `examples/` directory includes:
 cargo run -- run examples/core-merge.gr --native-modules --json
 ```
 
+## Troubleshooting
+
+If any step fails, start with:
+
+- `docs/troubleshooting.md`
+
+High-frequency issues covered there include:
+
+- missing toolchain/targets
+- policy allow-list denials
+- Stage B strict-mode constraints
+- entrypoint ambiguity and parser errors
+
 ## Next Steps
 
 - Language contract: `docs/language-contract.md`
@@ -75,4 +139,6 @@ cargo run -- run examples/core-merge.gr --native-modules --json
 - Architecture overview: `docs/architecture.md`
 - CLI command reference: `docs/cli.md`
 - Runtime policy guardrails: `docs/runtime-policy.md`
+- Troubleshooting: `docs/troubleshooting.md`
+- Scenario playbook pack: `docs/quality/scenario-playbooks-v1.md`
 - Full docs index: `docs/README.md`

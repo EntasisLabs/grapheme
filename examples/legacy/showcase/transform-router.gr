@@ -12,7 +12,7 @@ iterator RouteWebhook on Any {
 }
 
 iterator HandlePost on Any {
-  json.parse(text: $current.payload)
+  json.parse(text: $state.payload)
   |> core.echo()
 }
 

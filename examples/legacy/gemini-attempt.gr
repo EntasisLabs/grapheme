@@ -14,10 +14,10 @@ iterator AnalyzeSafety on ModState -> ModState {
   // Hypothetical: an AI-native 'llm' module within Grapheme
   llm.classify(
     prompt: "Is this text toxic?", 
-    text: $current.input,
+    text: $state.input,
     labels: ["toxic", "safe"]
   )
-  |> core.set_fields(fields: { reason: $current.label, confidence: $current.score })
+  |> core.set_fields(fields: { reason: $state.label, confidence: $state.score })
   |> flow.branch(
     when: { field: "confidence", gte: 0.8 },
     then: FlagContent,
@@ -27,5 +27,5 @@ iterator AnalyzeSafety on ModState -> ModState {
 
 iterator FlagContent on ModState -> ModState {
   core.set_fields(fields: { is_flagged: true })
-  |> core.echo(message: "ALERT: Content flagged for {$current.reason}")
+  |> core.echo(message: "ALERT: Content flagged for {$state.reason}")
 }

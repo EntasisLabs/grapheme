@@ -1,4 +1,6 @@
-use crate::{core, csv, html, http, json as json_mod, research, smtp, sql, surreal, tcp, web, yaml};
+use crate::{
+    core, csv, html, http, json as json_mod, research, smtp, sql, surreal, tcp, web, yaml,
+};
 use serde_json::{json, Value as JsonValue};
 
 struct RegisteredModule {
@@ -63,8 +65,14 @@ const REGISTERED_MODULES: &[RegisteredModule] = &[
 ];
 
 const CORE_OPS: &[RegisteredOp] = &[
-    RegisteredOp { op: "echo", handler: core::echo },
-    RegisteredOp { op: "tap", handler: core::tap },
+    RegisteredOp {
+        op: "echo",
+        handler: core::echo,
+    },
+    RegisteredOp {
+        op: "tap",
+        handler: core::tap,
+    },
     RegisteredOp {
         op: "pack_state_data",
         handler: core::pack_state_data,
@@ -73,17 +81,26 @@ const CORE_OPS: &[RegisteredOp] = &[
         op: "get_state",
         handler: core::get_state,
     },
-    RegisteredOp { op: "get_data", handler: core::get_data },
+    RegisteredOp {
+        op: "get_data",
+        handler: core::get_data,
+    },
     RegisteredOp {
         op: "apply_lane",
         handler: core::apply_lane,
     },
-    RegisteredOp { op: "map", handler: core::map },
+    RegisteredOp {
+        op: "map",
+        handler: core::map,
+    },
     RegisteredOp {
         op: "filter",
         handler: core::filter,
     },
-    RegisteredOp { op: "find", handler: core::find },
+    RegisteredOp {
+        op: "find",
+        handler: core::find,
+    },
     RegisteredOp {
         op: "reduce",
         handler: core::reduce,
@@ -92,21 +109,54 @@ const CORE_OPS: &[RegisteredOp] = &[
         op: "group_by",
         handler: core::group_by,
     },
-    RegisteredOp { op: "merge", handler: core::merge },
-    RegisteredOp { op: "pick", handler: core::pick },
+    RegisteredOp {
+        op: "merge",
+        handler: core::merge,
+    },
+    RegisteredOp {
+        op: "pick",
+        handler: core::pick,
+    },
     RegisteredOp {
         op: "validate_schema",
         handler: core::validate_schema,
     },
-    RegisteredOp { op: "add", handler: core::add },
-    RegisteredOp { op: "sub", handler: core::sub },
-    RegisteredOp { op: "inc", handler: core::inc },
-    RegisteredOp { op: "dec", handler: core::dec },
-    RegisteredOp { op: "eq", handler: core::eq },
-    RegisteredOp { op: "lt", handler: core::lt },
-    RegisteredOp { op: "gt", handler: core::gt },
-    RegisteredOp { op: "gte", handler: core::gte },
-    RegisteredOp { op: "lte", handler: core::lte },
+    RegisteredOp {
+        op: "add",
+        handler: core::add,
+    },
+    RegisteredOp {
+        op: "sub",
+        handler: core::sub,
+    },
+    RegisteredOp {
+        op: "inc",
+        handler: core::inc,
+    },
+    RegisteredOp {
+        op: "dec",
+        handler: core::dec,
+    },
+    RegisteredOp {
+        op: "eq",
+        handler: core::eq,
+    },
+    RegisteredOp {
+        op: "lt",
+        handler: core::lt,
+    },
+    RegisteredOp {
+        op: "gt",
+        handler: core::gt,
+    },
+    RegisteredOp {
+        op: "gte",
+        handler: core::gte,
+    },
+    RegisteredOp {
+        op: "lte",
+        handler: core::lte,
+    },
     RegisteredOp {
         op: "inc_field",
         handler: core::inc_field,
@@ -119,15 +169,30 @@ const CORE_OPS: &[RegisteredOp] = &[
         op: "set_fields",
         handler: core::set_fields,
     },
-    RegisteredOp { op: "split", handler: core::split },
-    RegisteredOp { op: "join", handler: core::join },
+    RegisteredOp {
+        op: "split",
+        handler: core::split,
+    },
+    RegisteredOp {
+        op: "join",
+        handler: core::join,
+    },
     RegisteredOp {
         op: "replace",
         handler: core::replace,
     },
-    RegisteredOp { op: "trim", handler: core::trim },
-    RegisteredOp { op: "lower", handler: core::lower },
-    RegisteredOp { op: "upper", handler: core::upper },
+    RegisteredOp {
+        op: "trim",
+        handler: core::trim,
+    },
+    RegisteredOp {
+        op: "lower",
+        handler: core::lower,
+    },
+    RegisteredOp {
+        op: "upper",
+        handler: core::upper,
+    },
     RegisteredOp {
         op: "contains",
         handler: core::contains,
@@ -185,12 +250,18 @@ pub fn is_registered_op(module: &str, op: &str) -> bool {
     match module {
         "core" => CORE_OPS.iter().any(|entry| entry.op == op),
         "http" => matches!(op, "get" | "post"),
-        "web" => matches!(op, "duckduckgo" | "google" | "xaviv" | "providers" | "capabilities"),
+        "web" => matches!(
+            op,
+            "duckduckgo" | "google" | "xaviv" | "providers" | "capabilities"
+        ),
         "websearch" => matches!(op, "search" | "research_materials" | "research_report"),
         "tcp" => matches!(op, "connect" | "send" | "receive"),
         "smtp" => matches!(op, "send_mail"),
         "sql" => matches!(op, "query" | "execute" | "transaction" | "health"),
-        "surreal" => matches!(op, "query" | "select" | "create" | "update" | "delete" | "health"),
+        "surreal" => matches!(
+            op,
+            "query" | "select" | "create" | "update" | "delete" | "health"
+        ),
         "html" => HTML_OPS.iter().any(|entry| entry.op == op),
         "json" => JSON_OPS.iter().any(|entry| entry.op == op),
         "csv" => CSV_OPS.iter().any(|entry| entry.op == op),
@@ -334,7 +405,9 @@ fn dispatch_yaml(op: &str, args: &JsonValue) -> Option<JsonValue> {
 }
 
 fn dispatch_table(op: &str, args: &JsonValue, ops: &[RegisteredOp]) -> Option<JsonValue> {
-    ops.iter().find(|entry| entry.op == op).map(|entry| (entry.handler)(args))
+    ops.iter()
+        .find(|entry| entry.op == op)
+        .map(|entry| (entry.handler)(args))
 }
 
 #[derive(Debug, Clone)]
@@ -452,24 +525,28 @@ fn arg_str_alt(args: &JsonValue, keys: &[&str]) -> Option<String> {
 
 fn arg_u64(args: &JsonValue, key: &str) -> Option<u64> {
     args.get(key)
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok())))
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+        })
         .or_else(|| {
             args.get("__input")
                 .and_then(|v| v.as_object())
                 .and_then(|obj| obj.get(key))
-                .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok())))
+                .and_then(|v| {
+                    v.as_u64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+                })
         })
 }
 
 fn arg_bool(args: &JsonValue, key: &str) -> Option<bool> {
-    args.get(key)
-        .and_then(parse_bool_value)
-        .or_else(|| {
-            args.get("__input")
-                .and_then(|v| v.as_object())
-                .and_then(|obj| obj.get(key))
-                .and_then(parse_bool_value)
-        })
+    args.get(key).and_then(parse_bool_value).or_else(|| {
+        args.get("__input")
+            .and_then(|v| v.as_object())
+            .and_then(|obj| obj.get(key))
+            .and_then(parse_bool_value)
+    })
 }
 
 fn parse_bool_value(v: &JsonValue) -> Option<bool> {
@@ -532,14 +609,11 @@ impl ResearchMaterialsRequest {
             max_results: arg_u64(args, "max_results"),
             per_source_chars: arg_u64(args, "per_source_chars"),
             include_http_body: arg_bool(args, "include_http_body"),
-            md_options: args
-                .get("md_options")
-                .cloned()
-                .or_else(|| {
-                    args.get("__input")
-                        .and_then(|v| v.as_object())
-                        .and_then(|obj| obj.get("md_options").cloned())
-                }),
+            md_options: args.get("md_options").cloned().or_else(|| {
+                args.get("__input")
+                    .and_then(|v| v.as_object())
+                    .and_then(|obj| obj.get("md_options").cloned())
+            }),
         }
     }
 
@@ -587,14 +661,11 @@ impl ResearchReportRequest {
             per_source_chars: arg_u64(args, "per_source_chars"),
             report_chars: arg_u64(args, "report_chars"),
             include_http_body: arg_bool(args, "include_http_body"),
-            md_options: args
-                .get("md_options")
-                .cloned()
-                .or_else(|| {
-                    args.get("__input")
-                        .and_then(|v| v.as_object())
-                        .and_then(|obj| obj.get("md_options").cloned())
-                }),
+            md_options: args.get("md_options").cloned().or_else(|| {
+                args.get("__input")
+                    .and_then(|v| v.as_object())
+                    .and_then(|obj| obj.get("md_options").cloned())
+            }),
         }
     }
 
@@ -754,43 +825,49 @@ mod tests {
 
     #[test]
     fn sql_query_executes_basic_select() {
-        let out = dispatch("sql", "query", &json!({
-            "connection": "sqlite::memory:",
-            "sql": "select 1"
-        }))
+        let out = dispatch(
+            "sql",
+            "query",
+            &json!({
+                "connection": "sqlite::memory:",
+                "sql": "select 1"
+            }),
+        )
         .expect("sql.query should be registered");
 
-        assert_eq!(
-            out.get("ok").and_then(|v| v.as_bool()),
-            Some(true)
-        );
+        assert_eq!(out.get("ok").and_then(|v| v.as_bool()), Some(true));
     }
 
     #[test]
     fn sql_transaction_executes_registered_path() {
-        let out = dispatch("sql", "transaction", &json!({
-            "connection": "sqlite::memory:",
-            "steps": [
-                {
-                    "sql": "select 1",
-                    "mode": "query"
-                }
-            ]
-        }))
+        let out = dispatch(
+            "sql",
+            "transaction",
+            &json!({
+                "connection": "sqlite::memory:",
+                "steps": [
+                    {
+                        "sql": "select 1",
+                        "mode": "query"
+                    }
+                ]
+            }),
+        )
         .expect("sql.transaction should be registered");
 
-        assert_eq!(
-            out.get("ok").and_then(|v| v.as_bool()),
-            Some(true)
-        );
+        assert_eq!(out.get("ok").and_then(|v| v.as_bool()), Some(true));
     }
 
     #[test]
     fn surreal_select_executes_registered_path() {
-        let out = dispatch("surreal", "select", &json!({
-            "connection": "missing_surreal_conn",
-            "thing_or_table": "doc"
-        }))
+        let out = dispatch(
+            "surreal",
+            "select",
+            &json!({
+                "connection": "missing_surreal_conn",
+                "thing_or_table": "doc"
+            }),
+        )
         .expect("surreal.select should be registered");
 
         assert_eq!(
@@ -803,11 +880,15 @@ mod tests {
 
     #[test]
     fn surreal_create_executes_registered_path() {
-        let out = dispatch("surreal", "create", &json!({
-            "connection": "missing_surreal_conn",
-            "thing_or_table": "doc",
-            "data": {"id": 1}
-        }))
+        let out = dispatch(
+            "surreal",
+            "create",
+            &json!({
+                "connection": "missing_surreal_conn",
+                "thing_or_table": "doc",
+                "data": {"id": 1}
+            }),
+        )
         .expect("surreal.create should be registered");
 
         assert_eq!(

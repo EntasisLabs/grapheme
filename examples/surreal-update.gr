@@ -10,8 +10,8 @@ query SurrealUpdate {
     }
   }
   |> surreal.update(
-    connection: $current.connection,
-    thing_or_table: $current.target,
-    data: $current.data
+    connection: $state.connection,
+    thing_or_table: $state.target,
+    data: $state.data
   )
 }

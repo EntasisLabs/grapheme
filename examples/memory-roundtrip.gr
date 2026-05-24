@@ -5,6 +5,6 @@ query MemoryRoundtrip {
     key: "greeting",
     value: { message: "Hello From Memory Module" }
   }
-  |> memory.store_context(key: $current.key, value: $current.value)
-  |> memory.load_context(key: $current.key)
+  |> memory.store_context(key: $state.key, value: $state.value)
+  |> memory.load_context(key: $state.key)
 }

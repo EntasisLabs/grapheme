@@ -1,0 +1,19 @@
+import sql from "grapheme/sql"
+import core from "grapheme/core"
+import smtp from "grapheme/smtp"
+
+query WeeklySqlKpiReportAlert {
+  set {
+    connection: "sqlite::memory:",
+    report_sql: "with weekly_kpis(day, signups, churn_rate, mrr) as ( values ('2026-05-12', 82, 0.021, 12400), ('2026-05-13', 77, 0.024, 12150), ('2026-05-14', 74, 0.027, 11890), ('2026-05-15', 61, 0.071, 10300), ('2026-05-16', 58, 0.083, 9900), ('2026-05-17', 70, 0.032, 11620), ('2026-05-18', 75, 0.029, 11980) ), analyzed as ( select day, signups, churn_rate, mrr, case when churn_rate > 0.050 or mrr < 11000 then 1 else 0 end as is_anomaly from weekly_kpis ) select printf('%s | signups=%d | churn=%.2f%% | mrr=$%.0f | %s', day, signups, churn_rate * 100.0, mrr, case when is_anomaly = 1 then 'ALERT' else 'ok' end) as line from analyzed union all select printf('SUMMARY | anomaly_count=%d | avg_signups=%.1f | avg_churn=%.2f%% | avg_mrr=$%.0f', sum(is_anomaly), avg(signups), avg(churn_rate) * 100.0, avg(mrr)) as line from analyzed"
+  }
+  |> sql.query(connection: $state.connection, sql: $state.report_sql)
+  |> core.get_path(path: "rows")
+  |> core.map(field: "line")
+  |> core.join(sep: "\n")
+  |> smtp.send_mail(
+    to: "ops-team@example.com",
+    subject: "Weekly KPI report + anomaly summary",
+    body: $state.text
+  )
+}

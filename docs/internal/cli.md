@@ -17,11 +17,12 @@ grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules]
                     [--trace-profile lean|debug] [--trace-steps N]
                     [--trace-projection minimal|full] [--trace-max-string-bytes N]
 grapheme modules [--yaml|--json]
-grapheme modules search <query> [--explain] [--detail concise|full] [--top N] [--min-score X] [--yaml|--json]
+grapheme modules search <query> [--explain] [--detail concise|full] [--top N] [--min-score X] [--include-experimental] [--yaml|--json]
 grapheme modules ops <query> [--yaml|--json]
 grapheme modules info <module> [--yaml|--json]
 grapheme modules types <module> [--yaml|--json]
 grapheme modules examples <module> [--yaml|--json]
+grapheme telemetry [summarize|export] [--out path] [--yaml|--json]
 ```
 
 ## Commands
@@ -230,6 +231,12 @@ cargo run -- modules search web --detail concise --yaml
 cargo run -- modules search web --detail concise --top 1 --min-score 90 --yaml
 ```
 
+Opt in to experimental operation matches when needed:
+
+```bash
+cargo run -- modules search xaviv --include-experimental --yaml
+```
+
 `--explain` includes guidance fields for each match such as:
 
 - `why_matched`
@@ -243,6 +250,7 @@ cargo run -- modules search web --detail concise --top 1 --min-score 90 --yaml
 `--detail full` (default explain detail tier) returns full guidance fields.
 `--top` limits match count after ranking.
 `--min-score` filters low-relevance matches.
+`--include-experimental` opts into matching experimental operations; default behavior prefers stable operations.
 
 Search operations across modules:
 
@@ -295,6 +303,43 @@ For the expanded core std helpers, discover examples with:
 cargo run -- modules examples core
 ```
 
+### `telemetry`
+
+Summarize local opt-in CLI telemetry captured during command usage.
+
+```bash
+cargo run -- telemetry summarize --yaml
+cargo run -- telemetry summarize --json
+```
+
+Export a redacted, shareable report bundle (summary + redacted events):
+
+```bash
+cargo run -- telemetry export --json
+cargo run -- telemetry export --yaml
+cargo run -- telemetry export --out /tmp/grapheme-report.json --json
+```
+
+Telemetry defaults to local JSONL at `.grapheme/telemetry/events.jsonl`.
+
+`telemetry summarize` includes TTFS funnel metrics:
+
+- `ttfs_start_count`
+- `ttfs_success_count`
+- `ttfs_failure_count`
+- `ttfs_success_rate`
+- `failure_stage_counts`
+
+`telemetry export` writes report files to:
+
+- `.grapheme/telemetry/report.json` for `--json`
+- `.grapheme/telemetry/report.yaml` for `--yaml`
+
+Export redaction behavior:
+
+- `examples/...` run targets are preserved
+- non-example run targets are redacted to `<redacted>/<file-name>`
+
 ## Environment Variables
 
 Runtime policy env vars consumed by CLI:
@@ -305,6 +350,11 @@ Runtime policy env vars consumed by CLI:
 - `GRAPHEME_ALLOWED_TCP_TARGETS` (comma-separated host:port entries)
 - `GRAPHEME_ALLOWED_SMTP_DOMAINS` (comma-separated domains)
 - `GRAPHEME_ALLOWED_SECRETS` (comma-separated secret names)
+
+Telemetry env vars:
+
+- `GRAPHEME_TELEMETRY` (`1|true|yes|on` to enable local telemetry capture)
+- `GRAPHEME_TELEMETRY_PATH` (optional JSONL output path override)
 
 Example:
 

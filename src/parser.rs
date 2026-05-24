@@ -14,7 +14,7 @@ use crate::error::GraphemeError;
 // ── Pest plumbing ─────────────────────────────────────────────
 
 #[derive(Parser)]
-#[grammar = "grapheme.pest"]
+#[grammar = "../crates/grapheme-compiler/src/grapheme.pest"]
 pub struct GraphemeParser;
 
 // ── Entry Point ───────────────────────────────────────────────
@@ -416,6 +416,6 @@ fn parse_directive(pair: Pair<Rule>) -> Result<Directive, GraphemeError> {
 
 fn parse_string_lit(pair: Pair<Rule>) -> String {
     let raw = pair.as_str();
-    // Strip surrounding quotes
-    raw[1..raw.len()-1].to_string()
+    serde_json::from_str::<String>(raw)
+        .unwrap_or_else(|_| raw[1..raw.len()-1].to_string())
 }

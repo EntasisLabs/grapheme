@@ -35,11 +35,7 @@ pub fn query(args: &JsonValue) -> JsonValue {
     {
         Ok(rt) => rt,
         Err(e) => {
-            return error_payload(
-                "runtime_error",
-                "tokio_runtime_init_failed",
-                &e.to_string(),
-            )
+            return error_payload("runtime_error", "tokio_runtime_init_failed", &e.to_string())
         }
     };
 
@@ -87,8 +83,7 @@ pub fn query(args: &JsonValue) -> JsonValue {
             if payload_bytes > max_payload_bytes as usize {
                 return Err(format!(
                     "payload size {} exceeds max_payload_bytes {}",
-                    payload_bytes,
-                    max_payload_bytes
+                    payload_bytes, max_payload_bytes
                 ));
             }
         }
@@ -135,11 +130,7 @@ pub fn execute(args: &JsonValue) -> JsonValue {
     {
         Ok(rt) => rt,
         Err(e) => {
-            return error_payload(
-                "runtime_error",
-                "tokio_runtime_init_failed",
-                &e.to_string(),
-            )
+            return error_payload("runtime_error", "tokio_runtime_init_failed", &e.to_string())
         }
     };
 
@@ -191,11 +182,7 @@ pub fn health(args: &JsonValue) -> JsonValue {
     {
         Ok(rt) => rt,
         Err(e) => {
-            return error_payload(
-                "runtime_error",
-                "tokio_runtime_init_failed",
-                &e.to_string(),
-            )
+            return error_payload("runtime_error", "tokio_runtime_init_failed", &e.to_string())
         }
     };
 
@@ -246,36 +233,53 @@ pub fn transaction(args: &JsonValue) -> JsonValue {
     {
         Ok(rt) => rt,
         Err(e) => {
-            return error_payload(
-                "runtime_error",
-                "tokio_runtime_init_failed",
-                &e.to_string(),
-            )
+            return error_payload("runtime_error", "tokio_runtime_init_failed", &e.to_string())
         }
     };
 
     let result: Result<JsonValue, JsonValue> = rt.block_on(async {
         ensure_any_drivers();
-        let pool = AnyPool::connect(&resolved)
-            .await
-            .map_err(|e| error_payload("connection_error", "sql_connect_failed", &format!("connect failed: {e}")))?;
+        let pool = AnyPool::connect(&resolved).await.map_err(|e| {
+            error_payload(
+                "connection_error",
+                "sql_connect_failed",
+                &format!("connect failed: {e}"),
+            )
+        })?;
 
-        let mut tx = pool
-            .begin()
-            .await
-            .map_err(|e| error_payload("query_error", "sql_transaction_begin_failed", &format!("begin failed: {e}")))?;
+        let mut tx = pool.begin().await.map_err(|e| {
+            error_payload(
+                "query_error",
+                "sql_transaction_begin_failed",
+                &format!("begin failed: {e}"),
+            )
+        })?;
 
         let mut results = Vec::with_capacity(steps.len());
 
         for (idx, step) in steps.iter().enumerate() {
-            let query = bind_params(sqlx::query(&step.sql), &step.params)
-                .map_err(|e| transaction_failure_payload(&connection, &results, idx, started, "sql_params_invalid", &e))?;
+            let query = bind_params(sqlx::query(&step.sql), &step.params).map_err(|e| {
+                transaction_failure_payload(
+                    &connection,
+                    &results,
+                    idx,
+                    started,
+                    "sql_params_invalid",
+                    &e,
+                )
+            })?;
 
             if step.mode == TransactionStepMode::Query {
-                let rows = query
-                    .fetch_all(&mut *tx)
-                    .await
-                    .map_err(|e| transaction_failure_payload(&connection, &results, idx, started, "sql_transaction_step_failed", &format!("query step failed: {e}")))?;
+                let rows = query.fetch_all(&mut *tx).await.map_err(|e| {
+                    transaction_failure_payload(
+                        &connection,
+                        &results,
+                        idx,
+                        started,
+                        "sql_transaction_step_failed",
+                        &format!("query step failed: {e}"),
+                    )
+                })?;
 
                 let mut out_rows = Vec::with_capacity(rows.len());
                 for row in rows {
@@ -292,10 +296,16 @@ pub fn transaction(args: &JsonValue) -> JsonValue {
                     "rows": out_rows,
                 }));
             } else {
-                let outcome = query
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|e| transaction_failure_payload(&connection, &results, idx, started, "sql_transaction_step_failed", &format!("execute step failed: {e}")))?;
+                let outcome = query.execute(&mut *tx).await.map_err(|e| {
+                    transaction_failure_payload(
+                        &connection,
+                        &results,
+                        idx,
+                        started,
+                        "sql_transaction_step_failed",
+                        &format!("execute step failed: {e}"),
+                    )
+                })?;
 
                 results.push(json!({
                     "mode": "execute",
@@ -304,9 +314,13 @@ pub fn transaction(args: &JsonValue) -> JsonValue {
             }
         }
 
-        tx.commit()
-            .await
-            .map_err(|e| error_payload("query_error", "sql_transaction_commit_failed", &format!("commit failed: {e}")))?;
+        tx.commit().await.map_err(|e| {
+            error_payload(
+                "query_error",
+                "sql_transaction_commit_failed",
+                &format!("commit failed: {e}"),
+            )
+        })?;
 
         Ok(json!({
             "ok": true,
@@ -338,14 +352,11 @@ fn required_string(args: &JsonValue, key: &str) -> Result<String, String> {
 }
 
 fn optional_params(args: &JsonValue) -> Result<Vec<JsonValue>, String> {
-    let candidate = args
-        .get("params")
-        .cloned()
-        .or_else(|| {
-            args.get("__input")
-                .and_then(|v| v.as_object())
-                .and_then(|obj| obj.get("params").cloned())
-        });
+    let candidate = args.get("params").cloned().or_else(|| {
+        args.get("__input")
+            .and_then(|v| v.as_object())
+            .and_then(|obj| obj.get("params").cloned())
+    });
 
     match candidate {
         None => Ok(Vec::new()),
@@ -356,7 +367,10 @@ fn optional_params(args: &JsonValue) -> Result<Vec<JsonValue>, String> {
 
 fn optional_u64(args: &JsonValue, key: &str) -> Option<u64> {
     args.get(key)
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok())))
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+        })
         .or_else(|| {
             args.get("__input")
                 .and_then(|v| v.as_object())
@@ -477,7 +491,11 @@ fn resolve_connection(connection: &str) -> Result<String, String> {
         "GRAPHEME_SQL_CONNECTION_{}",
         connection
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
+            .map(|c| if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            })
             .collect::<String>()
     );
 
@@ -634,7 +652,10 @@ mod tests {
             .expect("rows should be present");
         assert_eq!(rows.len(), 1);
 
-        let row = rows.first().and_then(|v| v.as_object()).expect("row object");
+        let row = rows
+            .first()
+            .and_then(|v| v.as_object())
+            .expect("row object");
         assert_eq!(row.get("n").and_then(|v| v.as_i64()), Some(42));
         assert_eq!(row.get("t").and_then(|v| v.as_str()), Some("hello"));
         let b = row.get("b").cloned().unwrap_or(JsonValue::Null);

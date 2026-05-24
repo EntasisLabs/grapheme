@@ -1,6 +1,6 @@
 [package]
 name = "grapheme-stdlib"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Standard library operation implementations for Grapheme"
 license = "Apache-2.0"
@@ -19,4 +19,4 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "any", "sqlite", "
 surrealdb = { version = "3.0.5", default-features = false, features = ["protocol-http", "rustls"] }
 
 [dev-dependencies]
-grapheme-signatures = { path = "../grapheme-signatures", version = "0.2.0" }
+grapheme-signatures = { path = "../grapheme-signatures", version = "0.3.0" }

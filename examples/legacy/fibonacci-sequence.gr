@@ -3,6 +3,6 @@ query FibonacciSequence {
   |> PrintFib
 }
 
-iterator PrintFib on Any @loop(each: "$current.items", merge: "none") {
-  core.echo(message: "fib:{$current}")
+iterator PrintFib on Any @loop(each: "$state.items", merge: "none") {
+  core.echo(message: "fib:{$item}")
 }

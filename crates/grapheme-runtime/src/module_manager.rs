@@ -96,7 +96,9 @@ pub enum ModuleLoadError {
         module_id: String,
         missing_ops: Vec<String>,
     },
-    #[error("module '{module_id}' activation denied by capability policy: {denied_capabilities:?}")]
+    #[error(
+        "module '{module_id}' activation denied by capability policy: {denied_capabilities:?}"
+    )]
     PolicyDeniedCapabilities {
         module_id: String,
         denied_capabilities: Vec<String>,
@@ -149,11 +151,7 @@ impl ModuleManager {
             state: ModuleLifecycleState::Loaded,
         };
 
-        self.emit_event(
-            ModuleLifecycleEventKind::Loaded,
-            &generation,
-            None,
-        );
+        self.emit_event(ModuleLifecycleEventKind::Loaded, &generation, None);
 
         let active_abi = self
             .slots
@@ -170,10 +168,7 @@ impl ModuleManager {
             if req.compatibility_mode == CompatibilityMode::Strict && active_abi != generation.abi {
                 generation.state = ModuleLifecycleState::Failed;
                 {
-                    let slot = self
-                        .slots
-                        .entry(req.module_id.clone())
-                        .or_default();
+                    let slot = self.slots.entry(req.module_id.clone()).or_default();
                     slot.generations.insert(generation_id, generation.clone());
                 }
                 self.emit_event(
@@ -190,19 +185,12 @@ impl ModuleManager {
         }
 
         generation.state = ModuleLifecycleState::Validated;
-        self.emit_event(
-            ModuleLifecycleEventKind::Validated,
-            &generation,
-            None,
-        );
+        self.emit_event(ModuleLifecycleEventKind::Validated, &generation, None);
 
         let mut drained_generation: Option<ModuleGeneration> = None;
 
         {
-            let slot = self
-                .slots
-                .entry(req.module_id.clone())
-                .or_default();
+            let slot = self.slots.entry(req.module_id.clone()).or_default();
 
             if let Some(active_id) = slot.active_generation {
                 if let Some(active_generation) = slot.generations.get_mut(&active_id) {
@@ -218,18 +206,10 @@ impl ModuleManager {
         }
 
         if let Some(draining) = drained_generation.as_ref() {
-            self.emit_event(
-                ModuleLifecycleEventKind::Draining,
-                draining,
-                None,
-            );
+            self.emit_event(ModuleLifecycleEventKind::Draining, draining, None);
         }
 
-        self.emit_event(
-            ModuleLifecycleEventKind::Activated,
-            &generation,
-            None,
-        );
+        self.emit_event(ModuleLifecycleEventKind::Activated, &generation, None);
         self.retire_stale_draining_generations(&req.module_id);
 
         Ok(ActivationResult {
@@ -264,12 +244,11 @@ impl ModuleManager {
                 active_generation.state = ModuleLifecycleState::Failed;
             }
 
-            let prior = slot
-                .generations
-                .get_mut(&prior_id)
-                .ok_or_else(|| ModuleLoadError::NoPriorGeneration {
+            let prior = slot.generations.get_mut(&prior_id).ok_or_else(|| {
+                ModuleLoadError::NoPriorGeneration {
                     module_id: module_id.to_string(),
-                })?;
+                }
+            })?;
             prior.state = ModuleLifecycleState::Active;
 
             let result = ActivationResult {
@@ -401,7 +380,10 @@ mod tests {
             })
             .expect("activation should succeed");
 
-        assert_eq!(manager.active_generation("http"), Some(result.generation_id));
+        assert_eq!(
+            manager.active_generation("http"),
+            Some(result.generation_id)
+        );
         assert!(manager
             .lifecycle_events()
             .iter()
@@ -437,13 +419,10 @@ mod tests {
             .expect_err("incompatible ABI should fail in strict mode");
 
         assert!(matches!(err, ModuleLoadError::AbiIncompatible { .. }));
-        assert!(manager
-            .lifecycle_events()
-            .iter()
-            .any(|e| {
-                e.kind == ModuleLifecycleEventKind::ActivationFailed
-                    && e.reason.as_deref() == Some("abi_incompatible")
-            }));
+        assert!(manager.lifecycle_events().iter().any(|e| {
+            e.kind == ModuleLifecycleEventKind::ActivationFailed
+                && e.reason.as_deref() == Some("abi_incompatible")
+        }));
 
         let _ = fs::remove_file(wasm_a);
         let _ = fs::remove_file(wasm_b);
@@ -557,14 +536,11 @@ mod tests {
             })
             .expect("third activation should succeed");
 
-        assert!(manager
-            .lifecycle_events()
-            .iter()
-            .any(|e| {
-                e.kind == ModuleLifecycleEventKind::Retired
-                    && e.module_id == "http"
-                    && e.generation_id == first.generation_id
-            }));
+        assert!(manager.lifecycle_events().iter().any(|e| {
+            e.kind == ModuleLifecycleEventKind::Retired
+                && e.module_id == "http"
+                && e.generation_id == first.generation_id
+        }));
 
         let _ = fs::remove_file(wasm_a);
         let _ = fs::remove_file(wasm_b);

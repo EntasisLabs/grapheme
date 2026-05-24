@@ -6,8 +6,8 @@ use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
 
 use super::hir::{HirExecutable, HirExecutableKind, HirProgram, HirStateMachineDef, HirStep};
-use crate::ast::TypeRef;
 use crate::ast::ImportKind;
+use crate::ast::TypeRef;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LintWarning {
@@ -45,11 +45,8 @@ pub fn verify_hir_with_lints_mode(
 
     let mut lint_warnings = Vec::new();
 
-    let executable_names: HashSet<String> = hir
-        .executable_defs
-        .iter()
-        .map(|d| d.name.clone())
-        .collect();
+    let executable_names: HashSet<String> =
+        hir.executable_defs.iter().map(|d| d.name.clone()).collect();
 
     let executable_by_name = hir
         .executable_defs
@@ -93,11 +90,7 @@ pub fn verify_hir_with_lints_mode(
         .map(|enum_def| {
             (
                 enum_def.name.clone(),
-                enum_def
-                    .members
-                    .iter()
-                    .cloned()
-                    .collect::<HashSet<_>>(),
+                enum_def.members.iter().cloned().collect::<HashSet<_>>(),
             )
         })
         .collect::<HashMap<_, _>>();
@@ -296,12 +289,14 @@ fn apply_executable_kind_policy(
 }
 
 fn is_bridge_write_like_step(step: &HirStep) -> bool {
-    step
-        .module
+    step.module
         .as_deref()
         .map(|m| m.eq_ignore_ascii_case("core"))
         .unwrap_or(false)
-    && matches!(step.op.as_str(), "set_path" | "inc_field" | "dec_field" | "apply_lane")
+        && matches!(
+            step.op.as_str(),
+            "set_path" | "inc_field" | "dec_field" | "apply_lane"
+        )
 }
 
 fn executable_kind_label(kind: &HirExecutableKind) -> &'static str {
@@ -344,7 +339,7 @@ fn emit_echo_shape_clobber_lints(
             out.push(LintWarning {
                 code: "llm-shape-clobber".to_string(),
                 message: format!(
-                    "definition '{}', pipeline {}, step {} uses core.echo before step {} reads $current.<field>; core.echo rewrites state shape. Consider core.tap for non-mutating diagnostics.",
+                    "definition '{}', pipeline {}, step {} uses core.echo before step {} reads $state.<field>; core.echo rewrites state shape. Consider core.tap for non-mutating diagnostics.",
                     def_name,
                     pipeline_idx,
                     idx,
@@ -361,8 +356,7 @@ fn emit_echo_shape_clobber_lints(
 }
 
 fn is_core_echo(step: &HirStep) -> bool {
-    step
-        .module
+    step.module
         .as_deref()
         .map(|m| m.eq_ignore_ascii_case("core"))
         .unwrap_or(false)
@@ -378,7 +372,10 @@ fn verify_typed_output_field_population(
     struct_fields_by_name: &HashMap<String, HashSet<String>>,
     required_struct_fields_by_name: &HashMap<String, HashSet<String>>,
 ) -> Result<(), GraphemeError> {
-    if !matches!(def_kind, HirExecutableKind::Query | HirExecutableKind::Mutation) {
+    if !matches!(
+        def_kind,
+        HirExecutableKind::Query | HirExecutableKind::Mutation
+    ) {
         return Ok(());
     }
 
@@ -773,7 +770,11 @@ fn verify_typed_current_field_access(
     collect_current_field_refs(&step.args, &mut refs);
 
     for current_ref in refs {
-        if let Some(field) = current_ref.strip_prefix("current.") {
+        let state_field = current_ref
+            .strip_prefix("state.")
+            .or_else(|| current_ref.strip_prefix("current."));
+
+        if let Some(field) = state_field {
             if field.is_empty() {
                 continue;
             }
@@ -815,10 +816,18 @@ fn collect_current_field_refs(value: &JsonValue, out: &mut Vec<String>) {
 }
 
 fn collect_current_refs_from_text(text: &str, out: &mut Vec<String>) {
-    for token in text
-        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '$' || c == '_' || c == '.'))
+    for token in
+        text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '$' || c == '_' || c == '.'))
     {
-        if token == "$current" || token.starts_with("$current.") {
+        if token == "$state"
+            || token.starts_with("$state.")
+            || token == "$current"
+            || token.starts_with("$current.")
+            || token == "$item"
+            || token.starts_with("$item.")
+            || token == "$loop"
+            || token.starts_with("$loop.")
+        {
             out.push(token.trim_start_matches('$').to_string());
         }
     }
@@ -901,12 +910,16 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
         )));
     }
 
-    let args = def.loop_args.as_ref().and_then(|v| v.as_object()).ok_or_else(|| {
-        GraphemeError::TypeError(format!(
-            "definition '{}': @loop requires named args",
-            def.name
-        ))
-    })?;
+    let args = def
+        .loop_args
+        .as_ref()
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}': @loop requires named args",
+                def.name
+            ))
+        })?;
 
     for key in args.keys() {
         if key != "max" && key != "each" && key != "until" && key != "merge" {
@@ -948,9 +961,13 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
             )));
         }
 
-        if selector != "$current" && !selector.starts_with("$current.") {
+        if selector != "$state"
+            && !selector.starts_with("$state.")
+            && selector != "$current"
+            && !selector.starts_with("$current.")
+        {
             return Err(GraphemeError::TypeError(format!(
-                "definition '{}': @loop each must start with '$current'",
+                "definition '{}': @loop each must start with '$state'",
                 def.name
             )));
         }
@@ -973,12 +990,15 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
             }
         }
 
-        let field = until_obj.get("field").and_then(|v| v.as_str()).ok_or_else(|| {
-            GraphemeError::TypeError(format!(
-                "definition '{}': @loop until.field must be a string",
-                def.name
-            ))
-        })?;
+        let field = until_obj
+            .get("field")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                GraphemeError::TypeError(format!(
+                    "definition '{}': @loop until.field must be a string",
+                    def.name
+                ))
+            })?;
 
         if field.trim().is_empty() {
             return Err(GraphemeError::TypeError(format!(
@@ -1052,12 +1072,16 @@ fn verify_retry_directive(
         )));
     }
 
-    let args = def.retry_args.as_ref().and_then(|v| v.as_object()).ok_or_else(|| {
-        GraphemeError::TypeError(format!(
-            "definition '{}': @retry requires named args",
-            def.name
-        ))
-    })?;
+    let args = def
+        .retry_args
+        .as_ref()
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}': @retry requires named args",
+                def.name
+            ))
+        })?;
 
     for key in args.keys() {
         if key != "max" && key != "backoff_ms" && key != "on_fail" {
@@ -1100,11 +1124,11 @@ fn verify_retry_directive(
         .get("on_fail")
         .and_then(|v| parse_branch_target(Some(v)))
         .ok_or_else(|| {
-        GraphemeError::TypeError(format!(
-            "definition '{}': @retry on_fail must be a target (string or symbol)",
-            def.name
-        ))
-    })?;
+            GraphemeError::TypeError(format!(
+                "definition '{}': @retry on_fail must be a target (string or symbol)",
+                def.name
+            ))
+        })?;
 
     if on_fail != "$return" && !executable_names.contains(&on_fail) {
         return Err(GraphemeError::TypeError(format!(
@@ -1138,12 +1162,16 @@ fn verify_timeout_directive(
         )));
     }
 
-    let args = def.timeout_args.as_ref().and_then(|v| v.as_object()).ok_or_else(|| {
-        GraphemeError::TypeError(format!(
-            "definition '{}': @timeout requires named args",
-            def.name
-        ))
-    })?;
+    let args = def
+        .timeout_args
+        .as_ref()
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}': @timeout requires named args",
+                def.name
+            ))
+        })?;
 
     for key in args.keys() {
         if key != "ms" && key != "on_timeout" {
@@ -1171,11 +1199,11 @@ fn verify_timeout_directive(
         .get("on_timeout")
         .and_then(|v| parse_branch_target(Some(v)))
         .ok_or_else(|| {
-        GraphemeError::TypeError(format!(
-            "definition '{}': @timeout on_timeout must be a target (string or symbol)",
-            def.name
-        ))
-    })?;
+            GraphemeError::TypeError(format!(
+                "definition '{}': @timeout on_timeout must be a target (string or symbol)",
+                def.name
+            ))
+        })?;
 
     if on_timeout != "$return" && !executable_names.contains(&on_timeout) {
         return Err(GraphemeError::TypeError(format!(
@@ -1367,7 +1395,8 @@ fn verify_flow_branch_step(
     })?;
 
     for arg_name in args.keys() {
-        if arg_name != "when" && arg_name != "then" && arg_name != "else" && arg_name != "max_depth" {
+        if arg_name != "when" && arg_name != "then" && arg_name != "else" && arg_name != "max_depth"
+        {
             return Err(GraphemeError::TypeError(format!(
                 "definition '{}', pipeline {}, step {}: unknown arg '{}' for flow.branch",
                 def_name, pipeline_idx, step_idx, arg_name
@@ -1375,12 +1404,15 @@ fn verify_flow_branch_step(
         }
     }
 
-    let when = args.get("when").and_then(|v| v.as_object()).ok_or_else(|| {
-        GraphemeError::TypeError(format!(
-            "definition '{}', pipeline {}, step {}: flow.branch requires object arg 'when'",
-            def_name, pipeline_idx, step_idx
-        ))
-    })?;
+    let when = args
+        .get("when")
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: flow.branch requires object arg 'when'",
+                def_name, pipeline_idx, step_idx
+            ))
+        })?;
 
     let field = when.get("field").and_then(|v| v.as_str()).ok_or_else(|| {
         GraphemeError::TypeError(format!(
@@ -1418,7 +1450,7 @@ fn verify_flow_branch_step(
         struct_field_types_by_name,
         enum_members_by_name,
     ) {
-        enum_context = Some((field.to_string(), enum_name.clone()));
+        enum_context = Some((strip_scope_prefix(field).to_string(), enum_name.clone()));
         if cmp_key != "eq" {
             return Err(GraphemeError::TypeError(format!(
                 "definition '{}', pipeline {}, step {}: enum field '{}' only supports eq comparator",
@@ -1464,7 +1496,14 @@ fn verify_flow_branch_step(
         ))
     })?;
 
-    verify_branch_target(def_name, pipeline_idx, step_idx, "then", &then_target, executable_names)?;
+    verify_branch_target(
+        def_name,
+        pipeline_idx,
+        step_idx,
+        "then",
+        &then_target,
+        executable_names,
+    )?;
 
     if let Some((enum_field, enum_name)) = enum_context.as_ref() {
         if let Some(sm) = state_machines_by_enum.get(enum_name) {
@@ -1490,7 +1529,14 @@ fn verify_flow_branch_step(
                 def_name, pipeline_idx, step_idx
             ))
         })?;
-        verify_branch_target(def_name, pipeline_idx, step_idx, "else", &else_target, executable_names)?;
+        verify_branch_target(
+            def_name,
+            pipeline_idx,
+            step_idx,
+            "else",
+            &else_target,
+            executable_names,
+        )?;
     }
 
     if let Some(max_depth) = args.get("max_depth") {
@@ -1561,7 +1607,11 @@ fn verify_flow_match_step(
     })?;
 
     for arg_name in args.keys() {
-        if arg_name != "field" && arg_name != "cases" && arg_name != "default" && arg_name != "max_depth" {
+        if arg_name != "field"
+            && arg_name != "cases"
+            && arg_name != "default"
+            && arg_name != "max_depth"
+        {
             return Err(GraphemeError::TypeError(format!(
                 "definition '{}', pipeline {}, step {}: unknown arg '{}' for flow.match",
                 def_name, pipeline_idx, step_idx, arg_name
@@ -1583,12 +1633,15 @@ fn verify_flow_match_step(
         )));
     }
 
-    let cases = args.get("cases").and_then(|v| v.as_array()).ok_or_else(|| {
-        GraphemeError::TypeError(format!(
-            "definition '{}', pipeline {}, step {}: flow.match cases must be an array",
-            def_name, pipeline_idx, step_idx
-        ))
-    })?;
+    let cases = args
+        .get("cases")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: flow.match cases must be an array",
+                def_name, pipeline_idx, step_idx
+            ))
+        })?;
 
     if cases.is_empty() {
         return Err(GraphemeError::TypeError(format!(
@@ -1610,7 +1663,7 @@ fn verify_flow_match_step(
         struct_field_types_by_name,
         enum_members_by_name,
     );
-    let enum_field = field.to_string();
+    let enum_field = strip_scope_prefix(field).to_string();
 
     for (case_idx, case) in cases.iter().enumerate() {
         let case_obj = case.as_object().ok_or_else(|| {
@@ -1768,12 +1821,15 @@ fn verify_match_target_value(
         }
     }
 
-    let field = nested.get("field").and_then(|v| v.as_str()).ok_or_else(|| {
-        GraphemeError::TypeError(format!(
-            "definition '{}', pipeline {}, step {}: nested match field must be a string",
-            def_name, pipeline_idx, step_idx
-        ))
-    })?;
+    let field = nested
+        .get("field")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: nested match field must be a string",
+                def_name, pipeline_idx, step_idx
+            ))
+        })?;
 
     if field.trim().is_empty() {
         return Err(GraphemeError::TypeError(format!(
@@ -1782,12 +1838,15 @@ fn verify_match_target_value(
         )));
     }
 
-    let cases = nested.get("cases").and_then(|v| v.as_array()).ok_or_else(|| {
-        GraphemeError::TypeError(format!(
-            "definition '{}', pipeline {}, step {}: nested match cases must be an array",
-            def_name, pipeline_idx, step_idx
-        ))
-    })?;
+    let cases = nested
+        .get("cases")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: nested match cases must be an array",
+                def_name, pipeline_idx, step_idx
+            ))
+        })?;
 
     if cases.is_empty() {
         return Err(GraphemeError::TypeError(format!(
@@ -1894,7 +1953,8 @@ fn resolve_enum_name_for_when_field(
     };
 
     let field_types = struct_field_types_by_name.get(input_type_name)?;
-    let root_field = field.split('.').next().unwrap_or(field);
+    let normalized = strip_scope_prefix(field);
+    let root_field = normalized.split('.').next().unwrap_or(normalized);
     let TypeRef::Named(field_type_name, _) = field_types.get(root_field)? else {
         return None;
     };
@@ -1904,6 +1964,15 @@ fn resolve_enum_name_for_when_field(
     } else {
         None
     }
+}
+
+fn strip_scope_prefix(field: &str) -> &str {
+    field
+        .strip_prefix("current.")
+        .or_else(|| field.strip_prefix("state."))
+        .or_else(|| field.strip_prefix("item."))
+        .or_else(|| field.strip_prefix("loop."))
+        .unwrap_or(field)
 }
 
 fn parse_enum_member_value(value: &JsonValue) -> Option<&str> {
@@ -1966,7 +2035,10 @@ fn verify_branch_target_transition_from_status(
     Ok(())
 }
 
-fn first_literal_field_assignment<'a>(executable: &'a HirExecutable, field: &str) -> Option<&'a str> {
+fn first_literal_field_assignment<'a>(
+    executable: &'a HirExecutable,
+    field: &str,
+) -> Option<&'a str> {
     for pipeline in &executable.pipelines {
         for step in &pipeline.steps {
             let Some(module) = step.module.as_deref() else {

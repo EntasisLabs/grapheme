@@ -1,4 +1,4 @@
 query CsvToJsonEnvelope {
   csv.to_list(text: "id,name\n1,ana\n2,ben")
-  |> core.merge(right: { rows: $current })
+  |> core.merge(right: { rows: $state })
 }

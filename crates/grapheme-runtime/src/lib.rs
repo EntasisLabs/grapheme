@@ -17,11 +17,12 @@ pub mod wasix_backend;
 pub use error::RuntimeError;
 pub use host::{CapabilityCall, CapabilityHost, HostCallError};
 pub use module_manager::{
-	ActivationResult, CompatibilityMode, LoadModuleRequest, ModuleGeneration,
-	ModuleLifecycleEvent, ModuleLifecycleEventKind, ModuleLifecycleState, ModuleLoadError,
-	ModuleManager,
+    ActivationResult, CompatibilityMode, LoadModuleRequest, ModuleGeneration, ModuleLifecycleEvent,
+    ModuleLifecycleEventKind, ModuleLifecycleState, ModuleLoadError, ModuleManager,
 };
-pub use module_manifest::{core_v1_manifests, EffectKind, ExportedOp, ModuleAbi, ModuleManifest, ResourceLimits};
+pub use module_manifest::{
+    core_v1_manifests, EffectKind, ExportedOp, ModuleAbi, ModuleManifest, ResourceLimits,
+};
 pub use module_registry::{ModuleBinding, ModuleRegistry, ResolvedModuleCall};
 pub use policy::PolicyGuard;
 pub use runtime::{RuntimeEngine, RuntimeOptions};
