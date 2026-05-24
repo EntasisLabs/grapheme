@@ -1,4 +1,4 @@
-query HttpGetGoogleMarkdown {
+glyph HttpGetGoogleMarkdown {
   set { url: "https://medium.com/@apsingiakshay46/stategraph-to-build-build-complex-workflows-involving-llms-8f77e7e03236" }
   |> http.get(url: $current.url)
   |> core.pick(fields: ["body"], input: $current)
