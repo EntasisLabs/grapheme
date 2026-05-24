@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (for example v0.1.0). Leave empty to use latest tag ref when triggered from tag push."
+        description: "Release tag (for example v0.4.0). Required when publishing from manual dispatch."
         required: false
         default: ""
       repo:
@@ -102,7 +102,8 @@ jobs:
           elif [[ -n "${{ inputs.tag }}" ]]; then
             echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=v0.0.0-dev" >> "$GITHUB_OUTPUT"
+            echo "Manual publish requires --tag input" >&2
+            exit 1
           fi
 
       - name: Create or update release

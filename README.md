@@ -1,39 +1,29 @@
 # Grapheme
 
-Grapheme is an AI workflow language and governed runtime platform.
+Grapheme is a language and runtime for building governed automation workflows with explicit control flow, typed transitions, and capability-aware execution.
 
-It compiles `.gr` programs into verified MIR artifacts and executes capability calls through a governed runtime with host-backed and Wasix-backed module paths.
+Write workflows in `.gr`, compile them into verified MIR artifacts, and run them with policy controls across host-backed and Wasix-backed module paths.
 
-Status: production-hardening phase.
+## What You Can Build
 
-## Choose Your Path
+- Operational runbooks that branch and recover safely (`if`, `match`, `@loop`, `@retry`, `@timeout`).
+- Data and integration pipelines with explicit state transitions (`set`, `transition`, typed state machines).
+- Policy-scoped automations that call HTTP, SQL, SMTP, secrets, TCP, memory, and custom modules.
+- Developer workflows with built-in CLI + LSP + VS Code support.
 
-- Language author: `docs/quickstart.md` -> `docs/language-tour.md` -> `docs/playbooks.md`
-- Runtime operator: `docs/internal/runtime-policy.md` -> `docs/internal/modules.md` -> `docs/internal/native-modules.md`
-- SDK embedder (Rust): `docs/internal/sdk.md` -> `docs/internal/architecture.md` -> `docs/internal/governance/rustdoc-readiness.md`
-- Editor user (LSP/VS Code): `docs/internal/lsp/quickstart.md` -> `extensions/grapheme-vscode/README.md`
-
-## Why Grapheme
-
-- Language-first workflow modeling with explicit control flow.
-- Compiler/runtime boundary with artifact verification.
-- Capability-governed execution and runtime policy controls.
-- Strong ergonomics for compact automation code (`match`, `if`, `set`, `transition`, `@loop`, `@r`, `@t`).
-- Tooling stack included: CLI, LSP, and VS Code extension.
-
-## Quick Start
+## Start In 5 Minutes
 
 ### Prerequisites
 
 - Rust stable + Cargo
 - `wasm32-wasip1` target
-- Node.js + npm (extension packaging and local extension work)
+- Node.js + npm (for extension packaging/local extension work)
 
 ```bash
 rustup target add wasm32-wasip1
 ```
 
-### Common developer loop
+### First run
 
 ```bash
 cargo check --workspace
@@ -42,30 +32,30 @@ cargo run -- compile examples/hello-world.gr --emit artifact
 cargo run -- run examples/hello-world.gr
 ```
 
-Project-level default entrypoint:
+Project default entrypoint:
 
 ```bash
 cargo run -- run
 cargo run --
 ```
 
-Both commands resolve `project.main` from `grapheme.toml` (currently `examples/main.gr`).
+Both resolve `project.main` from `grapheme.toml`.
 
-### Install CLI with Cargo
+### Install CLI
 
-Install from local workspace:
+From local workspace:
 
 ```bash
 cargo install --path crates/grapheme-cli --locked
 ```
 
-Install from git (private or public repository):
+From git:
 
 ```bash
 cargo install --git https://github.com/entasislabs/grapheme.git grapheme-cli --bin grapheme
 ```
 
-When installed outside this repository, scaffold bundled examples:
+Initialize bundled examples outside this repo:
 
 ```bash
 grapheme examples list
@@ -73,79 +63,137 @@ grapheme examples init --out .
 grapheme run examples/main.gr
 ```
 
-### Run with native modules
+## Try Real Workflows
+
+Run with native modules:
 
 ```bash
 cargo run -- run examples/core-merge.gr --native-modules
 ```
 
-### Explore the new showcase set
+Run real-world scenarios:
 
 ```bash
-cargo run -- run examples/legacy/showcase/release-control-tower-compact.gr --native-modules
-cargo run -- run examples/legacy/showcase/blue-green-cutover.gr --native-modules
-cargo run -- run examples/legacy/showcase/feature-flag-progressive-rollout.gr --native-modules
+cargo run -- run examples/realworld/automated-release-control-tower.gr --native-modules
+cargo run -- run examples/realworld/blue-green-cutover-guarded.gr --native-modules
+cargo run -- run examples/realworld/feature-flag-progressive-rollout.gr --native-modules
 ```
 
-Optional machine-readable output:
+Machine-readable output:
 
 ```bash
-cargo run -- run examples/legacy/showcase/feature-flag-progressive-rollout.gr --native-modules --json
+cargo run -- run examples/realworld/feature-flag-progressive-rollout.gr --native-modules --json
 ```
 
-## Repository Layout
+## Copy-Paste Examples
 
-- `crates/grapheme-compiler`: parser + lowering (AST/HIR/MIR) + verifier integration.
-- `crates/grapheme-artifact`: artifact envelope and MIR contracts.
-- `crates/grapheme-runtime`: runtime engine, capability dispatch, policy enforcement, Wasix path.
-- `crates/grapheme-cli`: `grapheme` CLI (`parse`, `compile`, `build`, `run`, `modules`).
-- `crates/grapheme-lsp`: language server for `.gr` authoring.
-- `plugins/*-rs`: plugin implementations compiled to Wasm.
-- `extensions/grapheme-vscode`: VS Code extension wiring for LSP workflow.
-- `examples/`: runnable examples and showcase demos.
-- `docs/`: product-facing Grapheme docs.
-- `docs/internal/`: internal, contributor, architecture, runtime, and release docs.
+### 1) Fetch a page and convert it to markdown
+
+```gr
+glyph HttpGetMarkdown {
+  set { url: "https://example.com" }
+  |> http.get(url: $state.url)
+  |> core.pick(fields: ["body"], input: $state)
+  |> html.to_md(html: $state.body)
+  |> core.echo(message: $state.text)
+}
+```
+
+### 2) Run a guarded rollout loop with explicit state transitions
+
+```gr
+struct FlagState {
+  status: String
+  rollout: Float
+  canary_score: Float
+  min_score: Float
+  timeline?: String
+}
+
+query Rollout on FlagState -> FlagState {
+  FlagState {
+    status: "planned",
+    rollout: 0.0,
+    canary_score: 98.0,
+    min_score: 95.0
+  }
+  |> Run
+}
+
+iterator Run on FlagState -> FlagState @core_default @loop(max: 10, merge: "replace") {
+  match $state.status {
+    case done, rolled_back => return
+    default => Step
+  }
+}
+
+iterator Step on FlagState -> FlagState {
+  if $state.canary_score < $state.min_score then
+    transition $state.status -> rolled_back { timeline: "rollback" }
+  else
+    transition $state.status -> done { rollout: 100.0, timeline: "complete" }
+}
+```
+
+## Choose Your Track
+
+- Workflow author: `docs/quickstart.md` -> `docs/language-tour.md` -> `docs/playbooks.md`
+- Runtime/operator: `docs/internal/runtime-policy.md` -> `docs/internal/modules.md` -> `docs/internal/native-modules.md`
+- SDK embedder (Rust): `docs/internal/sdk.md` -> `docs/internal/architecture.md`
+- Editor/LSP user: `docs/internal/lsp/quickstart.md` -> `extensions/grapheme-vscode/README.md`
 
 ## Runtime Policy Controls
 
-Allow-list environment variables:
+Allow-list env vars:
 
 - `GRAPHEME_ALLOWED_HTTP_DOMAINS`
 - `GRAPHEME_ALLOWED_TCP_TARGETS`
 - `GRAPHEME_ALLOWED_SMTP_DOMAINS`
 - `GRAPHEME_ALLOWED_SECRETS`
 
-Runtime tuning variables:
+Runtime tuning:
 
 - `GRAPHEME_WASIX_CACHE_MAX_MODULES` (default `8`)
-- `GRAPHEME_RUNTIME_TIMING` (`1` or `true` to emit timing summary)
+- `GRAPHEME_RUNTIME_TIMING` (`1` or `true`)
 - `GRAPHEME_RUNTIME_MAX_STEPS` (`none` or `unbounded` to disable)
 - `GRAPHEME_RUNTIME_MAX_CALL_DEPTH` (`none` or `unbounded` to disable)
 
-Example policy scoping:
+Example policy scope:
 
 ```bash
 GRAPHEME_ALLOWED_HTTP_DOMAINS=example.com \
   cargo run -- run examples/http-get.gr --native-modules
 ```
 
+## Repo Map
+
+- `crates/grapheme-compiler`: parse + lower (AST/HIR/MIR) + verify.
+- `crates/grapheme-artifact`: artifact envelope and MIR contracts.
+- `crates/grapheme-runtime`: execution engine + policy enforcement + Wasix path.
+- `crates/grapheme-cli`: `grapheme` commands (`parse`, `compile`, `build`, `run`, `modules`).
+- `crates/grapheme-lsp`: language server for `.gr` authoring.
+- `extensions/grapheme-vscode`: VS Code extension.
+- `plugins/*-rs`: Wasm plugins.
+- `examples/`: runnable examples and real-world scenarios.
+- `docs/`: primary docs.
+- `docs/internal/`: architecture, runtime, release, and contributor docs.
+
 ## Documentation
 
 - Main index: `docs/README.md`
-- Product quickstart: `docs/quickstart.md`
+- Quickstart: `docs/quickstart.md`
 - Hero workflow: `docs/hero-workflow.md`
-- Internal troubleshooting: `docs/internal/troubleshooting.md`
-- Internal language contract: `docs/internal/language-contract.md`
-- Showcase examples: `examples/legacy/showcase/README.md`
-- General examples index: `examples/README.md`
+- Examples index: `examples/README.md`
+- Troubleshooting: `docs/internal/troubleshooting.md`
+- Language contract: `docs/internal/language-contract.md`
 
 ## Tooling and Release
 
 - LSP quickstart: `docs/internal/lsp/quickstart.md`
 - VS Code extension: `extensions/grapheme-vscode/README.md`
-- LSP/VSIX release flow: `docs/internal/release/lsp-release.md`
+- LSP/VSIX release guide: `docs/internal/release/lsp-release.md`
+- Validation bundle: `scripts/step4-checks.sh`
 - Loop benchmark: `scripts/benchmark-loop.sh`
-- Step-4 validation bundle: `scripts/step4-checks.sh`
 
 ## License
 

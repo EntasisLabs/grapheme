@@ -190,7 +190,7 @@ fn main() {
             wasm_path: PathBuf::from("plugins/http-rs/target/wasm32-wasip1/release/http_rs.wasm"),
             compatibility_mode: CompatibilityMode::Strict,
             abi: ModuleAbi::MirV1,
-            version: Some("0.2.0".to_string()),
+            version: Some("0.3.0".to_string()),
         })
         .expect("activate module");
 

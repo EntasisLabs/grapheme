@@ -1363,6 +1363,63 @@ fn parse_directive(pair: Pair<Rule>) -> Result<Directive, GraphemeError> {
 
 fn parse_string_lit(pair: Pair<Rule>) -> String {
     let raw = pair.as_str();
-    // Strip surrounding quotes
-    raw[1..raw.len() - 1].to_string()
+    serde_json::from_str::<String>(raw)
+        .unwrap_or_else(|_| raw[1..raw.len() - 1].to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{Definition, PipelineStep, Value};
+
+    fn first_call_arg(source: &str, arg_name: &str) -> Value {
+        let program = parse(source).expect("parse should succeed");
+        let def = program.definitions.first().expect("definition should exist");
+        let query = match def {
+            Definition::Query(query) => query,
+            _ => panic!("expected query definition"),
+        };
+        let step = query
+            .pipelines
+            .first()
+            .and_then(|pipeline| pipeline.steps.first())
+            .expect("pipeline step should exist");
+        let call = match step {
+            PipelineStep::Field(call) => call,
+            _ => panic!("expected field call step"),
+        };
+
+        call.args
+            .iter()
+            .find_map(|(name, value)| (name == arg_name).then_some(value.clone()))
+            .expect("named arg should exist")
+    }
+
+    #[test]
+    fn parses_common_escape_sequences_in_string_literals() {
+        let source = r#"
+query Escapes {
+  core.echo(message: "line1\nline2\tindent")
+}
+"#;
+
+        assert_eq!(
+            first_call_arg(source, "message"),
+            Value::String("line1\nline2\tindent".to_string())
+        );
+    }
+
+    #[test]
+    fn parses_escaped_quotes_and_backslashes() {
+        let source = r#"
+query Escapes {
+  core.echo(message: "path C:\\tmp\\\"quote\"")
+}
+"#;
+
+        assert_eq!(
+            first_call_arg(source, "message"),
+            Value::String("path C:\\tmp\\\"quote\"".to_string())
+        );
+    }
 }

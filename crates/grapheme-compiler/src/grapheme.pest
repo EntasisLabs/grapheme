@@ -13,7 +13,7 @@ COMMENT = _{ "//" ~ (!"\n" ~ ANY)* ~ "\n"? }
 
 ident = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
 
-string_lit = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
+string_lit = @{ "\"" ~ (("\\" ~ ANY) | (!("\"" | "\\") ~ ANY))* ~ "\"" }
 
 int_lit = @{ "-"? ~ ASCII_DIGIT+ }
 
