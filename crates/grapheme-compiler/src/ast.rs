@@ -3,7 +3,6 @@
 ///  Every node in the grammar maps to a typed Rust struct/enum.
 ///  These are pure data; no execution logic lives here.
 /// ─────────────────────────────────────────────────────────────
-
 use serde::{Deserialize, Serialize};
 
 // ── Primitives ────────────────────────────────────────────────
@@ -16,8 +15,8 @@ pub enum Value {
     Bool(bool),
     Null,
     String(String),
-    Variable(String),          // $name
-    Symbol(String),            // unquoted symbol target
+    Variable(String), // $name
+    Symbol(String),   // unquoted symbol target
     List(Vec<Value>),
     Object(Vec<(String, Value)>),
 }
@@ -33,8 +32,8 @@ pub struct Directive {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TypeRef {
-    Named(String, bool),       // name, non_null
-    List(Box<TypeRef>, bool),  // inner, non_null
+    Named(String, bool),      // name, non_null
+    List(Box<TypeRef>, bool), // inner, non_null
     Scalar(ScalarKind, bool),
 }
 
@@ -158,11 +157,11 @@ pub enum StateSelector {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SelectedField {
-    Spread(String),                         // ...FragmentName
-    State(Vec<StateSelector>),              // state { current errors }
-    Aliased(String, Box<FieldCall>),        // alias: field(...)
+    Spread(String),                  // ...FragmentName
+    State(Vec<StateSelector>),       // state { current errors }
+    Aliased(String, Box<FieldCall>), // alias: field(...)
     Plain(FieldCall),
-    Bare(String),                           // just a field name, no call
+    Bare(String), // just a field name, no call
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -175,7 +174,7 @@ pub struct SelectionSet {
 /// A single step in a pipeline: [Module.]op(args) @directive { selection }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FieldCall {
-    pub module: Option<String>,            // Some("Database") or None
+    pub module: Option<String>, // Some("Database") or None
     pub name: String,
     pub args: Vec<(String, Value)>,
     pub directives: Vec<Directive>,

@@ -14,7 +14,7 @@ use crate::error::GraphemeError;
 // ── Pest plumbing ─────────────────────────────────────────────
 
 #[derive(Parser)]
-#[grammar = "grapheme.pest"]
+#[grammar = "../crates/grapheme-compiler/src/grapheme.pest"]
 pub struct GraphemeParser;
 
 // ── Entry Point ───────────────────────────────────────────────

@@ -38,8 +38,8 @@ pub fn search(args: &JsonValue) -> JsonValue {
 
     match search_result {
         Ok(results) => {
-            let results_json = serde_json::to_value(results)
-                .unwrap_or_else(|_| JsonValue::Array(Vec::new()));
+            let results_json =
+                serde_json::to_value(results).unwrap_or_else(|_| JsonValue::Array(Vec::new()));
             SearchResponse::success(request.query, provider, results_json).to_json()
         }
         Err(err) => SearchResponse::failure(request.query, provider, err.to_string()).to_json(),
@@ -72,10 +72,7 @@ pub fn capabilities(args: &JsonValue) -> JsonValue {
         return providers();
     };
 
-    let Some(provider) = provider_catalog()
-        .into_iter()
-        .find(|p| p.id == target)
-    else {
+    let Some(provider) = provider_catalog().into_iter().find(|p| p.id == target) else {
         return json!({
             "error": format!("unknown provider '{}'", target),
             "available_providers": provider_catalog().into_iter().map(|p| p.id).collect::<Vec<_>>()
@@ -227,7 +224,11 @@ fn arg_text(args: &JsonValue, key: &str) -> String {
     args.get(key)
         .and_then(|v| v.as_str())
         .map(ToOwned::to_owned)
-        .or_else(|| args.get("__input").and_then(|v| v.as_str()).map(ToOwned::to_owned))
+        .or_else(|| {
+            args.get("__input")
+                .and_then(|v| v.as_str())
+                .map(ToOwned::to_owned)
+        })
         .unwrap_or_default()
 }
 

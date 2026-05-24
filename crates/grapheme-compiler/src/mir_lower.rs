@@ -1,10 +1,9 @@
+use grapheme_artifact::mir::MirCompareOp;
 use grapheme_artifact::{
-    MirBlock, MirFunction, MirFunctionKind, MirInst, MirLoopConfig, MirLoopMergeMode,
-    MirLoopUntil, MirMatchCase, MirMatchTarget, MirProgram, MirRetryConfig,
-    MirIntentConfig,
+    MirBlock, MirFunction, MirFunctionKind, MirInst, MirIntentConfig, MirLoopConfig,
+    MirLoopMergeMode, MirLoopUntil, MirMatchCase, MirMatchTarget, MirProgram, MirRetryConfig,
     MirTerminator, MirTimeoutConfig,
 };
-use grapheme_artifact::mir::MirCompareOp;
 use serde_json::Value as JsonValue;
 
 use crate::hir::{HirExecutableKind, HirProgram};
@@ -69,9 +68,7 @@ fn lower_loop_config(loop_args: Option<&JsonValue>) -> Option<MirLoopConfig> {
         .get("max")
         .and_then(|value| value.as_u64())
         .map(|value| value as u32);
-    let each = args
-        .get("each")
-        .and_then(loop_each_selector_value);
+    let each = args.get("each").and_then(loop_each_selector_value);
 
     let until = args.get("until").and_then(|value| {
         let object = value.as_object()?;
@@ -163,7 +160,10 @@ fn lower_loop_merge_mode(value: Option<&JsonValue>) -> MirLoopMergeMode {
     }
 }
 
-fn lower_flow_branch(step: &crate::hir::HirStep, recursive_max_depth: Option<u32>) -> Option<MirInst> {
+fn lower_flow_branch(
+    step: &crate::hir::HirStep,
+    recursive_max_depth: Option<u32>,
+) -> Option<MirInst> {
     let module = step.module.as_deref()?;
     if !module.eq_ignore_ascii_case("flow") || step.op != "branch" {
         return None;
@@ -173,9 +173,7 @@ fn lower_flow_branch(step: &crate::hir::HirStep, recursive_max_depth: Option<u32
     let when = args.get("when")?.as_object()?;
     let (field, cmp, value) = lower_flow_branch_when(when)?;
     let then_target = branch_target_from_value(args.get("then")?)?;
-    let else_target = args
-        .get("else")
-        .and_then(branch_target_from_value);
+    let else_target = args.get("else").and_then(branch_target_from_value);
 
     let max_depth = args
         .get("max_depth")
@@ -193,7 +191,10 @@ fn lower_flow_branch(step: &crate::hir::HirStep, recursive_max_depth: Option<u32
     })
 }
 
-fn lower_flow_match(step: &crate::hir::HirStep, recursive_max_depth: Option<u32>) -> Option<MirInst> {
+fn lower_flow_match(
+    step: &crate::hir::HirStep,
+    recursive_max_depth: Option<u32>,
+) -> Option<MirInst> {
     let module = step.module.as_deref()?;
     if !module.eq_ignore_ascii_case("flow") || step.op != "match" {
         return None;
@@ -253,7 +254,9 @@ fn lower_match_target(value: &JsonValue) -> Option<MirMatchTarget> {
     })
 }
 
-fn lower_flow_branch_when(when: &serde_json::Map<String, JsonValue>) -> Option<(String, MirCompareOp, JsonValue)> {
+fn lower_flow_branch_when(
+    when: &serde_json::Map<String, JsonValue>,
+) -> Option<(String, MirCompareOp, JsonValue)> {
     let field = when.get("field")?.as_str()?.to_string();
 
     if let Some(value) = when.get("eq") {

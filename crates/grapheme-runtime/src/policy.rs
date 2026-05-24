@@ -31,14 +31,17 @@ impl PolicyGuard {
     fn check_sql(&self, args: &JsonValue) -> Result<(), RuntimeError> {
         if self.allowed_sql_connections.is_empty() {
             return Err(RuntimeError::RuntimeError(
-                "policy: sql module is disabled (no allowed sql connections configured)".to_string(),
+                "policy: sql module is disabled (no allowed sql connections configured)"
+                    .to_string(),
             ));
         }
 
         let connection = args
             .get("connection")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| RuntimeError::RuntimeError("policy: missing sql connection arg".to_string()))?;
+            .ok_or_else(|| {
+                RuntimeError::RuntimeError("policy: missing sql connection arg".to_string())
+            })?;
 
         if self.allowed_sql_connections.iter().any(|c| c == connection) {
             Ok(())
@@ -65,7 +68,11 @@ impl PolicyGuard {
                 RuntimeError::RuntimeError("policy: missing surreal connection arg".to_string())
             })?;
 
-        if self.allowed_surreal_connections.iter().any(|c| c == connection) {
+        if self
+            .allowed_surreal_connections
+            .iter()
+            .any(|c| c == connection)
+        {
             Ok(())
         } else {
             Err(RuntimeError::RuntimeError(format!(
@@ -80,12 +87,12 @@ impl PolicyGuard {
             return Ok(());
         }
 
-        let url = args
-            .get("url")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| RuntimeError::RuntimeError("policy: missing http url arg".to_string()))?;
-        let host = extract_host(url)
-            .ok_or_else(|| RuntimeError::RuntimeError(format!("policy: invalid http url '{url}'")))?;
+        let url = args.get("url").and_then(|v| v.as_str()).ok_or_else(|| {
+            RuntimeError::RuntimeError("policy: missing http url arg".to_string())
+        })?;
+        let host = extract_host(url).ok_or_else(|| {
+            RuntimeError::RuntimeError(format!("policy: invalid http url '{url}'"))
+        })?;
 
         if self.allowed_http_domains.iter().any(|d| d == &host) {
             Ok(())
@@ -102,10 +109,9 @@ impl PolicyGuard {
             return Ok(());
         }
 
-        let target = args
-            .get("target")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| RuntimeError::RuntimeError("policy: missing tcp target arg".to_string()))?;
+        let target = args.get("target").and_then(|v| v.as_str()).ok_or_else(|| {
+            RuntimeError::RuntimeError("policy: missing tcp target arg".to_string())
+        })?;
 
         if self.allowed_tcp_targets.iter().any(|t| t == target) {
             Ok(())
@@ -129,7 +135,9 @@ impl PolicyGuard {
         let domain = to
             .split('@')
             .nth(1)
-            .ok_or_else(|| RuntimeError::RuntimeError(format!("policy: invalid smtp recipient '{to}'")))?
+            .ok_or_else(|| {
+                RuntimeError::RuntimeError(format!("policy: invalid smtp recipient '{to}'"))
+            })?
             .to_string();
 
         if self.allowed_smtp_domains.iter().any(|d| d == &domain) {
@@ -151,7 +159,9 @@ impl PolicyGuard {
             .get("name")
             .or_else(|| args.get("secret"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| RuntimeError::RuntimeError("policy: missing secrets name arg".to_string()))?;
+            .ok_or_else(|| {
+                RuntimeError::RuntimeError("policy: missing secrets name arg".to_string())
+            })?;
 
         if self.allowed_secret_names.iter().any(|s| s == name) {
             Ok(())
@@ -238,7 +248,10 @@ mod tests {
         };
 
         let err = guard
-            .check(&call, &json!({"connection": "local", "query": "return true;"}))
+            .check(
+                &call,
+                &json!({"connection": "local", "query": "return true;"}),
+            )
             .expect_err("surreal should be denied by default");
         assert!(err.to_string().contains("surreal module is disabled"));
     }
@@ -259,7 +272,10 @@ mod tests {
         };
 
         guard
-            .check(&call, &json!({"connection": "local", "query": "return true;"}))
+            .check(
+                &call,
+                &json!({"connection": "local", "query": "return true;"}),
+            )
             .expect("allowlisted surreal connection should pass");
     }
 }

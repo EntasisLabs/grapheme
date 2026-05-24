@@ -1,51 +1,35 @@
-# Grapheme Documentation
+# Grapheme Docs (Product-Facing)
 
-This is the front door for the docs set. Use this page for fast navigation.
+Grapheme is for teams who are done with fragile automation.
 
-## Quick Paths
+If your workflows matter, they should be legible, policy-aware, and production-safe by design.
 
-1. Language author
-   - docs/getting-started.md
-   - docs/language-contract.md
-   - docs/cli.md
-2. Runtime operator
-   - docs/runtime-policy.md
-   - docs/modules.md
-   - docs/native-modules.md
-   - docs/runtime/README.md
-3. SDK embedder (Rust)
-   - docs/sdk.md
-   - docs/architecture.md
-   - docs/governance/rustdoc-readiness.md
-4. Editor user
-   - docs/lsp/quickstart.md
-   - extensions/grapheme-vscode/README.md
+This directory is the product track: outcome-first, language-first, and operator-realistic.
 
-## Core Documents
+## Start Here
 
-1. docs/getting-started.md
-2. docs/sdk.md
-3. docs/language-contract.md
-4. docs/language/llm-native-contract-v1.md
-5. docs/architecture.md
-6. docs/cli.md
-7. docs/runtime-policy.md
-8. docs/modules.md
-9. docs/native-modules.md
+1. why-grapheme.md
+2. quickstart.md
+3. hero-workflow.md
+4. language-tour.md
+5. playbooks.md
+6. faq.md
 
-## Domain Indexes
+## Who This Is For
 
-1. Runtime contracts and policy: docs/runtime/README.md
-2. Release process and gates: docs/release/README.md
-3. Product and language planning: docs/roadmaps/README.md
-4. Language evolution set: docs/language/README.md
-5. Governance docs: docs/governance/README.md
-6. Historical context: docs/history/README.md
-7. Quality checklists: docs/quality/README.md
-8. RFC set: docs/rfc
+- Builders who need automation that survives contact with production.
+- Teams who need policy boundaries without rewriting business logic.
+- Agents and humans who need the same workflow source to stay understandable.
 
-## Governance and Quality
+## Product Promise
 
-1. Master state and polish record: docs/governance/master-state-and-polish-plan.md
-2. Rustdoc/docs.rs policy: docs/governance/rustdoc-readiness.md
-3. Release gates and docs versioning policy: docs/release/release-gates-and-doc-versioning.md
+Grapheme aims to make workflow automation:
+
+- explicit in intent,
+- safe in execution,
+- fast to evolve.
+
+## Relationship to Internal Docs
+
+Legacy and deep technical documentation now lives under `docs/internal/`.
+Use that tree for compiler/runtime internals, release workflows, and contributor-facing references.

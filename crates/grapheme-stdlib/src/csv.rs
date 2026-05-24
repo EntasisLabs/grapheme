@@ -36,6 +36,10 @@ fn arg_text(args: &JsonValue, key: &str) -> String {
     args.get(key)
         .and_then(|v| v.as_str())
         .map(ToOwned::to_owned)
-        .or_else(|| args.get("__input").and_then(|v| v.as_str()).map(ToOwned::to_owned))
+        .or_else(|| {
+            args.get("__input")
+                .and_then(|v| v.as_str())
+                .map(ToOwned::to_owned)
+        })
         .unwrap_or_default()
 }

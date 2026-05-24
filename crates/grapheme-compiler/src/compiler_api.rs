@@ -4,10 +4,10 @@ use grapheme_artifact::{
     AotEnvelope, ArtifactEnvelope,
 };
 
-use crate::pipeline::{self, CompileOptions, CompilationArtifact};
 use crate::ast::{Definition, Program};
 use crate::error::CompilerError;
 use crate::parser;
+use crate::pipeline::{self, CompilationArtifact, CompileOptions};
 
 /// High-level compile options for source-based compiler APIs.
 #[derive(Debug, Clone, Default)]
@@ -43,7 +43,10 @@ pub struct Compiler;
 
 impl Compiler {
     /// Compile source into a `CompiledScript`.
-    pub fn compile_source(source: &str, options: CompilerOptions) -> Result<CompiledScript, CompilerError> {
+    pub fn compile_source(
+        source: &str,
+        options: CompilerOptions,
+    ) -> Result<CompiledScript, CompilerError> {
         let ast = parser::parse(source)?;
         let implicit_entrypoint = glyph_entrypoint(&ast)?;
         let compilation = pipeline::compile_program(ast, options.compile_options)?;
@@ -83,12 +86,9 @@ impl Compiler {
         allowed_imports: &[String],
     ) -> Result<CompiledAotScript, CompilerError> {
         let stage_a = Self::compile_source_to_aot(source, options)?;
-        let stage_b = build_stage_b_container_from_aot(
-            &stage_a.aot,
-            workflow_wasm,
-            allowed_imports,
-        )
-        .map_err(map_artifact_error)?;
+        let stage_b =
+            build_stage_b_container_from_aot(&stage_a.aot, workflow_wasm, allowed_imports)
+                .map_err(map_artifact_error)?;
 
         Ok(CompiledAotScript {
             compilation: stage_a.compilation,

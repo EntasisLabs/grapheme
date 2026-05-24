@@ -4,7 +4,6 @@
 ///  Every |> step receives the previous AgentState and returns a new one.
 ///  Immutable by convention — each step produces a fresh snapshot.
 /// ─────────────────────────────────────────────────────────────
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
@@ -151,9 +150,9 @@ impl AgentState {
 
     pub fn with_trace_policy(trace_policy: TracePolicy) -> Self {
         AgentState {
-            current:  JsonValue::Null,
-            diff:     None,
-            errors:   vec![],
+            current: JsonValue::Null,
+            diff: None,
+            errors: vec![],
             pipeline: vec![],
             runtime_events: vec![],
             proposed: vec![],
@@ -330,8 +329,12 @@ fn compute_diff(prev: &JsonValue, next: &JsonValue) -> Option<JsonValue> {
             // Keys added or changed
             for (k, v) in n {
                 match p.get(k) {
-                    None       => { diff.insert(format!("+{k}"), v.clone()); }
-                    Some(pv) if pv != v => { diff.insert(format!("~{k}"), v.clone()); }
+                    None => {
+                        diff.insert(format!("+{k}"), v.clone());
+                    }
+                    Some(pv) if pv != v => {
+                        diff.insert(format!("~{k}"), v.clone());
+                    }
                     _ => {}
                 }
             }
@@ -342,7 +345,11 @@ fn compute_diff(prev: &JsonValue, next: &JsonValue) -> Option<JsonValue> {
                 }
             }
 
-            if diff.is_empty() { None } else { Some(JsonValue::Object(diff)) }
+            if diff.is_empty() {
+                None
+            } else {
+                Some(JsonValue::Object(diff))
+            }
         }
         // For non-objects just show before/after
         _ => Some(serde_json::json!({ "from": prev, "to": next })),
@@ -368,7 +375,10 @@ fn minimal_trace_projection(value: &JsonValue, max_string_bytes: usize) -> JsonV
             let mut out = serde_json::Map::new();
             for key in ["message", "text", "stdout", "error", "status", "done"] {
                 if let Some(v) = map.get(key) {
-                    out.insert(key.to_string(), minimal_trace_projection(v, max_string_bytes));
+                    out.insert(
+                        key.to_string(),
+                        minimal_trace_projection(v, max_string_bytes),
+                    );
                 }
             }
             out.insert("_kind".to_string(), JsonValue::String("object".to_string()));

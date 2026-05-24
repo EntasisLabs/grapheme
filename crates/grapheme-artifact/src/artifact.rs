@@ -302,9 +302,7 @@ pub fn validate_aot_host_interface_boundary(aot: &AotEnvelope) -> Result<(), Art
 
             if let Some(inline_wasm_hex) = &container.inline_wasm_hex {
                 let wasm_bytes = hex::decode(inline_wasm_hex).map_err(|e| {
-                    ArtifactError::Message(format!(
-                        "stage_b inline_wasm_hex is not valid hex: {e}"
-                    ))
+                    ArtifactError::Message(format!("stage_b inline_wasm_hex is not valid hex: {e}"))
                 })?;
 
                 if wasm_bytes.len() as u64 != container.byte_len {
@@ -342,10 +340,7 @@ pub fn validate_aot_host_interface_boundary(aot: &AotEnvelope) -> Result<(), Art
     Ok(())
 }
 
-fn resolve_entrypoint(
-    mir: &MirProgram,
-    entrypoint: Option<&str>,
-) -> Result<String, ArtifactError> {
+fn resolve_entrypoint(mir: &MirProgram, entrypoint: Option<&str>) -> Result<String, ArtifactError> {
     if let Some(ep) = entrypoint {
         let exists = mir.functions.iter().any(|f| f.name == ep);
         if exists {
@@ -358,9 +353,12 @@ fn resolve_entrypoint(
         )));
     }
 
-    mir
-        .functions
+    mir.functions
         .first()
         .map(|f| f.name.clone())
-        .ok_or_else(|| ArtifactError::Message("no MIR functions available for entrypoint selection".to_string()))
+        .ok_or_else(|| {
+            ArtifactError::Message(
+                "no MIR functions available for entrypoint selection".to_string(),
+            )
+        })
 }

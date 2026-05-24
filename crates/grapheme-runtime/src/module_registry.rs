@@ -83,7 +83,12 @@ impl ModuleRegistry {
         }
     }
 
-    pub fn resolve_call(&self, module: Option<&str>, op: &str, capability: &str) -> Option<ResolvedModuleCall> {
+    pub fn resolve_call(
+        &self,
+        module: Option<&str>,
+        op: &str,
+        capability: &str,
+    ) -> Option<ResolvedModuleCall> {
         let module_id = module
             .map(|m| m.to_lowercase())
             .or_else(|| capability.split('.').next().map(|m| m.to_lowercase()))?;

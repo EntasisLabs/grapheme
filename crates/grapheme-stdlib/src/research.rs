@@ -78,7 +78,10 @@ pub fn report(args: &JsonValue) -> JsonValue {
 
     let report_text = report_lines.join("\n");
     let summary = if report_text.chars().count() > options.report_chars {
-        report_text.chars().take(options.report_chars).collect::<String>()
+        report_text
+            .chars()
+            .take(options.report_chars)
+            .collect::<String>()
     } else {
         report_text
     };
@@ -107,7 +110,9 @@ pub fn materials(args: &JsonValue) -> JsonValue {
     }
 }
 
-fn build_materials_payload(args: &JsonValue) -> Result<(MaterialsPayload, ResearchOptions), JsonValue> {
+fn build_materials_payload(
+    args: &JsonValue,
+) -> Result<(MaterialsPayload, ResearchOptions), JsonValue> {
     let options = ResearchOptions::from_args(args);
     let search = web::search(args);
     if search.get("error").is_some() {
@@ -520,8 +525,10 @@ fn is_weak_fact_line(line: &str) -> bool {
 }
 
 fn arg_u64(args: &JsonValue, key: &str) -> Option<u64> {
-    args.get(key)
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok())))
+    args.get(key).and_then(|v| {
+        v.as_u64()
+            .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+    })
 }
 
 fn arg_bool(args: &JsonValue, key: &str) -> Option<bool> {

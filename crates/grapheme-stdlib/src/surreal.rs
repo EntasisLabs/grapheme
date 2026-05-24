@@ -80,7 +80,12 @@ pub fn create(args: &JsonValue) -> JsonValue {
     };
 
     let query_text = build_create_query(&thing_or_table);
-    run_query(args, &connection, &query_text, Some(json!({ "data": data })))
+    run_query(
+        args,
+        &connection,
+        &query_text,
+        Some(json!({ "data": data })),
+    )
 }
 
 pub fn update(args: &JsonValue) -> JsonValue {
@@ -98,7 +103,12 @@ pub fn update(args: &JsonValue) -> JsonValue {
     };
 
     let query_text = build_update_query(&thing_or_table);
-    run_query(args, &connection, &query_text, Some(json!({ "data": data })))
+    run_query(
+        args,
+        &connection,
+        &query_text,
+        Some(json!({ "data": data })),
+    )
 }
 
 pub fn delete(args: &JsonValue) -> JsonValue {
@@ -115,7 +125,12 @@ pub fn delete(args: &JsonValue) -> JsonValue {
     run_query(args, &connection, &query_text, None)
 }
 
-fn run_query(args: &JsonValue, connection: &str, query_text: &str, vars: Option<JsonValue>) -> JsonValue {
+fn run_query(
+    args: &JsonValue,
+    connection: &str,
+    query_text: &str,
+    vars: Option<JsonValue>,
+) -> JsonValue {
     let resolved = match resolve_connection(args, connection) {
         Ok(v) => v,
         Err(e) => return error_payload("connection_error", "surreal_connection_unresolved", &e),
@@ -130,11 +145,7 @@ fn run_query(args: &JsonValue, connection: &str, query_text: &str, vars: Option<
     {
         Ok(rt) => rt,
         Err(e) => {
-            return error_payload(
-                "runtime_error",
-                "tokio_runtime_init_failed",
-                &e.to_string(),
-            )
+            return error_payload("runtime_error", "tokio_runtime_init_failed", &e.to_string())
         }
     };
 
@@ -161,7 +172,8 @@ fn run_query(args: &JsonValue, connection: &str, query_text: &str, vars: Option<
             })?;
         }
 
-        if let (Some(ns), Some(db_name)) = (resolved.namespace.as_ref(), resolved.database.as_ref()) {
+        if let (Some(ns), Some(db_name)) = (resolved.namespace.as_ref(), resolved.database.as_ref())
+        {
             db.use_ns(ns).use_db(db_name).await.map_err(|e| {
                 error_payload(
                     "connection_error",
@@ -184,13 +196,9 @@ fn run_query(args: &JsonValue, connection: &str, query_text: &str, vars: Option<
             )
         })?;
 
-        response = response.check().map_err(|e| {
-            error_payload(
-                "query_error",
-                "surreal_query_failed",
-                &e.to_string(),
-            )
-        })?;
+        response = response
+            .check()
+            .map_err(|e| error_payload("query_error", "surreal_query_failed", &e.to_string()))?;
 
         let mut statements = Vec::with_capacity(response.num_statements());
         for idx in 0..response.num_statements() {
@@ -212,7 +220,11 @@ fn run_query(args: &JsonValue, connection: &str, query_text: &str, vars: Option<
         }
 
         if let Err(message) = ensure_payload_within_limit(&statements, max_payload_bytes) {
-            return Err(error_payload("query_error", "surreal_query_failed", &message));
+            return Err(error_payload(
+                "query_error",
+                "surreal_query_failed",
+                &message,
+            ));
         }
 
         Ok(json!({
@@ -230,7 +242,11 @@ fn run_query(args: &JsonValue, connection: &str, query_text: &str, vars: Option<
     }
 }
 
-fn build_select_query(thing_or_table: &str, where_clause: Option<&str>, limit: Option<u64>) -> String {
+fn build_select_query(
+    thing_or_table: &str,
+    where_clause: Option<&str>,
+    limit: Option<u64>,
+) -> String {
     let mut q = format!("select * from {}", thing_or_table);
     if let Some(where_clause) = where_clause {
         if !where_clause.trim().is_empty() {
@@ -261,7 +277,10 @@ fn build_delete_query(thing_or_table: &str) -> String {
 fn detect_surreal_error_message(value: &JsonValue) -> Option<String> {
     let rows = value.as_array()?;
     for row in rows {
-        let status = row.get("status").and_then(|v| v.as_str()).unwrap_or_default();
+        let status = row
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
         if status.eq_ignore_ascii_case("ERR") {
             let msg = row
                 .get("result")
@@ -294,8 +313,7 @@ fn ensure_payload_within_limit(
     if payload_bytes > max_payload_bytes as usize {
         return Err(format!(
             "payload size {} exceeds max_payload_bytes {}",
-            payload_bytes,
-            max_payload_bytes
+            payload_bytes, max_payload_bytes
         ));
     }
 
@@ -332,12 +350,18 @@ fn optional_string(args: &JsonValue, key: &str) -> Option<String> {
 
 fn optional_u64(args: &JsonValue, key: &str) -> Option<u64> {
     args.get(key)
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok())))
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+        })
         .or_else(|| {
             args.get("__input")
                 .and_then(|v| v.as_object())
                 .and_then(|obj| obj.get(key))
-                .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok())))
+                .and_then(|v| {
+                    v.as_u64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+                })
         })
 }
 
@@ -349,7 +373,10 @@ struct ResolvedSurrealConnection {
     token: Option<String>,
 }
 
-fn resolve_connection(args: &JsonValue, connection: &str) -> Result<ResolvedSurrealConnection, String> {
+fn resolve_connection(
+    args: &JsonValue,
+    connection: &str,
+) -> Result<ResolvedSurrealConnection, String> {
     let mut resolved = if connection.starts_with("http://") || connection.starts_with("https://") {
         ResolvedSurrealConnection {
             url: connection.to_string(),
@@ -379,7 +406,11 @@ fn resolve_connection_id(connection: &str) -> Result<ResolvedSurrealConnection, 
         "GRAPHEME_SURREAL_CONNECTION_{}",
         connection
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
+            .map(|c| if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            })
             .collect::<String>()
     );
 
@@ -440,14 +471,25 @@ fn parse_connection_json(value: &JsonValue) -> Option<ResolvedSurrealConnection>
 
     Some(ResolvedSurrealConnection {
         url,
-        namespace: obj.get("ns").and_then(|v| v.as_str()).map(ToOwned::to_owned),
-        database: obj.get("db").and_then(|v| v.as_str()).map(ToOwned::to_owned),
-        token: obj.get("token").and_then(|v| v.as_str()).map(ToOwned::to_owned),
+        namespace: obj
+            .get("ns")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned),
+        database: obj
+            .get("db")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned),
+        token: obj
+            .get("token")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned),
     })
 }
 
 fn base_endpoint(base: &str) -> String {
-    base.trim_end_matches('/').trim_end_matches("/sql").to_string()
+    base.trim_end_matches('/')
+        .trim_end_matches("/sql")
+        .to_string()
 }
 
 fn error_payload(kind: &str, code: &str, message: &str) -> JsonValue {

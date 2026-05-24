@@ -8,10 +8,10 @@ Status: production-hardening phase.
 
 ## Choose Your Path
 
-- Language author: `docs/getting-started.md` -> `docs/language-contract.md` -> `docs/cli.md`
-- Runtime operator: `docs/runtime-policy.md` -> `docs/modules.md` -> `docs/native-modules.md`
-- SDK embedder (Rust): `docs/sdk.md` -> `docs/architecture.md` -> `docs/governance/rustdoc-readiness.md`
-- Editor user (LSP/VS Code): `docs/lsp/quickstart.md` -> `extensions/grapheme-vscode/README.md`
+- Language author: `docs/quickstart.md` -> `docs/language-tour.md` -> `docs/playbooks.md`
+- Runtime operator: `docs/internal/runtime-policy.md` -> `docs/internal/modules.md` -> `docs/internal/native-modules.md`
+- SDK embedder (Rust): `docs/internal/sdk.md` -> `docs/internal/architecture.md` -> `docs/internal/governance/rustdoc-readiness.md`
+- Editor user (LSP/VS Code): `docs/internal/lsp/quickstart.md` -> `extensions/grapheme-vscode/README.md`
 
 ## Why Grapheme
 
@@ -103,7 +103,8 @@ cargo run -- run examples/legacy/showcase/feature-flag-progressive-rollout.gr --
 - `plugins/*-rs`: plugin implementations compiled to Wasm.
 - `extensions/grapheme-vscode`: VS Code extension wiring for LSP workflow.
 - `examples/`: runnable examples and showcase demos.
-- `docs/`: language, architecture, runtime policy, and release docs.
+- `docs/`: product-facing Grapheme docs.
+- `docs/internal/`: internal, contributor, architecture, runtime, and release docs.
 
 ## Runtime Policy Controls
 
@@ -131,16 +132,18 @@ GRAPHEME_ALLOWED_HTTP_DOMAINS=example.com \
 ## Documentation
 
 - Main index: `docs/README.md`
-- Getting started: `docs/getting-started.md`
-- Language contract: `docs/language-contract.md`
+- Product quickstart: `docs/quickstart.md`
+- Hero workflow: `docs/hero-workflow.md`
+- Internal troubleshooting: `docs/internal/troubleshooting.md`
+- Internal language contract: `docs/internal/language-contract.md`
 - Showcase examples: `examples/legacy/showcase/README.md`
 - General examples index: `examples/README.md`
 
 ## Tooling and Release
 
-- LSP quickstart: `docs/lsp/quickstart.md`
+- LSP quickstart: `docs/internal/lsp/quickstart.md`
 - VS Code extension: `extensions/grapheme-vscode/README.md`
-- LSP/VSIX release flow: `docs/release/lsp-release.md`
+- LSP/VSIX release flow: `docs/internal/release/lsp-release.md`
 - Loop benchmark: `scripts/benchmark-loop.sh`
 - Step-4 validation bundle: `scripts/step4-checks.sh`
 

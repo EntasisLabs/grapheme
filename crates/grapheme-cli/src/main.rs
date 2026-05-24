@@ -15,27 +15,26 @@
 ///                          [--aot-stage stage_a|stage_b] [--strict-stage-b]
 ///    grapheme modules [search <query> | ops <query> | info <module> | types <module> | examples <module>]
 /// ─────────────────────────────────────────────────────────────
-
 use grapheme_artifact::{ExecutionResult, MirInst};
 use grapheme_compiler::ast::Definition;
-use grapheme_compiler::{Compiler, CompilerError, CompilerOptions};
 use grapheme_compiler::verifier::{ExecutableKindPolicyMode, LintWarning};
+use grapheme_compiler::{Compiler, CompilerError, CompilerOptions};
+use grapheme_runtime::{PolicyGuard, TracePolicy, TraceProjection};
 use grapheme_sdk::{
-    discover_module_manifests, discover_examples, example_by_name, modules_examples_payload,
+    discover_examples, discover_module_manifests, example_by_name, modules_examples_payload,
     modules_info_payload, modules_ops_payload, modules_search_payload, modules_types_payload,
     GraphemeEngine, ModuleSearchDetail, ModuleSearchOptions, StructuredMode,
-};
-use grapheme_runtime::{
-    PolicyGuard,
-    TracePolicy, TraceProjection,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
 use std::env;
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
 use std::process::{self, Command};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RunOutputMode {
@@ -62,6 +61,71 @@ struct RunOptions {
     trace_projection: Option<TraceProjection>,
     trace_max_string_bytes: Option<usize>,
     executable_kind_policy_mode: ExecutableKindPolicyMode,
+}
+
+#[derive(Debug, Clone)]
+struct TelemetryContext {
+    enabled: bool,
+    command: String,
+    run_target: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TelemetryEvent {
+    event: String,
+    timestamp_ms: u128,
+    command: String,
+    success: Option<bool>,
+    duration_ms: Option<u128>,
+    error_class: Option<String>,
+    run_target: Option<String>,
+    #[serde(default)]
+    funnel_stage: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct TelemetrySummary {
+    path: String,
+    event_count: usize,
+    command_result_count: usize,
+    success_count: usize,
+    failure_count: usize,
+    success_rate: f64,
+    avg_duration_ms: Option<f64>,
+    first_success_count: usize,
+    ttfs_start_count: usize,
+    ttfs_success_count: usize,
+    ttfs_failure_count: usize,
+    ttfs_success_rate: f64,
+    command_counts: BTreeMap<String, usize>,
+    failure_stage_counts: BTreeMap<String, usize>,
+    top_error_classes: Vec<ErrorCountRow>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ErrorCountRow {
+    error_class: String,
+    count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct TelemetryExport {
+    generated_at_ms: u128,
+    source_path: String,
+    summary: TelemetrySummary,
+    events: Vec<TelemetryExportEvent>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct TelemetryExportEvent {
+    event: String,
+    timestamp_ms: u128,
+    command: String,
+    success: Option<bool>,
+    duration_ms: Option<u128>,
+    error_class: Option<String>,
+    run_target: Option<String>,
+    funnel_stage: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -271,8 +335,14 @@ const BUNDLED_EXAMPLES: &[BundledExample] = &[
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+    let telemetry = TelemetryContext::from_args(&args);
+    telemetry.maybe_record_session_start();
+    let started = Instant::now();
 
-    if let Err(e) = run(args) {
+    let run_result = run(args.clone());
+    telemetry.maybe_record_outcome(&run_result, started.elapsed());
+
+    if let Err(e) = run_result {
         eprintln!("error: {e}");
         process::exit(1);
     }
@@ -304,14 +374,13 @@ fn run(args: Vec<String>) -> Result<(), CompilerError> {
         && args[1] != "plugins"
         && args[1] != "examples"
         && args[1] != "modules"
+        && args[1] != "telemetry"
     {
         return emit_parse(&args[1], DiscoveryOutputMode::Yaml);
     }
 
     match args[1].as_str() {
-        "parse" => {
-            emit_parse_cmd(&args[2..])
-        }
+        "parse" => emit_parse_cmd(&args[2..]),
         "compile" => emit_compile_cmd(&args[2..]),
         "build" => emit_build_cmd(&args[2..]),
         "plugins" => emit_plugins(&args),
@@ -321,6 +390,7 @@ fn run(args: Vec<String>) -> Result<(), CompilerError> {
             run_program(&file_path, run_options)
         }
         "modules" => emit_modules_cmd(&args[2..]),
+        "telemetry" => emit_telemetry_cmd(&args[2..]),
         _ => {
             print_usage();
             Err(CompilerError::RuntimeError(format!(
@@ -487,10 +557,7 @@ fn emit_examples_cmd(args: &[String]) -> Result<(), CompilerError> {
 
             let ex = find_bundled_example(&args[1])?;
             let row = example_by_name(ex.name).ok_or_else(|| {
-                CompilerError::RuntimeError(format!(
-                    "missing example metadata for '{}'",
-                    ex.name
-                ))
+                CompilerError::RuntimeError(format!("missing example metadata for '{}'", ex.name))
             })?;
 
             if summary_only {
@@ -575,12 +642,15 @@ fn emit_examples_cmd(args: &[String]) -> Result<(), CompilerError> {
 }
 
 fn find_bundled_example(name: &str) -> Result<&'static BundledExample, CompilerError> {
-    BUNDLED_EXAMPLES.iter().find(|ex| ex.name == name).ok_or_else(|| {
-        CompilerError::RuntimeError(format!(
-            "unknown bundled example '{}'; run 'grapheme examples list'",
-            name
-        ))
-    })
+    BUNDLED_EXAMPLES
+        .iter()
+        .find(|ex| ex.name == name)
+        .ok_or_else(|| {
+            CompilerError::RuntimeError(format!(
+                "unknown bundled example '{}'; run 'grapheme examples list'",
+                name
+            ))
+        })
 }
 
 fn build_plugins(targets: &[String]) -> Result<(), CompilerError> {
@@ -613,7 +683,7 @@ fn build_plugins(targets: &[String]) -> Result<(), CompilerError> {
                 "build",
                 "--manifest-path",
                 &manifest.to_string_lossy(),
-                "--release"
+                "--release",
             ],
         )?;
 
@@ -640,7 +710,9 @@ fn build_plugins(targets: &[String]) -> Result<(), CompilerError> {
     Ok(())
 }
 
-fn resolve_plugin_selection(targets: &[String]) -> Result<Vec<&'static PluginBuildSpec>, CompilerError> {
+fn resolve_plugin_selection(
+    targets: &[String],
+) -> Result<Vec<&'static PluginBuildSpec>, CompilerError> {
     if targets.iter().any(|t| t == "all") {
         return Ok(PLUGIN_BUILD_SPECS.iter().collect());
     }
@@ -670,7 +742,9 @@ fn ensure_wasi_target_installed() -> Result<(), CompilerError> {
     let output = Command::new("rustup")
         .args(["target", "list", "--installed"])
         .output()
-        .map_err(|e| CompilerError::RuntimeError(format!("run rustup target list --installed: {e}")))?;
+        .map_err(|e| {
+            CompilerError::RuntimeError(format!("run rustup target list --installed: {e}"))
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -715,10 +789,9 @@ fn collect_called_modules(artifact: &grapheme_artifact::ArtifactEnvelope) -> Vec
         for block in &function.blocks {
             for inst in &block.instructions {
                 let MirInst::Call {
-                    module,
-                    capability,
-                    ..
-                } = inst else {
+                    module, capability, ..
+                } = inst
+                else {
                     continue;
                 };
 
@@ -801,7 +874,9 @@ fn emit_modules_cmd(args: &[String]) -> Result<(), CompilerError> {
     }
 }
 
-fn parse_discovery_args(args: &[String]) -> Result<(DiscoveryOutputMode, Vec<String>), CompilerError> {
+fn parse_discovery_args(
+    args: &[String],
+) -> Result<(DiscoveryOutputMode, Vec<String>), CompilerError> {
     let mut mode = DiscoveryOutputMode::Yaml;
     let mut cmd_args = Vec::new();
 
@@ -824,7 +899,9 @@ fn parse_structured_output_flag(flag: &str) -> Option<DiscoveryOutputMode> {
     }
 }
 
-fn parse_modules_search_args(args: &[String]) -> Result<(String, ModuleSearchOptions), CompilerError> {
+fn parse_modules_search_args(
+    args: &[String],
+) -> Result<(String, ModuleSearchOptions), CompilerError> {
     if args.is_empty() {
         return Err(CompilerError::RuntimeError(
             "modules search requires a query".to_string(),
@@ -894,9 +971,14 @@ fn parse_modules_search_args(args: &[String]) -> Result<(String, ModuleSearchOpt
                 options.explain = true;
                 i += 2;
             }
+            "--include-experimental" => {
+                options.include_experimental = true;
+                options.explain = true;
+                i += 1;
+            }
             other => {
                 return Err(CompilerError::RuntimeError(format!(
-                    "unknown modules search flag '{}'; expected --explain|--detail|--top|--min-score",
+                    "unknown modules search flag '{}'; expected --explain|--detail|--top|--min-score|--include-experimental",
                     other
                 )));
             }
@@ -932,16 +1014,14 @@ fn emit_modules_ops(query: &str, mode: DiscoveryOutputMode) -> Result<(), Compil
 }
 
 fn emit_modules_info(module: &str, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
-    let payload = modules_info_payload(module).ok_or_else(|| {
-        CompilerError::RuntimeError(format!("unknown module '{}'", module))
-    })?;
+    let payload = modules_info_payload(module)
+        .ok_or_else(|| CompilerError::RuntimeError(format!("unknown module '{}'", module)))?;
     print_discovery(&payload, mode)
 }
 
 fn emit_modules_types(module: &str, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
-    let payload = modules_types_payload(module).ok_or_else(|| {
-        CompilerError::RuntimeError(format!("unknown module '{}'", module))
-    })?;
+    let payload = modules_types_payload(module)
+        .ok_or_else(|| CompilerError::RuntimeError(format!("unknown module '{}'", module)))?;
     print_discovery(&payload, mode)
 }
 
@@ -955,6 +1035,493 @@ fn emit_modules_examples(module: &str, mode: DiscoveryOutputMode) -> Result<(), 
     print_discovery(&payload, mode)
 }
 
+fn emit_telemetry_cmd(args: &[String]) -> Result<(), CompilerError> {
+    let (mode, cmd_args) = parse_discovery_args(args)?;
+
+    if cmd_args.is_empty() || cmd_args[0] == "summarize" {
+        let summary = summarize_telemetry()?;
+        return print_discovery(&summary, mode);
+    }
+
+    if cmd_args[0] == "export" {
+        return emit_telemetry_export(mode, &cmd_args[1..]);
+    }
+
+    Err(CompilerError::RuntimeError(format!(
+        "unknown telemetry subcommand '{}'; expected summarize|export",
+        cmd_args[0]
+    )))
+}
+
+fn emit_telemetry_export(mode: DiscoveryOutputMode, args: &[String]) -> Result<(), CompilerError> {
+    let out_path = parse_telemetry_export_path(args)?;
+    let (source_path, events) = load_telemetry_events()?;
+    let summary = summarize_from_events(&source_path, &events);
+    let export = export_telemetry_payload(&source_path, &events, summary);
+
+    let out = out_path.unwrap_or_else(|| default_telemetry_export_path(mode));
+    if let Some(parent) = out.parent() {
+        fs::create_dir_all(parent).map_err(|e| {
+            CompilerError::RuntimeError(format!(
+                "create telemetry export directory '{}': {e}",
+                parent.display()
+            ))
+        })?;
+    }
+
+    let rendered = format_discovery(&export, mode)?;
+    fs::write(&out, rendered).map_err(|e| {
+        CompilerError::RuntimeError(format!("write telemetry export '{}': {e}", out.display()))
+    })?;
+
+    print_discovery(
+        &json!({
+            "path": out.display().to_string(),
+            "event_count": export.summary.event_count,
+            "ttfs_success_count": export.summary.ttfs_success_count,
+        }),
+        mode,
+    )
+}
+
+fn parse_telemetry_export_path(args: &[String]) -> Result<Option<PathBuf>, CompilerError> {
+    let mut out = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--out" => {
+                if i + 1 >= args.len() {
+                    return Err(CompilerError::RuntimeError(
+                        "telemetry export --out requires a path".to_string(),
+                    ));
+                }
+                out = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            other => {
+                return Err(CompilerError::RuntimeError(format!(
+                    "unknown telemetry export flag '{}'",
+                    other
+                )));
+            }
+        }
+    }
+
+    Ok(out)
+}
+
+fn default_telemetry_export_path(mode: DiscoveryOutputMode) -> PathBuf {
+    match mode {
+        DiscoveryOutputMode::Json => PathBuf::from(".grapheme/telemetry/report.json"),
+        DiscoveryOutputMode::Yaml => PathBuf::from(".grapheme/telemetry/report.yaml"),
+    }
+}
+
+impl TelemetryContext {
+    fn from_args(args: &[String]) -> Self {
+        let command = args.get(1).cloned().unwrap_or_else(|| "none".to_string());
+        let run_target = if command == "run" {
+            args.get(2).and_then(|arg| {
+                if arg.starts_with('-') {
+                    None
+                } else {
+                    Some(arg.clone())
+                }
+            })
+        } else {
+            None
+        };
+
+        Self {
+            enabled: telemetry_enabled(),
+            command,
+            run_target,
+        }
+    }
+
+    fn maybe_record_session_start(&self) {
+        if !self.enabled {
+            return;
+        }
+
+        let _ = append_telemetry_event(TelemetryEvent {
+            event: "session_start".to_string(),
+            timestamp_ms: now_unix_ms(),
+            command: self.command.clone(),
+            success: None,
+            duration_ms: None,
+            error_class: None,
+            run_target: self.run_target.clone(),
+            funnel_stage: None,
+        });
+
+        if self.is_ttfs_target() {
+            let _ = append_telemetry_event(TelemetryEvent {
+                event: "ttfs_start".to_string(),
+                timestamp_ms: now_unix_ms(),
+                command: self.command.clone(),
+                success: None,
+                duration_ms: None,
+                error_class: None,
+                run_target: self.run_target.clone(),
+                funnel_stage: Some("run".to_string()),
+            });
+        }
+    }
+
+    fn maybe_record_outcome(&self, result: &Result<(), CompilerError>, elapsed: Duration) {
+        if !self.enabled {
+            return;
+        }
+
+        let success = result.is_ok();
+        let error_class = result.as_ref().err().map(classify_error);
+
+        let _ = append_telemetry_event(TelemetryEvent {
+            event: "command_result".to_string(),
+            timestamp_ms: now_unix_ms(),
+            command: self.command.clone(),
+            success: Some(success),
+            duration_ms: Some(elapsed.as_millis()),
+            error_class,
+            run_target: self.run_target.clone(),
+            funnel_stage: None,
+        });
+
+        if success
+            && self.command == "run"
+            && self
+                .run_target
+                .as_deref()
+                .is_some_and(|path| path.ends_with("examples/hello-world.gr"))
+        {
+            let _ = append_telemetry_event(TelemetryEvent {
+                event: "first_success".to_string(),
+                timestamp_ms: now_unix_ms(),
+                command: self.command.clone(),
+                success: Some(true),
+                duration_ms: Some(elapsed.as_millis()),
+                error_class: None,
+                run_target: self.run_target.clone(),
+                funnel_stage: Some("run".to_string()),
+            });
+        }
+
+        if self.is_ttfs_target() {
+            if success {
+                let _ = append_telemetry_event(TelemetryEvent {
+                    event: "ttfs_success".to_string(),
+                    timestamp_ms: now_unix_ms(),
+                    command: self.command.clone(),
+                    success: Some(true),
+                    duration_ms: Some(elapsed.as_millis()),
+                    error_class: None,
+                    run_target: self.run_target.clone(),
+                    funnel_stage: Some("run".to_string()),
+                });
+            } else {
+                let stage = result
+                    .as_ref()
+                    .err()
+                    .map(failure_stage)
+                    .unwrap_or_else(|| "unknown".to_string());
+                let _ = append_telemetry_event(TelemetryEvent {
+                    event: "ttfs_failure".to_string(),
+                    timestamp_ms: now_unix_ms(),
+                    command: self.command.clone(),
+                    success: Some(false),
+                    duration_ms: Some(elapsed.as_millis()),
+                    error_class: result.as_ref().err().map(classify_error),
+                    run_target: self.run_target.clone(),
+                    funnel_stage: Some(stage),
+                });
+            }
+        }
+    }
+
+    fn is_ttfs_target(&self) -> bool {
+        self.command == "run"
+            && self
+                .run_target
+                .as_deref()
+                .is_some_and(|path| path.ends_with("examples/hello-world.gr"))
+    }
+}
+
+fn telemetry_enabled() -> bool {
+    env::var("GRAPHEME_TELEMETRY")
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn telemetry_events_path() -> PathBuf {
+    if let Ok(path) = env::var("GRAPHEME_TELEMETRY_PATH") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+
+    PathBuf::from(".grapheme/telemetry/events.jsonl")
+}
+
+fn load_telemetry_events() -> Result<(PathBuf, Vec<TelemetryEvent>), CompilerError> {
+    let path = telemetry_events_path();
+    let events = load_telemetry_events_from_path(&path)?;
+    Ok((path, events))
+}
+
+fn load_telemetry_events_from_path(path: &Path) -> Result<Vec<TelemetryEvent>, CompilerError> {
+    if !path.exists() {
+        return Ok(vec![]);
+    }
+
+    let file = fs::File::open(path).map_err(|e| {
+        CompilerError::RuntimeError(format!("open telemetry file '{}': {e}", path.display()))
+    })?;
+    let reader = BufReader::new(file);
+    let mut events = Vec::new();
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        if let Ok(event) = serde_json::from_str::<TelemetryEvent>(&line) {
+            events.push(event);
+        }
+    }
+
+    Ok(events)
+}
+
+fn append_telemetry_event(event: TelemetryEvent) -> Result<(), CompilerError> {
+    let path = telemetry_events_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| {
+            CompilerError::RuntimeError(format!(
+                "create telemetry directory '{}': {e}",
+                parent.display()
+            ))
+        })?;
+    }
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| {
+            CompilerError::RuntimeError(format!("open telemetry sink '{}': {e}", path.display()))
+        })?;
+
+    let line = serde_json::to_string(&event)
+        .map_err(|e| CompilerError::RuntimeError(format!("serialize telemetry event: {e}")))?;
+    file.write_all(line.as_bytes())
+        .and_then(|_| file.write_all(b"\n"))
+        .map_err(|e| {
+            CompilerError::RuntimeError(format!("write telemetry sink '{}': {e}", path.display()))
+        })
+}
+
+fn summarize_telemetry() -> Result<TelemetrySummary, CompilerError> {
+    let (path, events) = load_telemetry_events()?;
+    Ok(summarize_from_events(&path, &events))
+}
+
+fn summarize_from_events(path: &Path, events: &[TelemetryEvent]) -> TelemetrySummary {
+    let mut event_count = 0usize;
+    let mut command_result_count = 0usize;
+    let mut success_count = 0usize;
+    let mut failure_count = 0usize;
+    let mut first_success_count = 0usize;
+    let mut ttfs_start_count = 0usize;
+    let mut ttfs_success_count = 0usize;
+    let mut ttfs_failure_count = 0usize;
+    let mut duration_sum_ms = 0u128;
+    let mut duration_samples = 0usize;
+    let mut command_counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut error_counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut failure_stage_counts: BTreeMap<String, usize> = BTreeMap::new();
+
+    for event in events {
+        event_count += 1;
+        *command_counts.entry(event.command.clone()).or_insert(0) += 1;
+
+        match event.event.as_str() {
+            "first_success" => first_success_count += 1,
+            "ttfs_start" => ttfs_start_count += 1,
+            "ttfs_success" => ttfs_success_count += 1,
+            "ttfs_failure" => {
+                ttfs_failure_count += 1;
+                if let Some(stage) = event.funnel_stage.clone() {
+                    *failure_stage_counts.entry(stage).or_insert(0) += 1;
+                }
+            }
+            _ => {}
+        }
+
+        if event.event != "command_result" {
+            continue;
+        }
+
+        command_result_count += 1;
+        if event.success == Some(true) {
+            success_count += 1;
+        } else if event.success == Some(false) {
+            failure_count += 1;
+        }
+
+        if let Some(ms) = event.duration_ms {
+            duration_sum_ms += ms;
+            duration_samples += 1;
+        }
+
+        if let Some(err) = event.error_class.clone() {
+            *error_counts.entry(err).or_insert(0) += 1;
+        }
+    }
+
+    let success_rate = if command_result_count == 0 {
+        0.0
+    } else {
+        (success_count as f64) / (command_result_count as f64)
+    };
+
+    let avg_duration_ms = if duration_samples == 0 {
+        None
+    } else {
+        Some(duration_sum_ms as f64 / duration_samples as f64)
+    };
+
+    let ttfs_success_rate = if ttfs_start_count == 0 {
+        0.0
+    } else {
+        (ttfs_success_count as f64) / (ttfs_start_count as f64)
+    };
+
+    let mut top_error_classes = error_counts
+        .into_iter()
+        .map(|(error_class, count)| ErrorCountRow { error_class, count })
+        .collect::<Vec<_>>();
+
+    top_error_classes.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then(a.error_class.cmp(&b.error_class))
+    });
+    if top_error_classes.len() > 10 {
+        top_error_classes.truncate(10);
+    }
+
+    TelemetrySummary {
+        path: path.display().to_string(),
+        event_count,
+        command_result_count,
+        success_count,
+        failure_count,
+        success_rate,
+        avg_duration_ms,
+        first_success_count,
+        ttfs_start_count,
+        ttfs_success_count,
+        ttfs_failure_count,
+        ttfs_success_rate,
+        command_counts,
+        failure_stage_counts,
+        top_error_classes,
+    }
+}
+
+fn export_telemetry_payload(
+    path: &Path,
+    events: &[TelemetryEvent],
+    summary: TelemetrySummary,
+) -> TelemetryExport {
+    let redacted_events = events
+        .iter()
+        .map(|event| TelemetryExportEvent {
+            event: event.event.clone(),
+            timestamp_ms: event.timestamp_ms,
+            command: event.command.clone(),
+            success: event.success,
+            duration_ms: event.duration_ms,
+            error_class: event.error_class.clone(),
+            run_target: redact_run_target(event.run_target.as_deref()),
+            funnel_stage: event.funnel_stage.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    TelemetryExport {
+        generated_at_ms: now_unix_ms(),
+        source_path: path.display().to_string(),
+        summary,
+        events: redacted_events,
+    }
+}
+
+fn redact_run_target(run_target: Option<&str>) -> Option<String> {
+    let run_target = run_target?;
+    if run_target.starts_with("examples/") {
+        return Some(run_target.to_string());
+    }
+
+    let p = Path::new(run_target);
+    let name = p
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or("target.gr");
+    Some(format!("<redacted>/{}", name))
+}
+
+fn classify_error(err: &CompilerError) -> String {
+    let msg = err.to_string().to_lowercase();
+    if msg.contains("policy") || msg.contains("denied") {
+        return "policy_denied".to_string();
+    }
+    if msg.contains("parse") {
+        return "parse_error".to_string();
+    }
+    if msg.contains("unknown command") || msg.contains("unknown modules") {
+        return "invalid_command".to_string();
+    }
+    if msg.contains("missing") || msg.contains("requires") {
+        return "invalid_args".to_string();
+    }
+    if msg.contains("runtime") {
+        return "runtime_error".to_string();
+    }
+    "other".to_string()
+}
+
+fn failure_stage(err: &CompilerError) -> String {
+    let class = classify_error(err);
+    match class.as_str() {
+        "parse_error" => "parse".to_string(),
+        "policy_denied" => "policy".to_string(),
+        "runtime_error" => "runtime".to_string(),
+        "invalid_args" => "args".to_string(),
+        "invalid_command" => "command".to_string(),
+        _ => "other".to_string(),
+    }
+}
+
+fn now_unix_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
+}
+
 #[derive(Serialize)]
 struct CliRunOutput {
     artifact_id: String,
@@ -963,10 +1530,7 @@ struct CliRunOutput {
     lint_warnings: Vec<LintWarning>,
 }
 
-fn run_program(
-    file_path: &str,
-    run_options: RunOptions,
-) -> Result<(), CompilerError> {
+fn run_program(file_path: &str, run_options: RunOptions) -> Result<(), CompilerError> {
     let source = read_source(file_path)?;
     let mut compiler_options = CompilerOptions::default();
     compiler_options.compile_options.executable_kind_policy_mode =
@@ -994,7 +1558,10 @@ fn run_program(
         }
 
         for module in plugin_targets {
-            if module_bindings.iter().any(|(bound_module, _)| bound_module == &module) {
+            if module_bindings
+                .iter()
+                .any(|(bound_module, _)| bound_module == &module)
+            {
                 continue;
             }
 
@@ -1257,9 +1824,8 @@ fn enforce_project_glyph_uniqueness(
 
     let mut glyph_index: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
     for file in files {
-        let source = fs::read_to_string(&file).map_err(|e| {
-            CompilerError::RuntimeError(format!("read '{}': {e}", file.display()))
-        })?;
+        let source = fs::read_to_string(&file)
+            .map_err(|e| CompilerError::RuntimeError(format!("read '{}': {e}", file.display())))?;
 
         let parsed = grapheme_compiler::parse(&source).map_err(|e| {
             CompilerError::RuntimeError(format!(
@@ -1327,7 +1893,10 @@ fn collect_gr_files(path: &Path, out: &mut BTreeSet<PathBuf>) -> Result<(), Comp
 
     for entry in entries {
         let entry = entry.map_err(|e| {
-            CompilerError::RuntimeError(format!("read directory entry in '{}': {e}", path.display()))
+            CompilerError::RuntimeError(format!(
+                "read directory entry in '{}': {e}",
+                path.display()
+            ))
         })?;
         collect_gr_files(&entry.path(), out)?;
     }
@@ -1335,7 +1904,9 @@ fn collect_gr_files(path: &Path, out: &mut BTreeSet<PathBuf>) -> Result<(), Comp
     Ok(())
 }
 
-fn discover_project_config(start_dir: &Path) -> Result<Option<(PathBuf, GraphemeProjectToml)>, CompilerError> {
+fn discover_project_config(
+    start_dir: &Path,
+) -> Result<Option<(PathBuf, GraphemeProjectToml)>, CompilerError> {
     let mut dir = start_dir.to_path_buf();
 
     loop {
@@ -1443,9 +2014,7 @@ fn parse_optional_usize_env(var: &str) -> Result<(bool, Option<usize>), String> 
         .map_err(|_| format!("{var} must be an integer or 'none'"))
 }
 
-fn parse_run_args(
-    args: &[String],
-) -> Result<(String, RunOptions), CompilerError> {
+fn parse_run_args(args: &[String]) -> Result<(String, RunOptions), CompilerError> {
     let (file_path, consumed) = resolve_file_path_arg_or_project_main(args, "run")?;
     let mut run_options = default_run_options();
     let mut i = consumed;
@@ -1539,10 +2108,8 @@ fn parse_run_args(
                     ));
                 }
 
-                run_options.trace_max_string_bytes = Some(parse_usize_flag(
-                    "--trace-max-string-bytes",
-                    &args[i + 1],
-                )?);
+                run_options.trace_max_string_bytes =
+                    Some(parse_usize_flag("--trace-max-string-bytes", &args[i + 1])?);
                 i += 2;
             }
             "--type-policy" => {
@@ -1552,10 +2119,8 @@ fn parse_run_args(
                     ));
                 }
 
-                run_options.executable_kind_policy_mode = parse_executable_kind_policy_mode(
-                    "--type-policy",
-                    &args[i + 1],
-                )?;
+                run_options.executable_kind_policy_mode =
+                    parse_executable_kind_policy_mode("--type-policy", &args[i + 1])?;
                 i += 2;
             }
             other => {
@@ -1644,7 +2209,10 @@ fn resolve_stage_b_strict_mode(run_options: &RunOptions) -> bool {
 
 fn parse_usize_flag(flag: &str, value: &str) -> Result<usize, CompilerError> {
     value.parse::<usize>().map_err(|_| {
-        CompilerError::RuntimeError(format!("invalid {} value '{}', expected integer >= 0", flag, value))
+        CompilerError::RuntimeError(format!(
+            "invalid {} value '{}', expected integer >= 0",
+            flag, value
+        ))
     })
 }
 
@@ -1715,10 +2283,8 @@ fn emit_compile_cmd(args: &[String]) -> Result<(), CompilerError> {
                     ));
                 }
 
-                executable_kind_policy_mode = parse_executable_kind_policy_mode(
-                    "--type-policy",
-                    &args[i + 1],
-                )?;
+                executable_kind_policy_mode =
+                    parse_executable_kind_policy_mode("--type-policy", &args[i + 1])?;
                 i += 2;
             }
             flag => {
@@ -1847,7 +2413,8 @@ fn emit_build_cmd(args: &[String]) -> Result<(), CompilerError> {
     };
 
     let output = format_discovery(&aot, output_mode)?;
-    let out_path = output_path.unwrap_or_else(|| default_build_output_path(&file_path, output_mode));
+    let out_path =
+        output_path.unwrap_or_else(|| default_build_output_path(&file_path, output_mode));
     if let Some(parent) = out_path.parent() {
         fs::create_dir_all(parent).map_err(|e| {
             CompilerError::RuntimeError(format!(
@@ -1857,10 +2424,7 @@ fn emit_build_cmd(args: &[String]) -> Result<(), CompilerError> {
         })?;
     }
     fs::write(&out_path, output).map_err(|e| {
-        CompilerError::RuntimeError(format!(
-            "write build output '{}': {e}",
-            out_path.display()
-        ))
+        CompilerError::RuntimeError(format!("write build output '{}': {e}", out_path.display()))
     })?;
 
     let manifest = build_manifest_from_aot(&file_path, &out_path, aot_stage, &aot);
@@ -1912,17 +2476,20 @@ fn build_manifest_from_aot(
 
 fn read_source(path: &str) -> Result<String, CompilerError> {
     fs::read_to_string(path)
-    .map_err(|e| CompilerError::RuntimeError(format!("error reading {path}: {e}")))
+        .map_err(|e| CompilerError::RuntimeError(format!("error reading {path}: {e}")))
 }
 
 fn print_json<T: serde::Serialize>(value: &T) -> Result<(), CompilerError> {
     let json = serde_json::to_string_pretty(value)
-    .map_err(|e| CompilerError::RuntimeError(format!("serialize output: {e}")))?;
+        .map_err(|e| CompilerError::RuntimeError(format!("serialize output: {e}")))?;
     println!("{json}");
     Ok(())
 }
 
-fn format_discovery<T: serde::Serialize>(value: &T, mode: DiscoveryOutputMode) -> Result<String, CompilerError> {
+fn format_discovery<T: serde::Serialize>(
+    value: &T,
+    mode: DiscoveryOutputMode,
+) -> Result<String, CompilerError> {
     match mode {
         DiscoveryOutputMode::Json => serde_json::to_string_pretty(value)
             .map_err(|e| CompilerError::RuntimeError(format!("serialize output: {e}"))),
@@ -1931,7 +2498,10 @@ fn format_discovery<T: serde::Serialize>(value: &T, mode: DiscoveryOutputMode) -
     }
 }
 
-fn print_discovery<T: serde::Serialize>(value: &T, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
+fn print_discovery<T: serde::Serialize>(
+    value: &T,
+    mode: DiscoveryOutputMode,
+) -> Result<(), CompilerError> {
     let output = format_discovery(value, mode)?;
     print!("{output}");
     Ok(())
@@ -1943,7 +2513,9 @@ fn print_usage() {
     eprintln!("  grapheme <file.gr>");
     eprintln!("  grapheme parse [<file.gr>] [--yaml|--json]");
     eprintln!("  grapheme compile [<file.gr>] [--emit ast|hir|mir|artifact|aot] [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--yaml|--json]");
-    eprintln!("  grapheme build [<file.gr>] [--aot-stage stage_a|stage_b] [--out path] [--yaml|--json]");
+    eprintln!(
+        "  grapheme build [<file.gr>] [--aot-stage stage_a|stage_b] [--out path] [--yaml|--json]"
+    );
     eprintln!("  grapheme plugins build [all|core|io ...]");
     eprintln!("  grapheme examples [list] [--yaml|--json] [--query q] [--tag tag] [--complexity level] [--native-only]");
     eprintln!("  grapheme examples show <name> [--summary] [--raw] [--yaml|--json]");
@@ -1952,18 +2524,19 @@ fn print_usage() {
     eprintln!("               [--trace-profile lean|debug] [--trace-steps N]");
     eprintln!("               [--trace-projection minimal|full] [--trace-max-string-bytes N]");
     eprintln!("  grapheme modules [--yaml|--json]");
-    eprintln!("  grapheme modules search <query> [--explain] [--detail concise|full] [--top N] [--min-score X] [--yaml|--json]");
+    eprintln!("  grapheme modules search <query> [--explain] [--detail concise|full] [--top N] [--min-score X] [--include-experimental] [--yaml|--json]");
     eprintln!("  grapheme modules ops <query> [--yaml|--json]");
     eprintln!("  grapheme modules info <module> [--yaml|--json]");
     eprintln!("  grapheme modules types <module> [--yaml|--json]");
     eprintln!("  grapheme modules examples <module> [--yaml|--json]");
+    eprintln!("  grapheme telemetry [summarize|export] [--out path] [--yaml|--json]");
     eprintln!("  grapheme help");
 }
 
 fn print_modules_usage() {
     eprintln!("usage:");
     eprintln!("  grapheme modules [--yaml|--json]");
-    eprintln!("  grapheme modules search <query> [--explain] [--detail concise|full] [--top N] [--min-score X] [--yaml|--json]");
+    eprintln!("  grapheme modules search <query> [--explain] [--detail concise|full] [--top N] [--min-score X] [--include-experimental] [--yaml|--json]");
     eprintln!("  grapheme modules ops <query> [--yaml|--json]");
     eprintln!("  grapheme modules info <module> [--yaml|--json]");
     eprintln!("  grapheme modules types <module> [--yaml|--json]");
@@ -1976,6 +2549,7 @@ fn print_modules_usage() {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn normalized(s: &str) -> String {
@@ -1987,12 +2561,29 @@ mod tests {
             .expect("expected stdlib registry op to be registered")
     }
 
+    fn telemetry_event(event: &str, command: &str) -> TelemetryEvent {
+        TelemetryEvent {
+            event: event.to_string(),
+            timestamp_ms: 123,
+            command: command.to_string(),
+            success: None,
+            duration_ms: None,
+            error_class: None,
+            run_target: None,
+            funnel_stage: None,
+        }
+    }
+
     #[test]
     fn core_reduce_avg_computes_expected_value() {
-        let out = dispatch_std("core", "reduce", &json!({
-            "items": [3, 8, 2, 5],
-            "mode": "avg"
-        }));
+        let out = dispatch_std(
+            "core",
+            "reduce",
+            &json!({
+                "items": [3, 8, 2, 5],
+                "mode": "avg"
+            }),
+        );
         assert_eq!(out, json!(4.5));
     }
 
@@ -2008,7 +2599,10 @@ mod tests {
 
         let (_file, run_options) = parse_run_args(&args).expect("parse run args should succeed");
 
-        assert!(matches!(run_options.aot_stage, Some(AotStageSelection::StageB)));
+        assert!(matches!(
+            run_options.aot_stage,
+            Some(AotStageSelection::StageB)
+        ));
         assert!(run_options.strict_stage_b_container_execution);
         assert!(matches!(run_options.output_mode, RunOutputMode::Json));
     }
@@ -2059,8 +2653,8 @@ showcase = "examples/legacy/showcase"
         )
         .expect("write project config");
 
-        let file = resolve_project_main_path_from_dir(&dir)
-            .expect("resolve project main should succeed");
+        let file =
+            resolve_project_main_path_from_dir(&dir).expect("resolve project main should succeed");
         let _ = fs::remove_dir_all(&dir);
 
         assert!(file.ends_with("examples/main.gr"));
@@ -2152,8 +2746,7 @@ showcase = "examples/legacy/showcase"
 
     #[test]
     fn parse_aot_stage_selection_rejects_unknown_value() {
-        let err = parse_aot_stage_selection("stage_c")
-            .expect_err("invalid aot stage should fail");
+        let err = parse_aot_stage_selection("stage_c").expect_err("invalid aot stage should fail");
         assert!(err.to_string().contains("expected stage_a|stage_b"));
     }
 
@@ -2203,9 +2796,14 @@ query Hello {
         .expect("stage_b build should succeed");
 
         let out = PathBuf::from("build/hello.aot.json");
-        let manifest = build_manifest_from_aot("examples/hello.gr", &out, AotStageSelection::StageB, &stage_b);
-        let rendered = serde_json::to_string_pretty(&manifest)
-            .expect("serialize build manifest snapshot");
+        let manifest = build_manifest_from_aot(
+            "examples/hello.gr",
+            &out,
+            AotStageSelection::StageB,
+            &stage_b,
+        );
+        let rendered =
+            serde_json::to_string_pretty(&manifest).expect("serialize build manifest snapshot");
         let expected = include_str!("../tests/golden/aot-build-manifest.snapshot.json");
         assert_eq!(
             normalized(&rendered).trim_end(),
@@ -2215,49 +2813,73 @@ query Hello {
 
     #[test]
     fn core_reduce_concat_respects_initial_prefix() {
-        let out = dispatch_std("core", "reduce", &json!({
-            "items": ["-a", "-b"],
-            "mode": "concat",
-            "initial": "seed"
-        }));
+        let out = dispatch_std(
+            "core",
+            "reduce",
+            &json!({
+                "items": ["-a", "-b"],
+                "mode": "concat",
+                "initial": "seed"
+            }),
+        );
         assert_eq!(out, json!("seed-a-b"));
     }
 
     #[test]
     fn core_reduce_unknown_mode_returns_error_payload() {
-        let out = dispatch_std("core", "reduce", &json!({
-            "items": [1, 2],
-            "mode": "mystery"
-        }));
+        let out = dispatch_std(
+            "core",
+            "reduce",
+            &json!({
+                "items": [1, 2],
+                "mode": "mystery"
+            }),
+        );
         assert!(out.get("error").and_then(|v| v.as_str()).is_some());
     }
 
     #[test]
     fn core_set_and_get_path_round_trip_nested_value() {
-        let set_out = dispatch_std("core", "set_path", &json!({
-            "input": {"rollout": {"stage": "canary"}},
-            "path": "rollout.owner",
-            "value": "platform"
-        }));
+        let set_out = dispatch_std(
+            "core",
+            "set_path",
+            &json!({
+                "input": {"rollout": {"stage": "canary"}},
+                "path": "rollout.owner",
+                "value": "platform"
+            }),
+        );
 
-        let get_out = dispatch_std("core", "get_path", &json!({
-            "input": set_out,
-            "path": "rollout.owner"
-        }));
+        let get_out = dispatch_std(
+            "core",
+            "get_path",
+            &json!({
+                "input": set_out,
+                "path": "rollout.owner"
+            }),
+        );
 
         assert_eq!(get_out, json!("platform"));
     }
 
     #[test]
     fn core_has_path_detects_presence_and_absence() {
-        let present = dispatch_std("core", "has_path", &json!({
-            "input": {"a": {"b": 1}},
-            "path": "a.b"
-        }));
-        let missing = dispatch_std("core", "has_path", &json!({
-            "input": {"a": {"b": 1}},
-            "path": "a.c"
-        }));
+        let present = dispatch_std(
+            "core",
+            "has_path",
+            &json!({
+                "input": {"a": {"b": 1}},
+                "path": "a.b"
+            }),
+        );
+        let missing = dispatch_std(
+            "core",
+            "has_path",
+            &json!({
+                "input": {"a": {"b": 1}},
+                "path": "a.c"
+            }),
+        );
 
         assert_eq!(present.get("has_path"), Some(&json!(true)));
         assert_eq!(missing.get("has_path"), Some(&json!(false)));
@@ -2265,11 +2887,15 @@ query Hello {
 
     #[test]
     fn core_apply_lane_merges_fields_into_target_lane() {
-        let out = dispatch_std("core", "apply_lane", &json!({
-            "lane": "state",
-            "fields": { "status": "collecting" },
-            "__input": { "state": { "attempt": 1 }, "data": { "text": "x" } }
-        }));
+        let out = dispatch_std(
+            "core",
+            "apply_lane",
+            &json!({
+                "lane": "state",
+                "fields": { "status": "collecting" },
+                "__input": { "state": { "attempt": 1 }, "data": { "text": "x" } }
+            }),
+        );
 
         assert_eq!(
             out.get("state")
@@ -2327,12 +2953,8 @@ query Hello {
 
     #[test]
     fn example_matches_filters_supports_tag_complexity_and_query() {
-        let matching = discover_examples(
-            Some("fallback"),
-            Some("routing"),
-            Some("advanced"),
-            false,
-        );
+        let matching =
+            discover_examples(Some("fallback"), Some("routing"), Some("advanced"), false);
         assert!(matching.iter().any(|e| e.name == "web-provider-routing"));
 
         let wrong_tag = discover_examples(None, Some("smtp"), None, false);
@@ -2341,22 +2963,17 @@ query Hello {
 
     #[test]
     fn examples_list_rejects_missing_filter_values() {
-        let err = emit_examples_cmd(&[
-            "list".to_string(),
-            "--tag".to_string(),
-        ])
-        .expect_err("missing tag value should fail");
+        let err = emit_examples_cmd(&["list".to_string(), "--tag".to_string()])
+            .expect_err("missing tag value should fail");
 
         assert!(err.to_string().contains("--tag requires a value"));
     }
 
     #[test]
     fn parse_modules_search_args_supports_explain_flag() {
-        let (query, options) = parse_modules_search_args(&[
-            "web".to_string(),
-            "--explain".to_string(),
-        ])
-        .expect("modules search args should parse");
+        let (query, options) =
+            parse_modules_search_args(&["web".to_string(), "--explain".to_string()])
+                .expect("modules search args should parse");
 
         assert_eq!(query, "web");
         assert!(options.explain);
@@ -2396,27 +3013,164 @@ query Hello {
     }
 
     #[test]
+    fn parse_modules_search_args_supports_include_experimental_flag() {
+        let (_query, options) =
+            parse_modules_search_args(&["web".to_string(), "--include-experimental".to_string()])
+                .expect("modules search include-experimental should parse");
+
+        assert!(options.explain);
+        assert!(options.include_experimental);
+    }
+
+    #[test]
     fn parse_modules_search_args_rejects_missing_detail_value() {
-        let err = parse_modules_search_args(&[
-            "web".to_string(),
-            "--detail".to_string(),
-        ])
-        .expect_err("missing detail value should fail");
+        let err = parse_modules_search_args(&["web".to_string(), "--detail".to_string()])
+            .expect_err("missing detail value should fail");
 
         assert!(err.to_string().contains("--detail requires concise|full"));
     }
 
     #[test]
     fn parse_modules_search_args_rejects_unknown_flag() {
-        let err = parse_modules_search_args(&[
-            "web".to_string(),
-            "--oops".to_string(),
-        ])
-        .expect_err("unknown modules search flag should fail");
+        let err = parse_modules_search_args(&["web".to_string(), "--oops".to_string()])
+            .expect_err("unknown modules search flag should fail");
 
         assert!(err
             .to_string()
-            .contains("expected --explain|--detail|--top|--min-score"));
+            .contains("expected --explain|--detail|--top|--min-score|--include-experimental"));
+    }
+
+    #[test]
+    fn telemetry_export_requires_out_path_value() {
+        let err = parse_telemetry_export_path(&["--out".to_string()])
+            .expect_err("missing telemetry export --out value should fail");
+        assert!(err
+            .to_string()
+            .contains("telemetry export --out requires a path"));
+    }
+
+    #[test]
+    fn telemetry_export_redacts_non_example_run_target() {
+        let mut event = telemetry_event("command_result", "run");
+        event.success = Some(false);
+        event.error_class = Some("runtime_error".to_string());
+        event.run_target = Some("/home/user/private/workflow.gr".to_string());
+        event.funnel_stage = Some("runtime".to_string());
+
+        let summary = summarize_from_events(Path::new("/tmp/events.jsonl"), &[event.clone()]);
+        let export = export_telemetry_payload(Path::new("/tmp/events.jsonl"), &[event], summary);
+
+        assert_eq!(export.events.len(), 1);
+        assert_eq!(
+            export.events[0].run_target.as_deref(),
+            Some("<redacted>/workflow.gr")
+        );
+    }
+
+    #[test]
+    fn golden_telemetry_summary_json_contract() {
+        let mut command_result_ok = telemetry_event("command_result", "run");
+        command_result_ok.success = Some(true);
+        command_result_ok.duration_ms = Some(50);
+        command_result_ok.run_target = Some("examples/hello-world.gr".to_string());
+
+        let mut command_result_err = telemetry_event("command_result", "run");
+        command_result_err.success = Some(false);
+        command_result_err.duration_ms = Some(150);
+        command_result_err.error_class = Some("parse_error".to_string());
+
+        let ttfs_start = TelemetryEvent {
+            event: "ttfs_start".to_string(),
+            timestamp_ms: 124,
+            command: "run".to_string(),
+            success: None,
+            duration_ms: None,
+            error_class: None,
+            run_target: Some("examples/hello-world.gr".to_string()),
+            funnel_stage: Some("run".to_string()),
+        };
+
+        let ttfs_success = TelemetryEvent {
+            event: "ttfs_success".to_string(),
+            timestamp_ms: 125,
+            command: "run".to_string(),
+            success: Some(true),
+            duration_ms: Some(50),
+            error_class: None,
+            run_target: Some("examples/hello-world.gr".to_string()),
+            funnel_stage: Some("run".to_string()),
+        };
+
+        let ttfs_failure = TelemetryEvent {
+            event: "ttfs_failure".to_string(),
+            timestamp_ms: 126,
+            command: "run".to_string(),
+            success: Some(false),
+            duration_ms: Some(150),
+            error_class: Some("parse_error".to_string()),
+            run_target: Some("examples/hello-world.gr".to_string()),
+            funnel_stage: Some("parse".to_string()),
+        };
+
+        let first_success = TelemetryEvent {
+            event: "first_success".to_string(),
+            timestamp_ms: 127,
+            command: "run".to_string(),
+            success: Some(true),
+            duration_ms: Some(50),
+            error_class: None,
+            run_target: Some("examples/hello-world.gr".to_string()),
+            funnel_stage: Some("run".to_string()),
+        };
+
+        let summary = summarize_from_events(
+            Path::new(".grapheme/telemetry/events.jsonl"),
+            &[
+                command_result_ok,
+                command_result_err,
+                ttfs_start,
+                ttfs_success,
+                ttfs_failure,
+                first_success,
+            ],
+        );
+        let actual = format_discovery(&summary, DiscoveryOutputMode::Json)
+            .expect("json format should succeed");
+        let expected = include_str!("../tests/golden/telemetry-summary.json");
+        assert_eq!(normalized(&actual), normalized(expected));
+    }
+
+    #[test]
+    fn search_modules_payload_hides_experimental_ops_by_default() {
+        let payload = modules_search_payload("xaviv", &ModuleSearchOptions::default());
+        let count = payload
+            .get("count")
+            .and_then(|v| v.as_u64())
+            .expect("count present");
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn search_modules_payload_can_include_experimental_ops_when_requested() {
+        let payload = modules_search_payload(
+            "xaviv",
+            &ModuleSearchOptions {
+                include_experimental: true,
+                ..ModuleSearchOptions::default()
+            },
+        );
+        let count = payload
+            .get("count")
+            .and_then(|v| v.as_u64())
+            .expect("count present");
+        assert_eq!(count, 1);
+
+        let first = payload
+            .get("matches")
+            .and_then(|v| v.as_array())
+            .and_then(|rows| rows.first())
+            .expect("first match");
+        assert_eq!(first.get("module_id").and_then(|v| v.as_str()), Some("web"));
     }
 
     #[test]
@@ -2428,6 +3182,7 @@ query Hello {
                 detail: ModuleSearchDetail::Full,
                 top: None,
                 min_score: None,
+                include_experimental: false,
             },
         );
         let matches = payload
@@ -2459,6 +3214,7 @@ query Hello {
                 detail: ModuleSearchDetail::Concise,
                 top: None,
                 min_score: None,
+                include_experimental: false,
             },
         );
         let matches = payload
@@ -2483,6 +3239,7 @@ query Hello {
                 detail: ModuleSearchDetail::Concise,
                 top: Some(1),
                 min_score: Some(100.0),
+                include_experimental: false,
             },
         );
 
@@ -2603,7 +3360,7 @@ query Hello {
 
     #[test]
     fn golden_parse_yaml_contract() {
-                let source = r#"import core from "grapheme/core"
+        let source = r#"import core from "grapheme/core"
 
 query HelloWorld {
     core.echo(message: "LETS GO?!!!!!") {
@@ -2621,7 +3378,7 @@ query HelloWorld {
 
     #[test]
     fn golden_parse_json_contract() {
-                let source = r#"import core from "grapheme/core"
+        let source = r#"import core from "grapheme/core"
 
 query HelloWorld {
     core.echo(message: "LETS GO?!!!!!") {
@@ -2639,7 +3396,7 @@ query HelloWorld {
 
     #[test]
     fn golden_compile_mir_yaml_contract() {
-                let source = r#"import core from "grapheme/core"
+        let source = r#"import core from "grapheme/core"
 
 query HelloWorld {
     core.echo(message: "LETS GO?!!!!!") {
@@ -2657,7 +3414,7 @@ query HelloWorld {
 
     #[test]
     fn golden_compile_mir_json_contract() {
-                let source = r#"import core from "grapheme/core"
+        let source = r#"import core from "grapheme/core"
 
 query HelloWorld {
     core.echo(message: "LETS GO?!!!!!") {
@@ -2672,5 +3429,4 @@ query HelloWorld {
         let expected = include_str!("../tests/golden/compile-mir-hello-world.json");
         assert_eq!(normalized(&actual), normalized(expected));
     }
-
 }

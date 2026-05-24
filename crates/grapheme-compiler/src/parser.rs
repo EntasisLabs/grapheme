@@ -3,7 +3,6 @@
 ///  Walks the pest.rs parse tree and emits typed AST nodes.
 ///  All error types are collected; parsing is fail-fast per rule.
 /// ─────────────────────────────────────────────────────────────
-
 use pest::iterators::Pair;
 use pest::Parser;
 use pest_derive::Parser;
@@ -125,26 +124,44 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
     for inner in pair.into_inner() {
         match inner.as_rule() {
             Rule::import_decl => imports.push(parse_import(inner)?),
-            Rule::definition  => {
+            Rule::definition => {
                 // Unwrap the definition wrapper to get the actual variant
                 let def = inner.into_inner().next().unwrap();
                 match def.as_rule() {
-                    Rule::glyph_def        => {
+                    Rule::glyph_def => {
                         let glyph = parse_glyph(def, state)?;
                         glyph_names.push(glyph.name.clone());
                         definitions.push(Definition::Glyph(glyph));
                     }
-                    Rule::query_def        => definitions.push(Definition::Query(parse_query(def, state)?)),
-                    Rule::mutation_def     => definitions.push(Definition::Mutation(parse_mutation(def, state)?)),
-                    Rule::iterator_def     => definitions.push(Definition::Iterator(parse_iterator(def, state)?)),
-                    Rule::node_def         => definitions.push(Definition::Iterator(parse_iterator(def, state)?)),
-                    Rule::fragment_def     => definitions.push(Definition::Fragment(parse_fragment(def, state)?)),
-                    Rule::subscription_def => definitions.push(Definition::Subscription(parse_subscription(def, state)?)),
-                    Rule::struct_def       => definitions.push(Definition::Struct(parse_struct_def(def)?)),
-                    Rule::enum_def         => definitions.push(Definition::Enum(parse_enum_def(def)?)),
-                    Rule::state_machine_def => definitions.push(Definition::StateMachine(parse_state_machine_def(def)?)),
-                    Rule::schema_def       => definitions.push(Definition::Schema(parse_schema(def)?)),
-                    Rule::module_proposal  => definitions.push(Definition::ModuleProposal(parse_module_proposal(def)?)),
+                    Rule::query_def => {
+                        definitions.push(Definition::Query(parse_query(def, state)?))
+                    }
+                    Rule::mutation_def => {
+                        definitions.push(Definition::Mutation(parse_mutation(def, state)?))
+                    }
+                    Rule::iterator_def => {
+                        definitions.push(Definition::Iterator(parse_iterator(def, state)?))
+                    }
+                    Rule::node_def => {
+                        definitions.push(Definition::Iterator(parse_iterator(def, state)?))
+                    }
+                    Rule::fragment_def => {
+                        definitions.push(Definition::Fragment(parse_fragment(def, state)?))
+                    }
+                    Rule::subscription_def => {
+                        definitions.push(Definition::Subscription(parse_subscription(def, state)?))
+                    }
+                    Rule::struct_def => {
+                        definitions.push(Definition::Struct(parse_struct_def(def)?))
+                    }
+                    Rule::enum_def => definitions.push(Definition::Enum(parse_enum_def(def)?)),
+                    Rule::state_machine_def => {
+                        definitions.push(Definition::StateMachine(parse_state_machine_def(def)?))
+                    }
+                    Rule::schema_def => definitions.push(Definition::Schema(parse_schema(def)?)),
+                    Rule::module_proposal => {
+                        definitions.push(Definition::ModuleProposal(parse_module_proposal(def)?))
+                    }
                     r => return Err(GraphemeError::UnexpectedRule(format!("{r:?}"))),
                 }
             }
@@ -164,7 +181,10 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
         definitions.push(Definition::Iterator(iterator));
     }
 
-    Ok(Program { imports, definitions })
+    Ok(Program {
+        imports,
+        definitions,
+    })
 }
 
 fn parse_glyph(pair: Pair<Rule>, state: &mut ParseState) -> Result<GlyphDef, GraphemeError> {
@@ -201,7 +221,7 @@ fn parse_import(pair: Pair<Rule>) -> Result<ImportDecl, GraphemeError> {
         (ImportKind::Module, first)
     };
     let alias = alias_pair.as_str().to_string();
-    let path  = parse_string_lit(inner.next().unwrap());
+    let path = parse_string_lit(inner.next().unwrap());
     Ok(ImportDecl { kind, alias, path })
 }
 
@@ -345,19 +365,27 @@ fn parse_type_def(pair: Pair<Rule>) -> Result<TypeDef, GraphemeError> {
         }
     }
 
-    Ok(TypeDef { name, fields, directives })
+    Ok(TypeDef {
+        name,
+        fields,
+        directives,
+    })
 }
 
 fn parse_field_def(pair: Pair<Rule>) -> Result<FieldDef, GraphemeError> {
     let mut inner = pair.into_inner();
-    let name     = inner.next().unwrap().as_str().to_string();
+    let name = inner.next().unwrap().as_str().to_string();
     let type_ref = parse_type_ref(inner.next().unwrap())?;
     let directives = inner
         .filter(|p| p.as_rule() == Rule::directive)
         .map(parse_directive)
         .collect::<Result<_, _>>()?;
 
-    Ok(FieldDef { name, type_ref, directives })
+    Ok(FieldDef {
+        name,
+        type_ref,
+        directives,
+    })
 }
 
 // ── Type References ───────────────────────────────────────────
@@ -371,11 +399,11 @@ fn parse_type_ref(pair: Pair<Rule>) -> Result<TypeRef, GraphemeError> {
         Rule::scalar_type => {
             let kind = match inner_pair.as_str() {
                 "String" => ScalarKind::String,
-                "Int"    => ScalarKind::Int,
-                "Float"  => ScalarKind::Float,
-                "Bool"   => ScalarKind::Bool,
-                "Any"    => ScalarKind::Any,
-                "Json"   => ScalarKind::Json,
+                "Int" => ScalarKind::Int,
+                "Float" => ScalarKind::Float,
+                "Bool" => ScalarKind::Bool,
+                "Any" => ScalarKind::Any,
+                "Json" => ScalarKind::Json,
                 s => return Err(GraphemeError::ParseError(format!("unknown scalar: {s}"))),
             };
             Ok(TypeRef::Scalar(kind, non_null))
@@ -394,17 +422,21 @@ fn parse_type_ref(pair: Pair<Rule>) -> Result<TypeRef, GraphemeError> {
 fn parse_module_proposal(pair: Pair<Rule>) -> Result<ModuleProposal, GraphemeError> {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
-    let ops  = inner.map(parse_op_def).collect::<Result<_, _>>()?;
+    let ops = inner.map(parse_op_def).collect::<Result<_, _>>()?;
     Ok(ModuleProposal { name, ops })
 }
 
 fn parse_op_def(pair: Pair<Rule>) -> Result<OpDef, GraphemeError> {
     let mut inner = pair.into_inner();
-    let kind_str  = inner.next().unwrap().as_str();
-    let kind      = if kind_str == "query" { OpKind::Query } else { OpKind::Mutation };
-    let name      = inner.next().unwrap().as_str().to_string();
+    let kind_str = inner.next().unwrap().as_str();
+    let kind = if kind_str == "query" {
+        OpKind::Query
+    } else {
+        OpKind::Mutation
+    };
+    let name = inner.next().unwrap().as_str().to_string();
 
-    let mut args    = vec![];
+    let mut args = vec![];
     let mut returns = None;
 
     for p in inner {
@@ -428,7 +460,8 @@ fn parse_op_def(pair: Pair<Rule>) -> Result<OpDef, GraphemeError> {
         kind,
         name,
         args,
-        returns: returns.ok_or_else(|| GraphemeError::ParseError("op_def missing return type".into()))?,
+        returns: returns
+            .ok_or_else(|| GraphemeError::ParseError("op_def missing return type".into()))?,
     })
 }
 
@@ -436,26 +469,43 @@ fn parse_op_def(pair: Pair<Rule>) -> Result<OpDef, GraphemeError> {
 
 fn parse_query(pair: Pair<Rule>, state: &mut ParseState) -> Result<QueryDef, GraphemeError> {
     let mut inner = pair.into_inner();
-    let name      = inner.next().unwrap().as_str().to_string();
+    let name = inner.next().unwrap().as_str().to_string();
     let (variables, signature, directives, pipelines) = parse_operation_body(inner, state)?;
-    Ok(QueryDef { name, variables, signature, directives, pipelines })
+    Ok(QueryDef {
+        name,
+        variables,
+        signature,
+        directives,
+        pipelines,
+    })
 }
 
 fn parse_mutation(pair: Pair<Rule>, state: &mut ParseState) -> Result<MutationDef, GraphemeError> {
     let mut inner = pair.into_inner();
-    let name      = inner.next().unwrap().as_str().to_string();
+    let name = inner.next().unwrap().as_str().to_string();
     let (variables, signature, directives, pipelines) = parse_operation_body(inner, state)?;
-    Ok(MutationDef { name, variables, signature, directives, pipelines })
+    Ok(MutationDef {
+        name,
+        variables,
+        signature,
+        directives,
+        pipelines,
+    })
 }
 
 fn parse_iterator(pair: Pair<Rule>, state: &mut ParseState) -> Result<IteratorDef, GraphemeError> {
-    let mut inner   = pair.into_inner();
-    let name        = inner.next().unwrap().as_str().to_string();
+    let mut inner = pair.into_inner();
+    let name = inner.next().unwrap().as_str().to_string();
     let (_, signature, directives, pipelines) = parse_operation_body(inner, state)?;
     let signature = signature.ok_or_else(|| {
         GraphemeError::ParseError(format!("iterator '{}' is missing required signature", name))
     })?;
-    Ok(IteratorDef { name, signature, directives, pipelines })
+    Ok(IteratorDef {
+        name,
+        signature,
+        directives,
+        pipelines,
+    })
 }
 
 fn parse_fragment(pair: Pair<Rule>, state: &mut ParseState) -> Result<FragmentDef, GraphemeError> {
@@ -480,22 +530,39 @@ fn parse_fragment(pair: Pair<Rule>, state: &mut ParseState) -> Result<FragmentDe
     })
 }
 
-fn parse_subscription(pair: Pair<Rule>, state: &mut ParseState) -> Result<SubscriptionDef, GraphemeError> {
+fn parse_subscription(
+    pair: Pair<Rule>,
+    state: &mut ParseState,
+) -> Result<SubscriptionDef, GraphemeError> {
     let mut inner = pair.into_inner();
-    let name      = inner.next().unwrap().as_str().to_string();
+    let name = inner.next().unwrap().as_str().to_string();
     let (variables, signature, directives, pipelines) = parse_operation_body(inner, state)?;
-    Ok(SubscriptionDef { name, variables, signature, directives, pipelines })
+    Ok(SubscriptionDef {
+        name,
+        variables,
+        signature,
+        directives,
+        pipelines,
+    })
 }
 
 /// Shared body parser for query/mutation/subscription
 fn parse_operation_body<'a>(
     inner: impl Iterator<Item = Pair<'a, Rule>>,
     state: &mut ParseState,
-) -> Result<(Vec<VariableDef>, Option<ExecutableSignature>, Vec<Directive>, Vec<Pipeline>), GraphemeError> {
-    let mut variables  = vec![];
+) -> Result<
+    (
+        Vec<VariableDef>,
+        Option<ExecutableSignature>,
+        Vec<Directive>,
+        Vec<Pipeline>,
+    ),
+    GraphemeError,
+> {
+    let mut variables = vec![];
     let mut signature = None;
     let mut directives = vec![];
-    let mut pipelines  = vec![];
+    let mut pipelines = vec![];
 
     for p in inner {
         match p.as_rule() {
@@ -507,8 +574,8 @@ fn parse_operation_body<'a>(
             Rule::executable_signature => {
                 signature = Some(parse_executable_signature(p)?);
             }
-            Rule::directive  => directives.push(parse_directive(p)?),
-            Rule::pipeline   => pipelines.push(parse_pipeline(p, state)?),
+            Rule::directive => directives.push(parse_directive(p)?),
+            Rule::pipeline => pipelines.push(parse_pipeline(p, state)?),
             _ => {}
         }
     }
@@ -526,10 +593,14 @@ fn parse_executable_signature(pair: Pair<Rule>) -> Result<ExecutableSignature, G
 fn parse_variable_def(pair: Pair<Rule>) -> Result<VariableDef, GraphemeError> {
     let mut inner = pair.into_inner();
     // grammar emits the ident directly after the $ ($ is silent in the pair)
-    let name     = inner.next().unwrap().as_str().to_string();
+    let name = inner.next().unwrap().as_str().to_string();
     let type_ref = parse_type_ref(inner.next().unwrap())?;
-    let default  = inner.next().map(parse_value).transpose()?;
-    Ok(VariableDef { name, type_ref, default })
+    let default = inner.next().map(parse_value).transpose()?;
+    Ok(VariableDef {
+        name,
+        type_ref,
+        default,
+    })
 }
 
 // ── Pipeline ──────────────────────────────────────────────────
@@ -539,24 +610,48 @@ fn parse_pipeline(pair: Pair<Rule>, state: &mut ParseState) -> Result<Pipeline, 
 
     for p in pair.into_inner() {
         match p.as_rule() {
-            Rule::match_step => steps.push(PipelineStep::Field(parse_match_step_as_match_call(p, state)?)),
-            Rule::if_step => steps.push(PipelineStep::Field(parse_if_step_as_branch_call(p, state)?)),
-            Rule::transition_step => steps.push(PipelineStep::Field(parse_transition_step_as_set_fields_call(p)?)),
-            Rule::apply_step => steps.push(PipelineStep::Field(parse_apply_step_as_apply_lane_call(p)?)),
-            Rule::set_step => steps.push(PipelineStep::Field(parse_set_step_as_set_fields_call(p)?)),
-            Rule::struct_init_step => steps.push(PipelineStep::StructInit(parse_struct_init_step(p)?)),
+            Rule::match_step => steps.push(PipelineStep::Field(parse_match_step_as_match_call(
+                p, state,
+            )?)),
+            Rule::if_step => {
+                steps.push(PipelineStep::Field(parse_if_step_as_branch_call(p, state)?))
+            }
+            Rule::transition_step => steps.push(PipelineStep::Field(
+                parse_transition_step_as_set_fields_call(p)?,
+            )),
+            Rule::apply_step => {
+                steps.push(PipelineStep::Field(parse_apply_step_as_apply_lane_call(p)?))
+            }
+            Rule::set_step => {
+                steps.push(PipelineStep::Field(parse_set_step_as_set_fields_call(p)?))
+            }
+            Rule::struct_init_step => {
+                steps.push(PipelineStep::StructInit(parse_struct_init_step(p)?))
+            }
             Rule::field_call => steps.push(PipelineStep::Field(parse_field_call(p)?)),
-            Rule::call_step  => steps.push(PipelineStep::Call(parse_call_step(p)?)),
-            Rule::pipe_step  => {
+            Rule::call_step => steps.push(PipelineStep::Call(parse_call_step(p)?)),
+            Rule::pipe_step => {
                 // pipe_step = { "|>" ~ (match_step | if_step | transition_step | apply_step | set_step | struct_init_step | call_step | field_call) }
                 let inner = p.into_inner().next().unwrap();
                 match inner.as_rule() {
-                    Rule::match_step => steps.push(PipelineStep::Field(parse_match_step_as_match_call(inner, state)?)),
-                    Rule::if_step => steps.push(PipelineStep::Field(parse_if_step_as_branch_call(inner, state)?)),
-                    Rule::transition_step => steps.push(PipelineStep::Field(parse_transition_step_as_set_fields_call(inner)?)),
-                    Rule::apply_step => steps.push(PipelineStep::Field(parse_apply_step_as_apply_lane_call(inner)?)),
-                    Rule::set_step => steps.push(PipelineStep::Field(parse_set_step_as_set_fields_call(inner)?)),
-                    Rule::struct_init_step => steps.push(PipelineStep::StructInit(parse_struct_init_step(inner)?)),
+                    Rule::match_step => steps.push(PipelineStep::Field(
+                        parse_match_step_as_match_call(inner, state)?,
+                    )),
+                    Rule::if_step => steps.push(PipelineStep::Field(parse_if_step_as_branch_call(
+                        inner, state,
+                    )?)),
+                    Rule::transition_step => steps.push(PipelineStep::Field(
+                        parse_transition_step_as_set_fields_call(inner)?,
+                    )),
+                    Rule::apply_step => steps.push(PipelineStep::Field(
+                        parse_apply_step_as_apply_lane_call(inner)?,
+                    )),
+                    Rule::set_step => steps.push(PipelineStep::Field(
+                        parse_set_step_as_set_fields_call(inner)?,
+                    )),
+                    Rule::struct_init_step => {
+                        steps.push(PipelineStep::StructInit(parse_struct_init_step(inner)?))
+                    }
                     Rule::field_call => steps.push(PipelineStep::Field(parse_field_call(inner)?)),
                     Rule::call_step => steps.push(PipelineStep::Call(parse_call_step(inner)?)),
                     r => return Err(GraphemeError::UnexpectedRule(format!("{r:?}"))),
@@ -569,16 +664,16 @@ fn parse_pipeline(pair: Pair<Rule>, state: &mut ParseState) -> Result<Pipeline, 
     Ok(Pipeline { steps })
 }
 
-fn parse_match_step_as_match_call(pair: Pair<Rule>, state: &mut ParseState) -> Result<FieldCall, GraphemeError> {
+fn parse_match_step_as_match_call(
+    pair: Pair<Rule>,
+    state: &mut ParseState,
+) -> Result<FieldCall, GraphemeError> {
     let (field_name, cases, default_target) = parse_match_spec(pair, state)?;
 
     let case_values = cases
         .into_iter()
         .map(|(eq, target)| {
-            Value::Object(vec![
-                ("eq".to_string(), eq),
-                ("then".to_string(), target),
-            ])
+            Value::Object(vec![("eq".to_string(), eq), ("then".to_string(), target)])
         })
         .collect::<Vec<_>>();
 
@@ -595,7 +690,10 @@ fn parse_match_step_as_match_call(pair: Pair<Rule>, state: &mut ParseState) -> R
     })
 }
 
-fn parse_match_spec(pair: Pair<Rule>, state: &mut ParseState) -> Result<(String, Vec<(Value, Value)>, Value), GraphemeError> {
+fn parse_match_spec(
+    pair: Pair<Rule>,
+    state: &mut ParseState,
+) -> Result<(String, Vec<(Value, Value)>, Value), GraphemeError> {
     let mut inner = pair.into_inner();
     let match_var = inner
         .next()
@@ -618,23 +716,24 @@ fn parse_match_spec(pair: Pair<Rule>, state: &mut ParseState) -> Result<(String,
                 }
 
                 let target = parse_match_target_value(
-                    case_items
-                        .last()
-                        .cloned()
-                        .ok_or_else(|| GraphemeError::ParseError("match case missing target".to_string()))?,
+                    case_items.last().cloned().ok_or_else(|| {
+                        GraphemeError::ParseError("match case missing target".to_string())
+                    })?,
                     state,
                 )?;
 
-                for value_pair in case_items.into_iter().take_while(|p| p.as_rule() == Rule::value) {
+                for value_pair in case_items
+                    .into_iter()
+                    .take_while(|p| p.as_rule() == Rule::value)
+                {
                     let eq_value = parse_value(value_pair)?;
                     cases.push((eq_value, target.clone()));
                 }
             }
             Rule::match_default => {
-                let target_pair = entry
-                    .into_inner()
-                    .next()
-                    .ok_or_else(|| GraphemeError::ParseError("match default missing target".to_string()))?;
+                let target_pair = entry.into_inner().next().ok_or_else(|| {
+                    GraphemeError::ParseError("match default missing target".to_string())
+                })?;
                 default_target = Some(parse_match_target_value(target_pair, state)?);
             }
             _ => {}
@@ -720,14 +819,14 @@ fn parse_transition_step_as_set_fields_call(pair: Pair<Rule>) -> Result<FieldCal
     let mut inner = pair.into_inner();
     let left_var = inner
         .next()
-        .ok_or_else(|| GraphemeError::ParseError("transition-step missing left variable".to_string()))?
+        .ok_or_else(|| {
+            GraphemeError::ParseError("transition-step missing left variable".to_string())
+        })?
         .as_str()
         .to_string();
-    let to_value = parse_value(
-        inner
-            .next()
-            .ok_or_else(|| GraphemeError::ParseError("transition-step missing target value".to_string()))?,
-    )?;
+    let to_value = parse_value(inner.next().ok_or_else(|| {
+        GraphemeError::ParseError("transition-step missing target value".to_string())
+    })?)?;
     let to_value = match to_value {
         Value::Symbol(member) => Value::String(member),
         other => other,
@@ -754,11 +853,14 @@ fn parse_transition_step_as_set_fields_call(pair: Pair<Rule>) -> Result<FieldCal
     })
 }
 
-fn parse_match_target_value(pair: Pair<Rule>, state: &mut ParseState) -> Result<Value, GraphemeError> {
+fn parse_match_target_value(
+    pair: Pair<Rule>,
+    state: &mut ParseState,
+) -> Result<Value, GraphemeError> {
     let inner = if pair.as_rule() == Rule::match_target {
-        pair.into_inner().next().ok_or_else(|| {
-            GraphemeError::ParseError("match target is empty".to_string())
-        })?
+        pair.into_inner()
+            .next()
+            .ok_or_else(|| GraphemeError::ParseError("match target is empty".to_string()))?
     } else {
         pair
     };
@@ -771,33 +873,31 @@ fn parse_match_target_value(pair: Pair<Rule>, state: &mut ParseState) -> Result<
             let case_values = cases
                 .into_iter()
                 .map(|(eq, target)| {
-                    Value::Object(vec![
-                        ("eq".to_string(), eq),
-                        ("then".to_string(), target),
-                    ])
+                    Value::Object(vec![("eq".to_string(), eq), ("then".to_string(), target)])
                 })
                 .collect::<Vec<_>>();
 
-            Ok(Value::Object(vec![
-                (
-                    "$match".to_string(),
-                    Value::Object(vec![
-                        ("field".to_string(), Value::String(field_name)),
-                        ("cases".to_string(), Value::List(case_values)),
-                        ("default".to_string(), default_target),
-                    ]),
-                ),
-            ]))
+            Ok(Value::Object(vec![(
+                "$match".to_string(),
+                Value::Object(vec![
+                    ("field".to_string(), Value::String(field_name)),
+                    ("cases".to_string(), Value::List(case_values)),
+                    ("default".to_string(), default_target),
+                ]),
+            )]))
         }
         r => Err(GraphemeError::UnexpectedRule(format!("{r:?}"))),
     }
 }
 
-fn parse_branch_target_value(pair: Pair<Rule>, state: &mut ParseState) -> Result<Value, GraphemeError> {
+fn parse_branch_target_value(
+    pair: Pair<Rule>,
+    state: &mut ParseState,
+) -> Result<Value, GraphemeError> {
     let inner = if pair.as_rule() == Rule::branch_target {
-        pair.into_inner().next().ok_or_else(|| {
-            GraphemeError::ParseError("branch target is empty".to_string())
-        })?
+        pair.into_inner()
+            .next()
+            .ok_or_else(|| GraphemeError::ParseError("branch target is empty".to_string()))?
     } else {
         pair
     };
@@ -832,11 +932,13 @@ fn parse_branch_target_value(pair: Pair<Rule>, state: &mut ParseState) -> Result
     }
 }
 
-fn extract_symbol_target_from_inline_step(pair: Pair<Rule>) -> Result<Option<String>, GraphemeError> {
+fn extract_symbol_target_from_inline_step(
+    pair: Pair<Rule>,
+) -> Result<Option<String>, GraphemeError> {
     let step_pair = if pair.as_rule() == Rule::inline_target_step {
-        pair.into_inner().next().ok_or_else(|| {
-            GraphemeError::ParseError("inline target step is empty".to_string())
-        })?
+        pair.into_inner()
+            .next()
+            .ok_or_else(|| GraphemeError::ParseError("inline target step is empty".to_string()))?
     } else {
         pair
     };
@@ -912,27 +1014,40 @@ fn parse_inline_target_step(
     state: &mut ParseState,
 ) -> Result<PipelineStep, GraphemeError> {
     let step_pair = if pair.as_rule() == Rule::inline_target_step {
-        pair.into_inner().next().ok_or_else(|| {
-            GraphemeError::ParseError("inline target step is empty".to_string())
-        })?
+        pair.into_inner()
+            .next()
+            .ok_or_else(|| GraphemeError::ParseError("inline target step is empty".to_string()))?
     } else {
         pair
     };
 
     match step_pair.as_rule() {
-        Rule::transition_step => Ok(PipelineStep::Field(parse_transition_step_as_set_fields_call(step_pair)?)),
-        Rule::apply_step => Ok(PipelineStep::Field(parse_apply_step_as_apply_lane_call(step_pair)?)),
-        Rule::set_step => Ok(PipelineStep::Field(parse_set_step_as_set_fields_call(step_pair)?)),
+        Rule::transition_step => Ok(PipelineStep::Field(
+            parse_transition_step_as_set_fields_call(step_pair)?,
+        )),
+        Rule::apply_step => Ok(PipelineStep::Field(parse_apply_step_as_apply_lane_call(
+            step_pair,
+        )?)),
+        Rule::set_step => Ok(PipelineStep::Field(parse_set_step_as_set_fields_call(
+            step_pair,
+        )?)),
         Rule::struct_init_step => Ok(PipelineStep::StructInit(parse_struct_init_step(step_pair)?)),
         Rule::field_call => Ok(PipelineStep::Field(parse_field_call(step_pair)?)),
         Rule::call_step => Ok(PipelineStep::Call(parse_call_step(step_pair)?)),
-        Rule::if_step => Ok(PipelineStep::Field(parse_if_step_as_branch_call(step_pair, state)?)),
-        Rule::match_step => Ok(PipelineStep::Field(parse_match_step_as_match_call(step_pair, state)?)),
+        Rule::if_step => Ok(PipelineStep::Field(parse_if_step_as_branch_call(
+            step_pair, state,
+        )?)),
+        Rule::match_step => Ok(PipelineStep::Field(parse_match_step_as_match_call(
+            step_pair, state,
+        )?)),
         r => Err(GraphemeError::UnexpectedRule(format!("{r:?}"))),
     }
 }
 
-fn parse_if_step_as_branch_call(pair: Pair<Rule>, state: &mut ParseState) -> Result<FieldCall, GraphemeError> {
+fn parse_if_step_as_branch_call(
+    pair: Pair<Rule>,
+    state: &mut ParseState,
+) -> Result<FieldCall, GraphemeError> {
     let mut inner = pair.into_inner();
     let left_var = inner
         .next()
@@ -944,11 +1059,10 @@ fn parse_if_step_as_branch_call(pair: Pair<Rule>, state: &mut ParseState) -> Res
         .ok_or_else(|| GraphemeError::ParseError("if-step missing comparator".to_string()))?
         .as_str()
         .to_string();
-    let right_value = parse_value(
-        inner
-            .next()
-            .ok_or_else(|| GraphemeError::ParseError("if-step missing right value".to_string()))?,
-    )?;
+    let right_value =
+        parse_value(inner.next().ok_or_else(|| {
+            GraphemeError::ParseError("if-step missing right value".to_string())
+        })?)?;
     let then_target = parse_branch_target_value(
         inner
             .next()
@@ -1012,9 +1126,9 @@ fn parse_current_field_name(var_expr: &str, context: &str) -> Result<String, Gra
 fn parse_struct_init_step(pair: Pair<Rule>) -> Result<StructInitStep, GraphemeError> {
     let mut inner = pair.into_inner();
     let type_name = inner.next().unwrap().as_str().to_string();
-    let object = inner
-        .next()
-        .ok_or_else(|| GraphemeError::ParseError("struct initializer missing object body".to_string()))?;
+    let object = inner.next().ok_or_else(|| {
+        GraphemeError::ParseError("struct initializer missing object body".to_string())
+    })?;
 
     let mut fields = Vec::new();
     for field in object.into_inner() {
@@ -1062,11 +1176,11 @@ fn parse_call_step(pair: Pair<Rule>) -> Result<CallStep, GraphemeError> {
 // ── Field Calls ───────────────────────────────────────────────
 
 fn parse_field_call(pair: Pair<Rule>) -> Result<FieldCall, GraphemeError> {
-    let mut module     = None;
-    let mut name       = String::new();
-    let mut args       = vec![];
+    let mut module = None;
+    let mut name = String::new();
+    let mut args = vec![];
     let mut directives = vec![];
-    let mut selection  = None;
+    let mut selection = None;
 
     for p in pair.into_inner() {
         match p.as_rule() {
@@ -1084,19 +1198,25 @@ fn parse_field_call(pair: Pair<Rule>) -> Result<FieldCall, GraphemeError> {
                     }
                 }
             }
-            Rule::directive     => directives.push(parse_directive(p)?),
+            Rule::directive => directives.push(parse_directive(p)?),
             Rule::selection_set => selection = Some(parse_selection_set(p)?),
             _ => {}
         }
     }
 
-    Ok(FieldCall { module, name, args, directives, selection })
+    Ok(FieldCall {
+        module,
+        name,
+        args,
+        directives,
+        selection,
+    })
 }
 
 fn parse_named_arg(pair: Pair<Rule>) -> Result<(String, Value), GraphemeError> {
     let mut inner = pair.into_inner();
-    let key       = inner.next().unwrap().as_str().to_string();
-    let val       = parse_value(inner.next().unwrap())?;
+    let key = inner.next().unwrap().as_str().to_string();
+    let val = parse_value(inner.next().unwrap())?;
     Ok((key, val))
 }
 
@@ -1127,27 +1247,29 @@ fn parse_selected_field(pair: Pair<Rule>) -> Result<SelectedField, GraphemeError
             let selectors = pair
                 .into_inner()
                 .map(|p| match p.as_str() {
-                    "current"  => Ok(StateSelector::Current),
-                    "diff"     => Ok(StateSelector::Diff),
-                    "errors"   => Ok(StateSelector::Errors),
+                    "current" => Ok(StateSelector::Current),
+                    "diff" => Ok(StateSelector::Diff),
+                    "errors" => Ok(StateSelector::Errors),
                     "pipeline" => Ok(StateSelector::Pipeline),
                     "proposed" => Ok(StateSelector::Proposed),
-                    s => Err(GraphemeError::ParseError(format!("unknown state selector: {s}"))),
+                    s => Err(GraphemeError::ParseError(format!(
+                        "unknown state selector: {s}"
+                    ))),
                 })
                 .collect::<Result<_, _>>()?;
             Ok(SelectedField::State(selectors))
         }
         Rule::aliased_field => {
             let mut inner = pair.into_inner();
-            let alias     = inner.next().unwrap().as_str().to_string();
-            let fc        = parse_field_call(inner.next().unwrap())?;
+            let alias = inner.next().unwrap().as_str().to_string();
+            let fc = parse_field_call(inner.next().unwrap())?;
             Ok(SelectedField::Aliased(alias, Box::new(fc)))
         }
         Rule::plain_field => {
             let inner = pair.into_inner().next().unwrap();
             match inner.as_rule() {
                 Rule::field_call => Ok(SelectedField::Plain(parse_field_call(inner)?)),
-                Rule::ident      => Ok(SelectedField::Bare(inner.as_str().to_string())),
+                Rule::ident => Ok(SelectedField::Bare(inner.as_str().to_string())),
                 r => Err(GraphemeError::UnexpectedRule(format!("{r:?}"))),
             }
         }
@@ -1160,12 +1282,12 @@ fn parse_selected_field(pair: Pair<Rule>) -> Result<SelectedField, GraphemeError
 fn parse_value(pair: Pair<Rule>) -> Result<Value, GraphemeError> {
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
-        Rule::int_lit    => Ok(Value::Int(inner.as_str().parse().unwrap())),
-        Rule::float_lit  => Ok(Value::Float(inner.as_str().parse().unwrap())),
-        Rule::bool_lit   => Ok(Value::Bool(inner.as_str() == "true")),
-        Rule::null_lit   => Ok(Value::Null),
+        Rule::int_lit => Ok(Value::Int(inner.as_str().parse().unwrap())),
+        Rule::float_lit => Ok(Value::Float(inner.as_str().parse().unwrap())),
+        Rule::bool_lit => Ok(Value::Bool(inner.as_str() == "true")),
+        Rule::null_lit => Ok(Value::Null),
         Rule::string_lit => Ok(Value::String(parse_string_lit(inner))),
-        Rule::variable   => {
+        Rule::variable => {
             // variable includes full token, e.g. "$name" or "$current.value".
             let name = inner.as_str().trim_start_matches('$').to_string();
             Ok(Value::Variable(name))
@@ -1182,9 +1304,9 @@ fn parse_value(pair: Pair<Rule>) -> Result<Value, GraphemeError> {
             let fields = inner
                 .into_inner()
                 .map(|f| {
-                    let mut fi  = f.into_inner();
-                    let key     = fi.next().unwrap().as_str().to_string();
-                    let val     = parse_value(fi.next().unwrap())?;
+                    let mut fi = f.into_inner();
+                    let key = fi.next().unwrap().as_str().to_string();
+                    let val = parse_value(fi.next().unwrap())?;
                     Ok((key, val))
                 })
                 .collect::<Result<_, _>>()?;
@@ -1198,7 +1320,7 @@ fn parse_value(pair: Pair<Rule>) -> Result<Value, GraphemeError> {
 
 fn parse_directive(pair: Pair<Rule>) -> Result<Directive, GraphemeError> {
     let mut inner = pair.into_inner();
-    let raw_name  = inner.next().unwrap().as_str().to_string();
+    let raw_name = inner.next().unwrap().as_str().to_string();
     let name = match raw_name.as_str() {
         "r" => "retry".to_string(),
         "t" => "timeout".to_string(),
@@ -1235,5 +1357,5 @@ fn parse_directive(pair: Pair<Rule>) -> Result<Directive, GraphemeError> {
 fn parse_string_lit(pair: Pair<Rule>) -> String {
     let raw = pair.as_str();
     // Strip surrounding quotes
-    raw[1..raw.len()-1].to_string()
+    raw[1..raw.len() - 1].to_string()
 }

@@ -11,14 +11,14 @@ use crate::module_registry::ResolvedModuleCall;
 #[cfg(feature = "wasix-runtime")]
 use wasmer::{Engine, Module};
 #[cfg(feature = "wasix-runtime")]
+use wasmer_types::ModuleHash;
+#[cfg(feature = "wasix-runtime")]
 use wasmer_wasix::{
-    Pipe,
     is_wasi_module,
     runners::wasi::{RuntimeOrEngine, WasiRunner},
     virtual_fs::{AsyncReadExt, AsyncWriteExt},
+    Pipe,
 };
-#[cfg(feature = "wasix-runtime")]
-use wasmer_types::ModuleHash;
 
 /// Placeholder for the upcoming Wasmer WASIX-backed execution engine.
 ///
@@ -85,7 +85,14 @@ struct TimingStats {
 
 #[cfg(feature = "wasix-runtime")]
 impl TimingStats {
-    fn record(&mut self, cache_hit: bool, prepare_ms: u128, run_ms: u128, read_ms: u128, total_ms: u128) {
+    fn record(
+        &mut self,
+        cache_hit: bool,
+        prepare_ms: u128,
+        run_ms: u128,
+        read_ms: u128,
+        total_ms: u128,
+    ) {
         self.calls += 1;
         if cache_hit {
             self.cache_hits += 1;
@@ -211,10 +218,7 @@ impl WasixBackend {
         }
 
         let wasm_bytes = std::fs::read(wasm_path).map_err(|e| {
-            RuntimeError::RuntimeError(format!(
-                "read wasm module '{}': {e}",
-                wasm_path.display()
-            ))
+            RuntimeError::RuntimeError(format!("read wasm module '{}': {e}", wasm_path.display()))
         })?;
 
         let module = Module::new(&self.engine, &wasm_bytes).map_err(|e| {

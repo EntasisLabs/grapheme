@@ -92,6 +92,7 @@ fn main() {
             detail: ModuleSearchDetail::Concise,
             top: Some(1),
             min_score: Some(100.0),
+            include_experimental: false,
         },
     );
 
@@ -109,6 +110,108 @@ fn main() {
 ```
 
 Use these APIs when building agent tooling that needs the same discovery semantics as the CLI without shelling out to subprocesses.
+
+Module operation rows in `modules_ops`, `modules_info.exported_ops`, and `modules_types.types`
+now include a `stability` tag (`stable`, `experimental`, or `deprecated`) so embedders can
+enforce policy or ranking rules based on release maturity.
+
+## Executable Reflection APIs
+
+The SDK exposes executable reflection for both source and compiled artifacts.
+
+```rust
+use grapheme_sdk::{
+    executables_reflection_contract_from_source,
+    executables_reflection_payload_from_source,
+};
+
+fn main() {
+    let source = r#"
+query Hello {
+  state { current }
+}
+"#;
+
+    let typed = executables_reflection_contract_from_source(source)
+        .expect("reflect source executables");
+    println!("typed count: {}", typed.count);
+
+    let json = executables_reflection_payload_from_source(source)
+        .expect("reflect source payload");
+    println!("{}", serde_json::to_string_pretty(&json).unwrap());
+}
+```
+
+Artifact reflection path:
+
+```rust
+use grapheme_sdk::{
+    executables_reflection_contract_from_artifact,
+    executables_reflection_payload_from_artifact,
+};
+use grapheme_compiler::{Compiler, CompilerOptions};
+
+fn main() {
+    let source = r#"
+query Hello {
+  state { current }
+}
+"#;
+
+    let compiled = Compiler::compile_source(source, CompilerOptions::default())
+        .expect("compile");
+
+    let typed = executables_reflection_contract_from_artifact(&compiled.artifact);
+    println!("artifact count: {}", typed.count);
+
+    let json = executables_reflection_payload_from_artifact(&compiled.artifact);
+    println!("{}", serde_json::to_string_pretty(&json).unwrap());
+}
+```
+
+Use source reflection when you need HIR-level signature metadata; use artifact reflection when you already operate on compiled envelopes.
+
+## Stateful Runtime Session + Hotmodule Lifecycle
+
+Use `runtime_session()` when you need persistent activation state across multiple executions.
+
+```rust
+use grapheme_runtime::{CompatibilityMode, LoadModuleRequest, ModuleAbi};
+use grapheme_sdk::GraphemeEngine;
+use std::path::PathBuf;
+
+fn main() {
+    let engine = GraphemeEngine::builder().build();
+    let mut session = engine.runtime_session();
+
+    let activation = session
+        .activate_module_generation(LoadModuleRequest {
+            module_id: "http".to_string(),
+            wasm_path: PathBuf::from("plugins/http-rs/target/wasm32-wasip1/release/http_rs.wasm"),
+            compatibility_mode: CompatibilityMode::Strict,
+            abi: ModuleAbi::MirV1,
+            version: Some("0.2.0".to_string()),
+        })
+        .expect("activate module");
+
+    println!("active generation: {}", activation.generation_id);
+
+    let _result = session.execute_source(
+        "import http from \"grapheme/http\"\nquery Q { state { current } }",
+    );
+
+    let events = session.module_lifecycle_events();
+    println!("events observed: {}", events.len());
+
+    let rollback = session
+        .rollback_module_generation("http")
+        .expect("rollback module");
+
+    println!("rolled back generation: {}", rollback.generation_id);
+}
+```
+
+This session API preserves deterministic activation and rollback semantics while keeping in-flight execution pinning behavior inside runtime internals.
 
 ## Capability Observer Hook
 
