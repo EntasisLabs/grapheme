@@ -2332,7 +2332,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-cli"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "grapheme-artifact",
  "grapheme-compiler",
@@ -2370,7 +2370,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-runtime"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "grapheme-artifact",
  "grapheme-signatures",
@@ -2389,7 +2389,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-sdk"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "grapheme-artifact",
  "grapheme-compiler",

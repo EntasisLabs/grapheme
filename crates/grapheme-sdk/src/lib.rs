@@ -153,6 +153,12 @@ impl GraphemeEngineBuilder {
         self
     }
 
+    /// Seed the runtime with an initial `state.current` value before the first step executes.
+    pub fn with_initial_state_current(mut self, initial_current: JsonValue) -> Self {
+        self.runtime_options.initial_state_current = Some(initial_current);
+        self
+    }
+
     /// Bind a module id to a Wasm path for runtime resolution.
     pub fn with_module_path(mut self, module: &str, path: impl Into<PathBuf>) -> Self {
         self.module_bindings
@@ -595,8 +601,24 @@ pub struct ModuleOpRow {
     pub op: String,
     pub stability: String,
     pub effect: grapheme_runtime::EffectKind,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<OperationArgRow>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_object_type: Option<OperationObjectType>,
+    pub output_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_object_type: Option<OperationObjectType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub input_schema_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub output_schema_ref: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OperationArgRow {
+    pub name: String,
+    pub ty: String,
+    pub required: bool,
 }
 
 /// Discovery row returned by SDK example listing/search APIs.
@@ -1062,6 +1084,14 @@ pub fn modules_ops_contract(query: &str) -> ModuleOpsPayload {
                 matches.push(ModuleOpRow {
                     module_id: module_id.clone(),
                     stability: op_stability_label(&module_id, &op.op).to_string(),
+                    args: op_arg_rows(&module_id, &op.op),
+                    input_object_type: op_input_object_type(&module_id, &op.op),
+                    output_type: output_type_label(
+                        &module_id,
+                        &op.op,
+                        op.output_schema_ref.as_deref(),
+                    ),
+                    output_object_type: op_output_object_type(&module_id, &op.op),
                     op: op.op,
                     effect: op.effect,
                     input_schema_ref: op.input_schema_ref,
@@ -1084,6 +1114,8 @@ pub struct CompactModuleOp {
     pub op: String,
     pub stability: String,
     pub effect: grapheme_runtime::EffectKind,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<OperationArgRow>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_object_type: Option<OperationObjectType>,
     pub output_type: String,
@@ -1389,6 +1421,21 @@ fn op_input_object_type(module_id: &str, op_name: &str) -> Option<OperationObjec
     })
 }
 
+fn op_arg_rows(module_id: &str, op_name: &str) -> Vec<OperationArgRow> {
+    let Some(spec) = find_op_spec(module_id, op_name) else {
+        return Vec::new();
+    };
+
+    spec.args
+        .iter()
+        .map(|arg| OperationArgRow {
+            name: arg.name.to_string(),
+            ty: arg_type_label(arg.ty).to_string(),
+            required: arg.required,
+        })
+        .collect()
+}
+
 fn op_output_object_type(module_id: &str, op_name: &str) -> Option<OperationObjectType> {
     let fields = op_output_object_fields(module_id, op_name)?;
 
@@ -1425,6 +1472,7 @@ fn compact_module_ops(
             op: op.op.clone(),
             stability: op_stability_label(module_id, &op.op).to_string(),
             effect: op.effect.clone(),
+            args: op_arg_rows(module_id, &op.op),
             input_object_type: op_input_object_type(module_id, &op.op),
             output_type: output_type_label(module_id, &op.op, op.output_schema_ref.as_deref()),
             output_object_type: op_output_object_type(module_id, &op.op),
@@ -1847,6 +1895,21 @@ mod tests {
         assert!(matches
             .iter()
             .all(|row| { row.get("stability").and_then(|v| v.as_str()) == Some("stable") }));
+        assert!(matches.iter().any(|row| {
+            row.get("op").and_then(|v| v.as_str()) == Some("echo")
+                && row.get("input_object_type").is_some()
+                && row.get("output_type").and_then(|v| v.as_str()) == Some("object")
+                && row
+                    .get("args")
+                    .and_then(|v| v.as_array())
+                    .is_some_and(|args| {
+                        args.iter().any(|arg| {
+                            arg.get("name").and_then(|v| v.as_str()) == Some("message")
+                                && arg.get("ty").and_then(|v| v.as_str()) == Some("string")
+                                && arg.get("required").and_then(|v| v.as_bool()) == Some(false)
+                        })
+                    })
+        }));
     }
 
     #[test]
@@ -1911,6 +1974,15 @@ mod tests {
                 .and_then(|v| v.as_str()),
             Some("string")
         );
+        assert_eq!(
+            first
+                .get("args")
+                .and_then(|v| v.as_array())
+                .and_then(|args| args.first())
+                .and_then(|arg| arg.get("name"))
+                .and_then(|v| v.as_str()),
+            Some("query")
+        );
         assert!(first.get("input_schema_ref").is_none());
         assert!(first.get("output_schema_ref").is_none());
     }
@@ -1944,6 +2016,10 @@ mod tests {
             .find(|row| row.get("op").and_then(|v| v.as_str()) == Some("duckduckgo"))
             .expect("duckduckgo op row");
         assert!(duckduckgo.get("input_object_type").is_some());
+        assert!(duckduckgo
+            .get("args")
+            .and_then(|v| v.as_array())
+            .is_some_and(|args| !args.is_empty()));
         assert_eq!(
             duckduckgo.get("stability").and_then(|v| v.as_str()),
             Some("stable")
@@ -1954,6 +2030,7 @@ mod tests {
             .find(|row| row.get("op").and_then(|v| v.as_str()) == Some("providers"))
             .expect("providers op row");
         assert!(providers.get("input_object_type").is_none());
+        assert!(providers.get("args").is_none());
         assert_eq!(
             providers
                 .get("output_object_type")

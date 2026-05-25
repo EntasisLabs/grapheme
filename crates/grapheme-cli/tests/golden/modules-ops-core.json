@@ -1,291 +1,1452 @@
 {
   "matches": [
     {
+      "args": [
+        {
+          "name": "a",
+          "required": true,
+          "ty": "any"
+        },
+        {
+          "name": "b",
+          "required": true,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "a": {
+            "required": true,
+            "ty": "any"
+          },
+          "b": {
+            "required": true,
+            "ty": "any"
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ]
+      },
       "module_id": "core",
       "op": "add",
-      "output_schema_ref": null,
+      "output_type": "number",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "lane",
+          "required": true,
+          "ty": "string"
+        },
+        {
+          "name": "fields",
+          "required": true,
+          "ty": "object"
+        },
+        {
+          "name": "input",
+          "required": false,
+          "ty": "object"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "fields": {
+            "required": true,
+            "ty": "object"
+          },
+          "input": {
+            "required": false,
+            "ty": "object"
+          },
+          "lane": {
+            "required": true,
+            "ty": "string"
+          }
+        },
+        "required": [
+          "lane",
+          "fields"
+        ]
+      },
       "module_id": "core",
       "op": "apply_lane",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {},
+        "required": []
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "haystack",
+          "required": false,
+          "ty": "any"
+        },
+        {
+          "name": "needle",
+          "required": true,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "haystack": {
+            "required": false,
+            "ty": "any"
+          },
+          "needle": {
+            "required": true,
+            "ty": "any"
+          }
+        },
+        "required": [
+          "needle"
+        ]
+      },
       "module_id": "core",
       "op": "contains",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {
+          "contains": {
+            "required": true,
+            "ty": "boolean"
+          }
+        },
+        "required": [
+          "contains"
+        ]
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "value",
+          "required": false,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "value": {
+            "required": false,
+            "ty": "any"
+          }
+        },
+        "required": []
+      },
       "module_id": "core",
       "op": "dec",
-      "output_schema_ref": null,
+      "output_type": "number",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "field",
+          "required": true,
+          "ty": "string"
+        },
+        {
+          "name": "input",
+          "required": false,
+          "ty": "object"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "field": {
+            "required": true,
+            "ty": "string"
+          },
+          "input": {
+            "required": false,
+            "ty": "object"
+          }
+        },
+        "required": [
+          "field"
+        ]
+      },
       "module_id": "core",
       "op": "dec_field",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {},
+        "required": []
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "message",
+          "required": false,
+          "ty": "string"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "message": {
+            "required": false,
+            "ty": "string"
+          }
+        },
+        "required": []
+      },
       "module_id": "core",
       "op": "echo",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {
+          "message": {
+            "required": true,
+            "ty": "string"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "a",
+          "required": true,
+          "ty": "any"
+        },
+        {
+          "name": "b",
+          "required": true,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "a": {
+            "required": true,
+            "ty": "any"
+          },
+          "b": {
+            "required": true,
+            "ty": "any"
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ]
+      },
       "module_id": "core",
       "op": "eq",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {
+          "value": {
+            "required": true,
+            "ty": "boolean"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "items",
+          "required": false,
+          "ty": "array"
+        },
+        {
+          "name": "field",
+          "required": true,
+          "ty": "string"
+        },
+        {
+          "name": "equals",
+          "required": true,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "equals": {
+            "required": true,
+            "ty": "any"
+          },
+          "field": {
+            "required": true,
+            "ty": "string"
+          },
+          "items": {
+            "required": false,
+            "ty": "array"
+          }
+        },
+        "required": [
+          "field",
+          "equals"
+        ]
+      },
       "module_id": "core",
       "op": "filter",
-      "output_schema_ref": null,
+      "output_type": "array",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "items",
+          "required": false,
+          "ty": "array"
+        },
+        {
+          "name": "field",
+          "required": true,
+          "ty": "string"
+        },
+        {
+          "name": "equals",
+          "required": true,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "equals": {
+            "required": true,
+            "ty": "any"
+          },
+          "field": {
+            "required": true,
+            "ty": "string"
+          },
+          "items": {
+            "required": false,
+            "ty": "array"
+          }
+        },
+        "required": [
+          "field",
+          "equals"
+        ]
+      },
       "module_id": "core",
       "op": "find",
-      "output_schema_ref": null,
+      "output_type": "any",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "input",
+          "required": false,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "input": {
+            "required": false,
+            "ty": "any"
+          }
+        },
+        "required": []
+      },
       "module_id": "core",
       "op": "get_data",
-      "output_schema_ref": null,
+      "output_type": "any",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "path",
+          "required": true,
+          "ty": "string"
+        },
+        {
+          "name": "input",
+          "required": false,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "input": {
+            "required": false,
+            "ty": "any"
+          },
+          "path": {
+            "required": true,
+            "ty": "string"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
       "module_id": "core",
       "op": "get_path",
-      "output_schema_ref": null,
+      "output_type": "any",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "input",
+          "required": false,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "input": {
+            "required": false,
+            "ty": "any"
+          }
+        },
+        "required": []
+      },
       "module_id": "core",
       "op": "get_state",
-      "output_schema_ref": null,
+      "output_type": "any",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "items",
+          "required": false,
+          "ty": "array"
+        },
+        {
+          "name": "field",
+          "required": true,
+          "ty": "string"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "field": {
+            "required": true,
+            "ty": "string"
+          },
+          "items": {
+            "required": false,
+            "ty": "array"
+          }
+        },
+        "required": [
+          "field"
+        ]
+      },
       "module_id": "core",
       "op": "group_by",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {},
+        "required": []
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "a",
+          "required": true,
+          "ty": "any"
+        },
+        {
+          "name": "b",
+          "required": true,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "a": {
+            "required": true,
+            "ty": "any"
+          },
+          "b": {
+            "required": true,
+            "ty": "any"
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ]
+      },
       "module_id": "core",
       "op": "gt",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {
+          "value": {
+            "required": true,
+            "ty": "boolean"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "a",
+          "required": true,
+          "ty": "any"
+        },
+        {
+          "name": "b",
+          "required": true,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "a": {
+            "required": true,
+            "ty": "any"
+          },
+          "b": {
+            "required": true,
+            "ty": "any"
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ]
+      },
       "module_id": "core",
       "op": "gte",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {
+          "value": {
+            "required": true,
+            "ty": "boolean"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "path",
+          "required": true,
+          "ty": "string"
+        },
+        {
+          "name": "input",
+          "required": false,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "input": {
+            "required": false,
+            "ty": "any"
+          },
+          "path": {
+            "required": true,
+            "ty": "string"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
       "module_id": "core",
       "op": "has_path",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {
+          "has_path": {
+            "required": true,
+            "ty": "boolean"
+          }
+        },
+        "required": [
+          "has_path"
+        ]
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "value",
+          "required": false,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "value": {
+            "required": false,
+            "ty": "any"
+          }
+        },
+        "required": []
+      },
       "module_id": "core",
       "op": "inc",
-      "output_schema_ref": null,
+      "output_type": "number",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "field",
+          "required": true,
+          "ty": "string"
+        },
+        {
+          "name": "input",
+          "required": false,
+          "ty": "object"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "field": {
+            "required": true,
+            "ty": "string"
+          },
+          "input": {
+            "required": false,
+            "ty": "object"
+          }
+        },
+        "required": [
+          "field"
+        ]
+      },
       "module_id": "core",
       "op": "inc_field",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {},
+        "required": []
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "items",
+          "required": false,
+          "ty": "array"
+        },
+        {
+          "name": "sep",
+          "required": false,
+          "ty": "string"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "items": {
+            "required": false,
+            "ty": "array"
+          },
+          "sep": {
+            "required": false,
+            "ty": "string"
+          }
+        },
+        "required": []
+      },
       "module_id": "core",
       "op": "join",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {
+          "text": {
+            "required": true,
+            "ty": "string"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "text",
+          "required": false,
+          "ty": "string"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "text": {
+            "required": false,
+            "ty": "string"
+          }
+        },
+        "required": []
+      },
       "module_id": "core",
       "op": "lower",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {
+          "text": {
+            "required": true,
+            "ty": "string"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "a",
+          "required": true,
+          "ty": "any"
+        },
+        {
+          "name": "b",
+          "required": true,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "a": {
+            "required": true,
+            "ty": "any"
+          },
+          "b": {
+            "required": true,
+            "ty": "any"
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ]
+      },
       "module_id": "core",
       "op": "lt",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {
+          "value": {
+            "required": true,
+            "ty": "boolean"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "a",
+          "required": true,
+          "ty": "any"
+        },
+        {
+          "name": "b",
+          "required": true,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "a": {
+            "required": true,
+            "ty": "any"
+          },
+          "b": {
+            "required": true,
+            "ty": "any"
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ]
+      },
       "module_id": "core",
       "op": "lte",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {
+          "value": {
+            "required": true,
+            "ty": "boolean"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "items",
+          "required": false,
+          "ty": "array"
+        },
+        {
+          "name": "field",
+          "required": false,
+          "ty": "string"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "field": {
+            "required": false,
+            "ty": "string"
+          },
+          "items": {
+            "required": false,
+            "ty": "array"
+          }
+        },
+        "required": []
+      },
       "module_id": "core",
       "op": "map",
-      "output_schema_ref": null,
+      "output_type": "array",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "left",
+          "required": false,
+          "ty": "object"
+        },
+        {
+          "name": "right",
+          "required": false,
+          "ty": "object"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "left": {
+            "required": false,
+            "ty": "object"
+          },
+          "right": {
+            "required": false,
+            "ty": "object"
+          }
+        },
+        "required": []
+      },
       "module_id": "core",
       "op": "merge",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {},
+        "required": []
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "state",
+          "required": true,
+          "ty": "any"
+        },
+        {
+          "name": "data",
+          "required": false,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "data": {
+            "required": false,
+            "ty": "any"
+          },
+          "state": {
+            "required": true,
+            "ty": "any"
+          }
+        },
+        "required": [
+          "state"
+        ]
+      },
       "module_id": "core",
       "op": "pack_state_data",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {
+          "data": {
+            "required": true,
+            "ty": "any"
+          },
+          "state": {
+            "required": true,
+            "ty": "any"
+          }
+        },
+        "required": [
+          "state",
+          "data"
+        ]
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "fields",
+          "required": true,
+          "ty": "array"
+        },
+        {
+          "name": "input",
+          "required": false,
+          "ty": "object"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "fields": {
+            "required": true,
+            "ty": "array"
+          },
+          "input": {
+            "required": false,
+            "ty": "object"
+          }
+        },
+        "required": [
+          "fields"
+        ]
+      },
       "module_id": "core",
       "op": "pick",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {},
+        "required": []
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "items",
+          "required": false,
+          "ty": "array"
+        },
+        {
+          "name": "mode",
+          "required": true,
+          "ty": "string"
+        },
+        {
+          "name": "initial",
+          "required": false,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "initial": {
+            "required": false,
+            "ty": "any"
+          },
+          "items": {
+            "required": false,
+            "ty": "array"
+          },
+          "mode": {
+            "required": true,
+            "ty": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
       "module_id": "core",
       "op": "reduce",
-      "output_schema_ref": null,
+      "output_type": "any",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "text",
+          "required": false,
+          "ty": "string"
+        },
+        {
+          "name": "from",
+          "required": true,
+          "ty": "string"
+        },
+        {
+          "name": "to",
+          "required": false,
+          "ty": "string"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "from": {
+            "required": true,
+            "ty": "string"
+          },
+          "text": {
+            "required": false,
+            "ty": "string"
+          },
+          "to": {
+            "required": false,
+            "ty": "string"
+          }
+        },
+        "required": [
+          "from"
+        ]
+      },
       "module_id": "core",
       "op": "replace",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {
+          "text": {
+            "required": true,
+            "ty": "string"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "fields",
+          "required": true,
+          "ty": "object"
+        },
+        {
+          "name": "input",
+          "required": false,
+          "ty": "object"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "fields": {
+            "required": true,
+            "ty": "object"
+          },
+          "input": {
+            "required": false,
+            "ty": "object"
+          }
+        },
+        "required": [
+          "fields"
+        ]
+      },
       "module_id": "core",
       "op": "set_fields",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {},
+        "required": []
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "path",
+          "required": true,
+          "ty": "string"
+        },
+        {
+          "name": "value",
+          "required": true,
+          "ty": "any"
+        },
+        {
+          "name": "input",
+          "required": false,
+          "ty": "object"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "input": {
+            "required": false,
+            "ty": "object"
+          },
+          "path": {
+            "required": true,
+            "ty": "string"
+          },
+          "value": {
+            "required": true,
+            "ty": "any"
+          }
+        },
+        "required": [
+          "path",
+          "value"
+        ]
+      },
       "module_id": "core",
       "op": "set_path",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {},
+        "required": []
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "text",
+          "required": false,
+          "ty": "string"
+        },
+        {
+          "name": "sep",
+          "required": false,
+          "ty": "string"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "sep": {
+            "required": false,
+            "ty": "string"
+          },
+          "text": {
+            "required": false,
+            "ty": "string"
+          }
+        },
+        "required": []
+      },
       "module_id": "core",
       "op": "split",
-      "output_schema_ref": null,
+      "output_type": "array",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "a",
+          "required": true,
+          "ty": "any"
+        },
+        {
+          "name": "b",
+          "required": true,
+          "ty": "any"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "a": {
+            "required": true,
+            "ty": "any"
+          },
+          "b": {
+            "required": true,
+            "ty": "any"
+          }
+        },
+        "required": [
+          "a",
+          "b"
+        ]
+      },
       "module_id": "core",
       "op": "sub",
-      "output_schema_ref": null,
+      "output_type": "number",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "message",
+          "required": false,
+          "ty": "string"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "message": {
+            "required": false,
+            "ty": "string"
+          }
+        },
+        "required": []
+      },
       "module_id": "core",
       "op": "tap",
-      "output_schema_ref": null,
+      "output_type": "any",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "text",
+          "required": false,
+          "ty": "string"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "text": {
+            "required": false,
+            "ty": "string"
+          }
+        },
+        "required": []
+      },
       "module_id": "core",
       "op": "trim",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {
+          "text": {
+            "required": true,
+            "ty": "string"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "text",
+          "required": false,
+          "ty": "string"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "text": {
+            "required": false,
+            "ty": "string"
+          }
+        },
+        "required": []
+      },
       "module_id": "core",
       "op": "upper",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {
+          "text": {
+            "required": true,
+            "ty": "string"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "output_type": "object",
       "stability": "stable"
     },
     {
+      "args": [
+        {
+          "name": "required",
+          "required": true,
+          "ty": "array"
+        },
+        {
+          "name": "data",
+          "required": true,
+          "ty": "object"
+        }
+      ],
       "effect": "pure",
-      "input_schema_ref": null,
+      "input_object_type": {
+        "kind": "object",
+        "properties": {
+          "data": {
+            "required": true,
+            "ty": "object"
+          },
+          "required": {
+            "required": true,
+            "ty": "array"
+          }
+        },
+        "required": [
+          "required",
+          "data"
+        ]
+      },
       "module_id": "core",
       "op": "validate_schema",
-      "output_schema_ref": null,
+      "output_object_type": {
+        "kind": "object",
+        "properties": {
+          "missing": {
+            "required": true,
+            "ty": "array"
+          },
+          "ok": {
+            "required": true,
+            "ty": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "missing"
+        ]
+      },
+      "output_type": "object",
       "stability": "stable"
     }
   ],

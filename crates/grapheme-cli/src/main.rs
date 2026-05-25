@@ -52,6 +52,7 @@ struct RunOptions {
     bindings: Vec<(String, PathBuf)>,
     output_mode: RunOutputMode,
     native_modules: bool,
+    initial_state_current: Option<JsonValue>,
     aot_stage: Option<AotStageSelection>,
     strict_stage_b_container_execution: bool,
     allow_stage_b_fallback: bool,
@@ -1542,6 +1543,7 @@ fn run_program(file_path: &str, run_options: RunOptions) -> Result<(), CompilerE
 
     let trace_policy = trace_policy_from_run_options(&run_options);
     let strict_stage_b_container_execution = resolve_stage_b_strict_mode(&run_options);
+    let initial_state_current = run_options.initial_state_current.clone();
 
     let mut module_bindings = run_options.bindings;
 
@@ -1579,6 +1581,10 @@ fn run_program(file_path: &str, run_options: RunOptions) -> Result<(), CompilerE
         .with_stream_step_output(
             run_options.output_mode == RunOutputMode::Plain && run_options.stream_steps,
         );
+
+    if let Some(initial_current) = initial_state_current {
+        engine_builder = engine_builder.with_initial_state_current(initial_current);
+    }
 
     let (is_set, max_steps) = parse_optional_usize_env("GRAPHEME_RUNTIME_MAX_STEPS")
         .map_err(|e| CompilerError::RuntimeError(e.to_string()))?;
@@ -1721,6 +1727,7 @@ fn default_run_options() -> RunOptions {
         bindings: vec![],
         output_mode: RunOutputMode::Plain,
         native_modules: false,
+        initial_state_current: None,
         aot_stage: None,
         strict_stage_b_container_execution: false,
         allow_stage_b_fallback: false,
@@ -2049,6 +2056,44 @@ fn parse_run_args(args: &[String]) -> Result<(String, RunOptions), CompilerError
                 run_options.native_modules = true;
                 i += 1;
             }
+            "--state-json" => {
+                if i + 1 >= args.len() {
+                    return Err(CompilerError::RuntimeError(
+                        "--state-json requires a JSON value".to_string(),
+                    ));
+                }
+                if run_options.initial_state_current.is_some() {
+                    return Err(CompilerError::RuntimeError(
+                        "initial state already set; use only one of --state-json or --state-file"
+                            .to_string(),
+                    ));
+                }
+
+                run_options.initial_state_current =
+                    Some(parse_json_value_flag("--state-json", &args[i + 1])?);
+                i += 2;
+            }
+            "--state-file" => {
+                if i + 1 >= args.len() {
+                    return Err(CompilerError::RuntimeError(
+                        "--state-file requires a path to a JSON file".to_string(),
+                    ));
+                }
+                if run_options.initial_state_current.is_some() {
+                    return Err(CompilerError::RuntimeError(
+                        "initial state already set; use only one of --state-json or --state-file"
+                            .to_string(),
+                    ));
+                }
+
+                let path = &args[i + 1];
+                let raw = fs::read_to_string(path).map_err(|e| {
+                    CompilerError::RuntimeError(format!("--state-file could not read {path}: {e}"))
+                })?;
+                run_options.initial_state_current =
+                    Some(parse_json_value_flag("--state-file", &raw)?);
+                i += 2;
+            }
             "--aot-stage" => {
                 if i + 1 >= args.len() {
                     return Err(CompilerError::RuntimeError(
@@ -2212,6 +2257,14 @@ fn parse_usize_flag(flag: &str, value: &str) -> Result<usize, CompilerError> {
         CompilerError::RuntimeError(format!(
             "invalid {} value '{}', expected integer >= 0",
             flag, value
+        ))
+    })
+}
+
+fn parse_json_value_flag(flag: &str, value: &str) -> Result<JsonValue, CompilerError> {
+    serde_json::from_str(value).map_err(|e| {
+        CompilerError::RuntimeError(format!(
+            "{flag} requires valid JSON (example: '{{\"user\":\"alice\"}}'): {e}"
         ))
     })
 }
@@ -2520,7 +2573,9 @@ fn print_usage() {
     eprintln!("  grapheme examples [list] [--yaml|--json] [--query q] [--tag tag] [--complexity level] [--native-only]");
     eprintln!("  grapheme examples show <name> [--summary] [--raw] [--yaml|--json]");
     eprintln!("  grapheme examples init [--out dir]");
-    eprintln!("  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules] [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--strict-stage-b] [--allow-stage-b-fallback] [--stream-steps]");
+    eprintln!("  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules]");
+    eprintln!("               [--state-json '<json>' | --state-file path.json]");
+    eprintln!("               [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--strict-stage-b] [--allow-stage-b-fallback] [--stream-steps]");
     eprintln!("               [--trace-profile lean|debug] [--trace-steps N]");
     eprintln!("               [--trace-projection minimal|full] [--trace-max-string-bytes N]");
     eprintln!("  grapheme modules [--yaml|--json]");
@@ -2623,6 +2678,43 @@ mod tests {
     }
 
     #[test]
+    fn parse_run_args_supports_state_json() {
+        let args = vec![
+            "examples/hello.gr".to_string(),
+            "--state-json".to_string(),
+            r#"{"user":"alice","count":2}"#.to_string(),
+        ];
+
+        let (_file, run_options) = parse_run_args(&args).expect("parse run args should succeed");
+        assert_eq!(
+            run_options.initial_state_current,
+            Some(json!({"user": "alice", "count": 2}))
+        );
+    }
+
+    #[test]
+    fn parse_run_args_supports_state_file() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = env::temp_dir().join(format!("grapheme-cli-state-file-{unique}"));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        let state_path = dir.join("state.json");
+        fs::write(&state_path, r#"{"seed":[1,2,3]}"#).expect("write state json");
+
+        let args = vec![
+            "examples/hello.gr".to_string(),
+            "--state-file".to_string(),
+            state_path.to_string_lossy().to_string(),
+        ];
+
+        let (_file, run_options) = parse_run_args(&args).expect("parse run args should succeed");
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(run_options.initial_state_current, Some(json!({"seed": [1, 2, 3]})));
+    }
+
+    #[test]
     fn parse_executable_kind_policy_mode_rejects_unknown_value() {
         let err = parse_executable_kind_policy_mode("--type-policy", "aggressive")
             .expect_err("invalid type-policy should fail");
@@ -2710,6 +2802,7 @@ showcase = "examples/legacy/showcase"
             bindings: vec![],
             output_mode: RunOutputMode::Plain,
             native_modules: false,
+            initial_state_current: None,
             aot_stage: Some(AotStageSelection::StageB),
             strict_stage_b_container_execution: false,
             allow_stage_b_fallback: false,
@@ -2730,6 +2823,7 @@ showcase = "examples/legacy/showcase"
             bindings: vec![],
             output_mode: RunOutputMode::Plain,
             native_modules: false,
+            initial_state_current: None,
             aot_stage: Some(AotStageSelection::StageB),
             strict_stage_b_container_execution: false,
             allow_stage_b_fallback: true,

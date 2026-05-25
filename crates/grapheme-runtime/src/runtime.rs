@@ -50,6 +50,8 @@ pub struct RuntimeOptions {
     pub max_steps: Option<usize>,
     /// Optional max call depth for nested function execution.
     pub max_call_depth: Option<usize>,
+    /// Optional initial value assigned to `state.current` before first step.
+    pub initial_state_current: Option<JsonValue>,
 }
 
 impl Default for RuntimeOptions {
@@ -65,6 +67,7 @@ impl Default for RuntimeOptions {
             strict_stage_b_container_execution: default_strict_stage_b_container_execution(),
             max_steps: Some(100_000),
             max_call_depth: Some(DEFAULT_MAX_CALL_DEPTH),
+            initial_state_current: None,
         }
     }
 }
@@ -369,6 +372,9 @@ impl RuntimeEngine {
             })?;
 
         let mut state = AgentState::with_trace_policy(self.options.trace_policy.clone());
+        if let Some(initial_current) = &self.options.initial_state_current {
+            state.current = initial_current.clone();
+        }
         // Pin module resolution state for the full execution so future activations
         // do not affect in-flight workflows.
         let pinned_module_registry = self.options.module_registry.clone();
@@ -2027,6 +2033,42 @@ mod tests {
             items[1].get("id"),
             Some(&JsonValue::String("b".to_string()))
         );
+    }
+
+    #[test]
+    fn execute_artifact_applies_initial_state_current_option() {
+        let mir = MirProgram {
+            functions: vec![MirFunction {
+                name: "Main".to_string(),
+                kind: MirFunctionKind::Fragment,
+                retry_config: None,
+                timeout_config: None,
+                intent_config: None,
+                loop_config: None,
+                blocks: vec![MirBlock {
+                    id: 0,
+                    instructions: vec![],
+                    terminator: MirTerminator::ReturnState,
+                }],
+            }],
+            capabilities: vec![],
+        };
+
+        let artifact = build_artifact_from_mir(&mir, Some("Main")).expect("artifact builds");
+        let runtime = RuntimeEngine::new(RuntimeOptions {
+            initial_state_current: Some(json!({ "seed": 42 })),
+            ..RuntimeOptions::default()
+        });
+        let mut host = TestHost {
+            mode: HostMode::StepIndexNumber,
+        };
+
+        let (state, result) = runtime
+            .execute_artifact(&artifact, &mut host)
+            .expect("runtime execution succeeds");
+
+        assert!(matches!(result.outcome, ExecutionOutcome::Succeeded));
+        assert_eq!(state.current, json!({ "seed": 42 }));
     }
 
     #[test]
