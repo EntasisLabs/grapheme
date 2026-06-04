@@ -18,7 +18,7 @@ impl PolicyGuard {
         match (call.module_id.as_str(), call.op.as_str()) {
             ("http", "get") | ("http", "post") => self.check_http(args),
             ("tcp", "connect") => self.check_tcp(args),
-            ("smtp", "send_mail") => self.check_smtp(args),
+            ("smtp", "send_mail") | ("email", "smtp") | ("email", "gmail") => self.check_smtp(args),
             ("secrets", "get_secret_handle") | ("secrets", "sign_request") => {
                 self.check_secrets(args)
             }

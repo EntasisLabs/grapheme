@@ -1193,6 +1193,8 @@ pub enum ExecutableReflectionKind {
 pub struct ExecutableReflection {
     pub name: String,
     pub kind: ExecutableReflectionKind,
+    /// Optional executable description derived from `@intent(goal: ...)`.
+    pub description: Option<String>,
     pub input_type: Option<String>,
     pub output_type: Option<String>,
     pub loop_directive_count: usize,
@@ -1288,6 +1290,7 @@ fn executable_reflection_from_hir(
     ExecutableReflection {
         name: executable.name.clone(),
         kind,
+        description: intent_goal_from_hir(executable.intent_args.as_ref()),
         input_type: executable.input_type.as_ref().map(type_ref_label),
         output_type: executable.output_type.as_ref().map(type_ref_label),
         loop_directive_count: executable.loop_directive_count,
@@ -1315,6 +1318,7 @@ fn executable_reflection_from_mir(
     ExecutableReflection {
         name: function.name.clone(),
         kind,
+        description: function.intent_config.as_ref().and_then(|cfg| cfg.goal.clone()),
         input_type: None,
         output_type: None,
         loop_directive_count: usize::from(function.loop_config.is_some()),
@@ -1324,6 +1328,14 @@ fn executable_reflection_from_mir(
         pipeline_count,
         step_count,
     }
+}
+
+fn intent_goal_from_hir(intent_args: Option<&JsonValue>) -> Option<String> {
+    intent_args
+        .and_then(|args| args.as_object())
+        .and_then(|args| args.get("goal"))
+        .and_then(|goal| goal.as_str())
+        .map(|goal| goal.to_string())
 }
 
 fn type_ref_label(ty: &TypeRef) -> String {
@@ -1597,7 +1609,7 @@ fn module_search_guidance(module_id: &str) -> ModuleSearchGuidance {
             use_when: "You need source discovery, provider routing, or report/material generation.",
             avoid_when: "You already have trusted local content and do not need web fetch/search.",
         },
-        "http" | "tcp" | "smtp" => ModuleSearchGuidance {
+        "http" | "tcp" | "smtp" | "email" => ModuleSearchGuidance {
             summary: "Network side-effect modules for transport and external I/O.",
             use_when: "You need outbound calls, socket interactions, or email delivery.",
             avoid_when: "You can complete the workflow with local transforms only.",
@@ -2092,6 +2104,7 @@ mod tests {
         let row = ExecutableReflection {
             name: "Heartbeat".to_string(),
             kind: ExecutableReflectionKind::Subscription,
+            description: Some("Heartbeat status stream".to_string()),
             input_type: Some("HeartbeatIn".to_string()),
             output_type: Some("HeartbeatOut".to_string()),
             loop_directive_count: 1,
@@ -2112,6 +2125,10 @@ mod tests {
             Some("subscription")
         );
         assert_eq!(
+            value.get("description").and_then(|v| v.as_str()),
+            Some("Heartbeat status stream")
+        );
+        assert_eq!(
             value.get("pipeline_count").and_then(|v| v.as_u64()),
             Some(2)
         );
@@ -2121,7 +2138,7 @@ mod tests {
     #[test]
     fn executables_reflection_from_source_reports_query_and_iterator_metadata() {
         let source = r#"
-query Hello on String -> String {
+query Hello on String -> String @intent(goal: "Say hello") {
     core.echo(message: "hello") {
         state { current }
     }
@@ -2142,6 +2159,7 @@ iterator Normalize on Json -> Json {
             .find(|r| r.name == "Hello")
             .expect("Hello reflection row");
         assert_eq!(hello.kind, ExecutableReflectionKind::Query);
+        assert_eq!(hello.description.as_deref(), Some("Say hello"));
         assert_eq!(hello.input_type.as_deref(), Some("String"));
         assert_eq!(hello.output_type.as_deref(), Some("String"));
         assert_eq!(hello.pipeline_count, 1);
@@ -2152,6 +2170,7 @@ iterator Normalize on Json -> Json {
             .find(|r| r.name == "Normalize")
             .expect("Normalize reflection row");
         assert_eq!(normalize.kind, ExecutableReflectionKind::Iterator);
+        assert_eq!(normalize.description, None);
         assert_eq!(normalize.input_type.as_deref(), Some("Json"));
         assert_eq!(normalize.output_type.as_deref(), Some("Json"));
     }
@@ -2177,7 +2196,7 @@ query Hello on String -> String {
     #[test]
     fn executables_reflection_from_artifact_reports_runtime_shape() {
         let source = r#"
-query Hello {
+query Hello @intent(goal: "Artifact hello") {
     core.echo(message: "hello") {
         state { current }
     }
@@ -2191,6 +2210,7 @@ query Hello {
         let row = rows.first().expect("artifact row");
         assert_eq!(row.name, "Hello");
         assert_eq!(row.kind, ExecutableReflectionKind::Query);
+        assert_eq!(row.description.as_deref(), Some("Artifact hello"));
         assert_eq!(row.pipeline_count, 1);
         assert_eq!(row.step_count, 1);
     }

@@ -670,6 +670,63 @@ const SMTP_SEND_ARGS: &[ArgSpec] = &[
         required: false,
     },
 ];
+const EMAIL_SEND_ARGS: &[ArgSpec] = &[
+    ArgSpec {
+        name: "to",
+        ty: ArgType::String,
+        required: true,
+    },
+    ArgSpec {
+        name: "from",
+        ty: ArgType::String,
+        required: false,
+    },
+    ArgSpec {
+        name: "subject",
+        ty: ArgType::String,
+        required: false,
+    },
+    ArgSpec {
+        name: "body",
+        ty: ArgType::String,
+        required: false,
+    },
+    ArgSpec {
+        name: "host",
+        ty: ArgType::String,
+        required: false,
+    },
+    ArgSpec {
+        name: "server",
+        ty: ArgType::String,
+        required: false,
+    },
+    ArgSpec {
+        name: "port",
+        ty: ArgType::Number,
+        required: false,
+    },
+    ArgSpec {
+        name: "username",
+        ty: ArgType::String,
+        required: false,
+    },
+    ArgSpec {
+        name: "password",
+        ty: ArgType::String,
+        required: false,
+    },
+    ArgSpec {
+        name: "security",
+        ty: ArgType::String,
+        required: false,
+    },
+];
+const EMAIL_CAPABILITIES_ARGS: &[ArgSpec] = &[ArgSpec {
+    name: "provider",
+    ty: ArgType::String,
+    required: false,
+}];
 
 const SECRETS_GET_ARGS: &[ArgSpec] = &[ArgSpec {
     name: "name",
@@ -1312,6 +1369,22 @@ pub const OP_SPECS: &[OpSpec] = &[
     },
     OpSpec {
         module: "web",
+        op: "tavily",
+        args: WEB_PROVIDER_SEARCH_ARGS,
+        effect: SignatureEffect::Network,
+        input_schema_ref: None,
+        output_schema_ref: None,
+    },
+    OpSpec {
+        module: "web",
+        op: "brave",
+        args: WEB_PROVIDER_SEARCH_ARGS,
+        effect: SignatureEffect::Network,
+        input_schema_ref: None,
+        output_schema_ref: None,
+    },
+    OpSpec {
+        module: "web",
         op: "providers",
         args: &[],
         effect: SignatureEffect::Control,
@@ -1379,6 +1452,38 @@ pub const OP_SPECS: &[OpSpec] = &[
         op: "send_mail",
         args: SMTP_SEND_ARGS,
         effect: SignatureEffect::Network,
+        input_schema_ref: None,
+        output_schema_ref: None,
+    },
+    OpSpec {
+        module: "email",
+        op: "smtp",
+        args: EMAIL_SEND_ARGS,
+        effect: SignatureEffect::Network,
+        input_schema_ref: None,
+        output_schema_ref: None,
+    },
+    OpSpec {
+        module: "email",
+        op: "gmail",
+        args: EMAIL_SEND_ARGS,
+        effect: SignatureEffect::Network,
+        input_schema_ref: None,
+        output_schema_ref: None,
+    },
+    OpSpec {
+        module: "email",
+        op: "providers",
+        args: &[],
+        effect: SignatureEffect::Control,
+        input_schema_ref: None,
+        output_schema_ref: None,
+    },
+    OpSpec {
+        module: "email",
+        op: "capabilities",
+        args: EMAIL_CAPABILITIES_ARGS,
+        effect: SignatureEffect::Control,
         input_schema_ref: None,
         output_schema_ref: None,
     },
@@ -1638,7 +1743,7 @@ pub fn op_output_type(module: &str, op: &str) -> ArgType {
         ("io", "read_text") | ("io", "write_text") => ArgType::Object,
         ("http", "get") | ("http", "post") => ArgType::Object,
         ("web", _) | ("websearch", _) => ArgType::Object,
-        ("tcp", _) | ("smtp", _) => ArgType::Object,
+        ("tcp", _) | ("smtp", _) | ("email", _) => ArgType::Object,
         ("sql", _) | ("surreal", _) => ArgType::Object,
         ("secrets", _) | ("memory", _) | ("docs", _) => ArgType::Object,
         ("html", _) => ArgType::Object,
@@ -2423,9 +2528,11 @@ pub fn op_output_object_fields(module: &str, op: &str) -> Option<&'static [Objec
         | ("core", "set_fields")
         | ("core", "set_path") => Some(DYNAMIC_OBJECT_OUTPUT_FIELDS),
 
-        ("web", "duckduckgo") | ("web", "google") | ("web", "xaviv") => {
-            Some(WEB_PROVIDER_SEARCH_OUTPUT_FIELDS)
-        }
+        ("web", "duckduckgo")
+        | ("web", "google")
+        | ("web", "xaviv")
+        | ("web", "tavily")
+        | ("web", "brave") => Some(WEB_PROVIDER_SEARCH_OUTPUT_FIELDS),
         ("web", "providers") => Some(WEB_PROVIDERS_OUTPUT_FIELDS),
         ("web", "capabilities") => Some(WEB_CAPABILITIES_OUTPUT_FIELDS),
         ("websearch", "search") => Some(WEB_PROVIDER_SEARCH_OUTPUT_FIELDS),
@@ -2437,7 +2544,11 @@ pub fn op_output_object_fields(module: &str, op: &str) -> Option<&'static [Objec
         ("tcp", "connect") => Some(TCP_CONNECT_OUTPUT_FIELDS),
         ("tcp", "send") => Some(TCP_SEND_OUTPUT_FIELDS),
         ("tcp", "receive") => Some(TCP_RECEIVE_OUTPUT_FIELDS),
-        ("smtp", "send_mail") => Some(SMTP_SEND_OUTPUT_FIELDS),
+        ("smtp", "send_mail") | ("email", "smtp") | ("email", "gmail") => {
+            Some(SMTP_SEND_OUTPUT_FIELDS)
+        }
+        ("email", "providers") => Some(WEB_PROVIDERS_OUTPUT_FIELDS),
+        ("email", "capabilities") => Some(WEB_CAPABILITIES_OUTPUT_FIELDS),
 
         ("sql", "query") => Some(SQL_QUERY_OUTPUT_FIELDS),
         ("sql", "execute") => Some(SQL_EXECUTE_OUTPUT_FIELDS),

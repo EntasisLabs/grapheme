@@ -1,0 +1,4 @@
+query WebBraveSearch {
+  web.brave(query: "grapheme workflow language", max_results: 5)
+  |> core.pick(fields: ["provider", "query", "count", "results", "error"])
+}

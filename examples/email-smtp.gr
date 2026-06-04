@@ -1,0 +1,10 @@
+import email from "grapheme/email"
+
+query EmailSmtpDemo {
+  email.smtp(
+    to: "team@example.com",
+    subject: "Grapheme email module",
+    body: "Sent via lettre-backed email.smtp"
+  )
+  |> core.echo(message: "{$state.accepted}")
+}

@@ -61,6 +61,7 @@ pub fn core_v1_manifests() -> Vec<ModuleManifest> {
         module_websearch(),
         module_tcp(),
         module_smtp(),
+        module_email(),
         module_sql(),
         module_surreal(),
         module_memory(),
@@ -229,6 +230,18 @@ fn module_smtp() -> ModuleManifest {
     }
 }
 
+fn module_email() -> ModuleManifest {
+    ModuleManifest {
+        module_id: "email".to_string(),
+        version: "1.0.0".to_string(),
+        abi: ModuleAbi::MirV1,
+        entrypoint: "email.main".to_string(),
+        exported_ops: exported_ops_for("email"),
+        required_capabilities: vec!["email.send.notifications".to_string()],
+        limits: limits_standard(),
+    }
+}
+
 fn module_sql() -> ModuleManifest {
     ModuleManifest {
         module_id: "sql".to_string(),
@@ -356,6 +369,7 @@ mod tests {
         "websearch",
         "tcp",
         "smtp",
+        "email",
         "sql",
         "surreal",
         "html",
