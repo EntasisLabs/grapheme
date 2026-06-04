@@ -35,7 +35,7 @@ Options:
 Examples:
   scripts/release-bundle.sh
   scripts/release-bundle.sh --target x86_64-unknown-linux-gnu --target aarch64-unknown-linux-gnu
-  scripts/release-bundle.sh --tag v0.4.0 --publish
+  scripts/release-bundle.sh --tag v0.5.0 --publish
 EOF
 }
 

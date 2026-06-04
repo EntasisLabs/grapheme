@@ -178,6 +178,10 @@ GRAPHEME_ALLOWED_HTTP_DOMAINS=example.com \
 - `docs/`: primary docs.
 - `docs/internal/`: architecture, runtime, release, and contributor docs.
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes and version history.
+
 ## Documentation
 
 - Main index: `docs/README.md`

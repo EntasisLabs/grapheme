@@ -25,7 +25,7 @@ Options:
 Examples:
   scripts/release-lsp.sh
   scripts/release-lsp.sh --target x86_64-unknown-linux-gnu --target aarch64-unknown-linux-gnu
-  scripts/release-lsp.sh --target x86_64-unknown-linux-gnu --tag v0.4.0 --publish
+  scripts/release-lsp.sh --target x86_64-unknown-linux-gnu --tag v0.5.0 --publish
 EOF
 }
 

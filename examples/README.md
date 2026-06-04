@@ -33,6 +33,8 @@ Run these first:
 - `web-provider-catalog.gr`
 - `web-provider-routing.gr`
 - `web-xaviv-planned.gr`
+- `web-tavily.gr` (requires `TAVILY_API_KEY`)
+- `web-brave.gr` (requires `BRAVE_API_KEY`)
 - `io-list.gr`
 - `memory-roundtrip.gr`
 - `tcp-connect.gr`

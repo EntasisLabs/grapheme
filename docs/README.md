@@ -6,6 +6,10 @@ If your workflows matter, they should be legible, policy-aware, and production-s
 
 This directory is the product track: outcome-first, language-first, and operator-realistic.
 
+## Release notes
+
+- [CHANGELOG.md](../CHANGELOG.md) — version history and crate alignment per release.
+
 ## Start Here
 
 1. why-grapheme.md

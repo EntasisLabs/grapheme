@@ -1,5 +1,5 @@
 use crate::{
-    core, csv, html, http, json as json_mod, research, smtp, sql, surreal, tcp, web, yaml,
+    core, csv, email, html, http, json as json_mod, research, smtp, sql, surreal, tcp, web, yaml,
 };
 use serde_json::{json, Value as JsonValue};
 
@@ -37,6 +37,10 @@ const REGISTERED_MODULES: &[RegisteredModule] = &[
     RegisteredModule {
         module_id: "smtp",
         handler: dispatch_smtp,
+    },
+    RegisteredModule {
+        module_id: "email",
+        handler: dispatch_email,
     },
     RegisteredModule {
         module_id: "sql",
@@ -252,11 +256,12 @@ pub fn is_registered_op(module: &str, op: &str) -> bool {
         "http" => matches!(op, "get" | "post"),
         "web" => matches!(
             op,
-            "duckduckgo" | "google" | "xaviv" | "providers" | "capabilities"
+            "duckduckgo" | "google" | "xaviv" | "tavily" | "brave" | "providers" | "capabilities"
         ),
         "websearch" => matches!(op, "search" | "research_materials" | "research_report"),
         "tcp" => matches!(op, "connect" | "send" | "receive"),
         "smtp" => matches!(op, "send_mail"),
+        "email" => matches!(op, "smtp" | "gmail" | "providers" | "capabilities"),
         "sql" => matches!(op, "query" | "execute" | "transaction" | "health"),
         "surreal" => matches!(
             op,
@@ -274,10 +279,19 @@ pub fn registered_ops_for_module(module: &str) -> Vec<&'static str> {
     match module {
         "core" => CORE_OPS.iter().map(|entry| entry.op).collect(),
         "http" => vec!["get", "post"],
-        "web" => vec!["duckduckgo", "google", "xaviv", "providers", "capabilities"],
+        "web" => vec![
+            "duckduckgo",
+            "google",
+            "xaviv",
+            "tavily",
+            "brave",
+            "providers",
+            "capabilities",
+        ],
         "websearch" => vec!["search", "research_materials", "research_report"],
         "tcp" => vec!["connect", "send", "receive"],
         "smtp" => vec!["send_mail"],
+        "email" => vec!["smtp", "gmail", "providers", "capabilities"],
         "sql" => vec!["query", "execute", "transaction", "health"],
         "surreal" => vec!["query", "select", "create", "update", "delete", "health"],
         "html" => HTML_OPS.iter().map(|entry| entry.op).collect(),
@@ -317,6 +331,8 @@ fn dispatch_web(op: &str, args: &JsonValue) -> Option<JsonValue> {
         "duckduckgo" => Some(web::search_provider(args, "duckduckgo")),
         "google" => Some(web::search_provider(args, "google")),
         "xaviv" => Some(web::search_provider(args, "xaviv")),
+        "tavily" => Some(web::search_provider(args, "tavily")),
+        "brave" => Some(web::search_provider(args, "brave")),
         "providers" => Some(web::providers()),
         "capabilities" => Some(web::capabilities(args)),
         _ => None,
@@ -362,6 +378,16 @@ fn dispatch_tcp(op: &str, args: &JsonValue) -> Option<JsonValue> {
 fn dispatch_smtp(op: &str, args: &JsonValue) -> Option<JsonValue> {
     match op {
         "send_mail" => Some(smtp::send_mail(args)),
+        _ => None,
+    }
+}
+
+fn dispatch_email(op: &str, args: &JsonValue) -> Option<JsonValue> {
+    match op {
+        "smtp" => Some(email::send_provider(args, "smtp")),
+        "gmail" => Some(email::send_provider(args, "gmail")),
+        "providers" => Some(email::providers()),
+        "capabilities" => Some(email::capabilities(args)),
         _ => None,
     }
 }
@@ -709,6 +735,7 @@ mod tests {
         "websearch",
         "tcp",
         "smtp",
+        "email",
         "sql",
         "surreal",
         "html",

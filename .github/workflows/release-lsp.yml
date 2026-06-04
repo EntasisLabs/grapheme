@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (for example v0.4.0). Required when publishing from manual dispatch."
+        description: "Release tag (for example v0.5.0). Required when publishing from manual dispatch."
         required: false
         default: ""
       repo:
