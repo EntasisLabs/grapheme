@@ -68,7 +68,7 @@
         "grapheme.lsp.releaseTag": {
           "type": "string",
           "default": "latest",
-          "description": "Release tag to fetch. Use latest or a concrete tag like v0.5.0."
+          "description": "Release tag to fetch. Use latest or a concrete tag like v0.6.0."
         },
         "grapheme.lsp.autoDownload": {
           "type": "boolean",

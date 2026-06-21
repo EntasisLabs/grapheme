@@ -12,7 +12,7 @@ Estimated time: 10 minutes.
 
 - Language author: start here, then read `docs/language-contract.md`, then `docs/cli.md`.
 - Runtime operator: start here, then read `docs/runtime-policy.md`, `docs/modules.md`, and `docs/native-modules.md`.
-- SDK embedder (Rust): skim this page, then read `docs/sdk.md` and `docs/architecture.md`.
+- SDK embedder (Rust): skim this page, then read `docs/sdk.md`, `docs/sdk-feature-flags.md`, and `docs/architecture.md`.
 - Editor user: use `docs/lsp/quickstart.md` and `extensions/grapheme-vscode/README.md`.
 
 ## Prerequisites
@@ -69,7 +69,26 @@ cargo run -- modules
 
 Expected outcome:
 
-- A module list is printed (for example: `core`, `io`, `http`, `sql`, `websearch`).
+- A module list is printed (for example: `core`, `io`, `http`, `sql`, `websearch`, and with `full` build: `data`, `pdf`, `image`, `plot`, `media`).
+
+## Step 5 (optional): 0.6.0 Capability Path
+
+Build Wasm capability plugins and run the platform demo:
+
+```bash
+bash plugins/build-plugins.sh
+cargo run -- modules scan
+cargo run -- modules activate plot
+cargo run -- modules activate pdf
+cargo run -- run examples/platform-release-060.gr
+```
+
+Native-only capability examples (no Wasm activate):
+
+```bash
+cargo run -- run examples/data-read-csv.gr
+cargo run -- run examples/media-probe.gr   # requires ffmpeg/ffprobe on PATH
+```
 
 ## Common Developer Loop
 
@@ -99,6 +118,17 @@ cargo run -- run examples/http-get.gr \
   --bind http=plugins/http-rs.wasm
 ```
 
+Discover and activate Wasm capability modules (0.6.0+):
+
+```bash
+bash plugins/build-plugins.sh
+cargo run -- modules scan
+cargo run -- modules activate pdf
+cargo run -- run examples/pdf-generate.gr
+```
+
+Hotload state is written to `.grapheme/modules/hotload.json`.
+
 ## View Available Runtime Modules
 
 ```bash
@@ -112,6 +142,7 @@ The `examples/` directory includes:
 - core operations (`core-merge.gr`, `core-filter.gr`, `core-validate-schema.gr`)
 - io/http/tcp/smtp/secrets demos
 - basic memory roundtrip demo (`memory-roundtrip.gr`)
+- **0.6.0 capabilities:** `data-read-csv.gr`, `pdf-generate.gr`, `image-metadata.gr`, `plot-line.gr`, `media-probe.gr`, `platform-release-060.gr`
 
 ## Generate JSON Output for Automation
 
@@ -136,6 +167,7 @@ High-frequency issues covered there include:
 
 - Language contract: `docs/language-contract.md`
 - Embedded SDK guide: `docs/sdk.md`
+- SDK feature flags (0.6.0): `docs/sdk-feature-flags.md`
 - Architecture overview: `docs/architecture.md`
 - CLI command reference: `docs/cli.md`
 - Runtime policy guardrails: `docs/runtime-policy.md`

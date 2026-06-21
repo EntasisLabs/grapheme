@@ -67,7 +67,29 @@ Find runnable module examples:
 
 ```bash
 grapheme modules examples core
+grapheme modules examples data
 ```
+
+## 0.6.0 capability quick path
+
+Build Wasm plugins, scan, activate, and run the platform demo:
+
+```bash
+bash plugins/build-plugins.sh
+grapheme modules scan
+grapheme modules activate plot
+grapheme modules activate pdf
+grapheme run examples/platform-release-060.gr
+```
+
+Native examples (no Wasm activate):
+
+```bash
+grapheme run examples/data-read-csv.gr
+grapheme run examples/media-probe.gr   # requires ffmpeg/ffprobe on PATH
+```
+
+See `docs/internal/sdk-feature-flags.md` and `CHANGELOG.md` for the full 0.6.0 release notes.
 
 ## Next Step
 

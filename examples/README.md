@@ -58,6 +58,8 @@ Run these first:
 - `pdf-generate.gr` (requires `modules/pdf.wasm`; build with `plugins/build-plugins.sh`)
 - `image-metadata.gr` (requires `modules/image.wasm`)
 - `plot-line.gr` (requires `modules/plot.wasm`)
+- `media-probe.gr` (native; requires `ffmpeg`/`ffprobe` on `PATH`)
+- `platform-release-060.gr` (data + plot + pdf; build plugins and `modules activate plot pdf`)
 
 Pipeline tip:
 
@@ -101,6 +103,18 @@ Project config (`grapheme.toml`) declares these example namespaces:
 
 ```bash
 cargo run -- run examples/<file>.gr --native-modules
+```
+
+0.6.0 capability examples:
+
+```bash
+bash plugins/build-plugins.sh
+cargo run -- modules scan
+cargo run -- modules activate pdf
+cargo run -- run examples/pdf-generate.gr
+cargo run -- run examples/data-read-csv.gr
+cargo run -- run examples/media-probe.gr
+cargo run -- run examples/platform-release-060.gr
 ```
 
 For SQL examples, allow the selected connection id in policy:

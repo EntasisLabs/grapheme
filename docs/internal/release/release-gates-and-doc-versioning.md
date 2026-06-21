@@ -24,14 +24,15 @@ A release is eligible only when every gate below is marked complete.
 ### Gate C: Documentation Currency
 
 - [ ] `README.md` reflects current command and path examples.
-- [ ] `docs/cli.md` reflects all user-visible CLI flags/commands for this release.
-- [ ] `docs/getting-started.md` and `docs/sdk.md` still match current onboarding flow.
+- [ ] `docs/internal/cli.md` reflects all user-visible CLI flags/commands for this release.
+- [ ] `docs/internal/getting-started.md` and `docs/internal/sdk.md` still match current onboarding flow.
+- [ ] `docs/internal/sdk-feature-flags.md` matches SDK/CLI feature matrix for capability modules.
 - [ ] All changed user-visible behavior has corresponding docs updates in the same release scope.
 
 ### Gate D: Tooling and Distribution Notes
 
 - [ ] `extensions/grapheme-vscode/README.md` is aligned with shipped extension behavior.
-- [ ] `docs/lsp/quickstart.md` and `docs/release/lsp-release.md` are aligned with release flow.
+- [ ] `docs/internal/lsp/quickstart.md` and `docs/internal/release/lsp-release.md` are aligned with release flow.
 - [ ] Expected LSP asset names and packaging assumptions are still correct.
 
 ### Gate E: Release Artifact Verification
