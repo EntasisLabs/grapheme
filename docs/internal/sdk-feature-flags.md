@@ -4,37 +4,47 @@ Grapheme 0.6.0 introduces **opt-in capability modules** for embedders while the 
 
 ## Quick reference
 
-| Crate | Default features | Full stack |
-| --- | --- | --- |
-| `grapheme-cli` | `full` | All capabilities + WASIX runtime |
-| `grapheme-sdk` | *(none)* | Enable `full` or pick modules |
-| `grapheme-stdlib` | *(none)* | `data`, `pdf`, `image`, `plot`, `media` |
-| `grapheme-lsp` | `full` | Editor gets full signatures |
+| Crate | Version (0.6.0 train) | Default features | Full stack |
+| --- | --- | --- | --- |
+| `grapheme-cli` | 0.6.0 | `full` | All capabilities + WASIX runtime |
+| `grapheme-lsp` | 0.6.0 | `full` | Editor gets full signatures |
+| `grapheme-sdk` | 0.5.0 | *(none)* | Enable `full` or pick modules |
+| `grapheme-stdlib` | 0.5.0 | *(none)* | `data`, `pdf`, `image`, `plot`, `media` |
 
 ## SDK (embedders)
 
 ```toml
 [dependencies]
-grapheme-sdk = { version = "0.4", default-features = false, features = ["full"] }
+grapheme-sdk = { version = "0.5", default-features = false, features = ["full"] }
 ```
 
 Per-module opt-in:
 
 ```toml
-grapheme-sdk = { version = "0.4", default-features = false, features = ["data", "pdf"] }
+grapheme-sdk = { version = "0.5", default-features = false, features = ["data", "pdf"] }
 ```
 
 Available flags on `grapheme-sdk`:
 
 - `full` — enables all capability modules, WASIX runtime, and matching compiler/signatures/runtime flags
-- `data` — Polars-native dataframe ops (scaffold → implementation during 0.6.0)
-- `pdf` — PDF generate/extract (Wasm path)
+- `data` — Polars-native dataframe ops (`read_csv`, `filter`, `group_by`, `aggregate`, `schema`, `to_json`)
+- `pdf` — PDF generate/extract (Wasm path when bound; stdlib scaffold fallback)
 - `image` — resize/convert/metadata (Wasm path)
-- `plot` — line/bar/scatter charts (Wasm path)
-- `media` — probe/transcode (native ffmpeg bridge)
+- `plot` — line/bar/scatter charts as SVG (Wasm path)
+- `media` — probe/transcode (native ffmpeg/ffprobe CLI bridge)
 - `wasix-runtime` — Wasm module execution backend (included in `full`)
 
 Without capability features, module discovery and compile-time verification will not include `data.*`, `pdf.*`, etc.
+
+### Hotload in embedders
+
+```rust
+GraphemeEngine::builder()
+    .with_default_hotload_store() // .grapheme/modules/hotload.json
+    .build();
+```
+
+Session helpers: `activate_discovered_module`, `save_default_hotload_store`, `rollback_module_generation` (auto-persists).
 
 ## CLI
 
@@ -43,6 +53,9 @@ The CLI binary is built with `default = ["full"]`. End users get all modules wit
 ```bash
 grapheme modules info data   # requires CLI built with full (default)
 grapheme modules scan        # discovers Wasm sidecars under plugins/ or [modules].scan
+grapheme modules activate pdf
+grapheme modules status
+grapheme run examples/platform-release-060.gr
 ```
 
 ## Stdlib-only consumers
@@ -50,7 +63,7 @@ grapheme modules scan        # discovers Wasm sidecars under plugins/ or [module
 If you depend on `grapheme-stdlib` directly (tests, custom hosts):
 
 ```toml
-grapheme-stdlib = { version = "0.4", default-features = false, features = ["data"] }
+grapheme-stdlib = { version = "0.5", default-features = false, features = ["data"] }
 ```
 
 Dispatch via `grapheme_stdlib::registry::dispatch` returns `None` for disabled modules.
@@ -67,10 +80,13 @@ Capability modules normalize responses to:
 }
 ```
 
-Scaffold responses (pre-implementation) set `data.ok = false`, `data.status = "scaffold"`.
+Access payload fields in pipelines with `$current.data.<field>` after capability ops. LSP completion documents known fields per op.
+
+Legacy flat JSON objects are still accepted during migration (`meta.legacy_flat` when coerced).
 
 ## Related docs
 
 - Release plan: `docs/internal/roadmaps/release-0.6.0-extensible-platform.md`
 - Wasm sidecar manifest: `docs/internal/runtime/wasm-module-manifest-v1.md`
+- CLI module commands: `docs/internal/cli.md`
 - SDK API overview: `docs/internal/sdk.md`

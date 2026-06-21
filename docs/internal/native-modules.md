@@ -22,8 +22,14 @@ At runtime, module operations are resolved by `module/op` and invoked with a JSO
 - `http`
 - `tcp`
 - `smtp`
+- `email`
 - `memory`
 - `secrets`
+- `sql`
+- `surreal`
+- `data` (native, Polars — 0.6.0)
+- `media` (native, ffmpeg/ffprobe — 0.6.0)
+- `pdf`, `image`, `plot` (Wasm capability plugins — 0.6.0)
 
 Current execution defaults:
 
@@ -37,6 +43,12 @@ Transform modules (host-backed):
 - `json.parse(text?: string)`
 - `csv.to_list(text?: string)`
 - `yaml.to_json(text?: string)`
+
+Capability modules (0.6.0, host envelope `{ data, meta, error }`):
+
+- `data.read_csv`, `data.filter`, `data.group_by`, `data.aggregate`, `data.schema`, `data.to_json`
+- `media.probe`, `media.transcode` (requires `ffmpeg`/`ffprobe` on `PATH`)
+- `pdf.*`, `image.*`, `plot.*` via Wasm plugins — see `plugins/README.md`
 
 Inspect live manifests:
 

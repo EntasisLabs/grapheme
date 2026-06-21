@@ -22,6 +22,10 @@ grapheme modules ops <query> [--yaml|--json]
 grapheme modules info <module> [--yaml|--json]
 grapheme modules types <module> [--yaml|--json]
 grapheme modules examples <module> [--yaml|--json]
+grapheme modules scan [paths...] [--yaml|--json]
+grapheme modules activate <module> [--yaml|--json]
+grapheme modules rollback <module> [--yaml|--json]
+grapheme modules status [--yaml|--json]
 grapheme telemetry [summarize|export] [--out path] [--yaml|--json]
 ```
 
@@ -105,7 +109,10 @@ Manual module binding:
 
 ```bash
 cargo run -- run examples/http-get.gr --bind http=plugins/http-rs.wasm
+cargo run -- run examples/pdf-generate.gr --bind pdf=modules/pdf.wasm
 ```
+
+Auto-bind on run (0.6.0+): when a workflow imports a Wasm-backed capability module (`pdf`, `image`, `plot`) and a matching artifact was discovered via scan paths or hotload store, the runtime binds it without an explicit `--bind`.
 
 Auto-build and auto-bind known modules:
 
@@ -302,6 +309,65 @@ For the expanded core std helpers, discover examples with:
 ```bash
 cargo run -- modules examples core
 ```
+
+#### Wasm discovery and hotload (0.6.0+)
+
+Discover Wasm capability modules from sidecar manifests (`modules/*.module.json`) and built artifacts:
+
+```bash
+bash plugins/build-plugins.sh
+cargo run -- modules scan
+cargo run -- modules scan plugins modules --json
+```
+
+Scan paths resolve from (in order):
+
+1. explicit CLI path arguments
+2. `grapheme.toml` `[modules].scan`
+3. defaults: `modules/`, `plugins/`
+
+Activate a discovered module generation (persists hotload + legacy bindings):
+
+```bash
+cargo run -- modules activate pdf
+cargo run -- modules activate image
+```
+
+Inspect persisted generation slots:
+
+```bash
+cargo run -- modules status --yaml
+```
+
+Roll back to the previous generation for a module:
+
+```bash
+cargo run -- modules rollback pdf
+```
+
+Persistence paths:
+
+- `.grapheme/modules/hotload.json` — generation slots (primary, v1 schema `grapheme.modules.hotload/v1`)
+- `.grapheme/modules/bindings.json` — legacy wasm path bindings (fallback when hotload store is absent)
+
+`grapheme run` hydrates module state from the hotload store when present and auto-binds discovered modules referenced in the workflow. Override per run with `--bind module=path.wasm`.
+
+Example capability workflow (requires built Wasm plugins for `plot`/`pdf`):
+
+```bash
+cargo run -- modules activate plot
+cargo run -- modules activate pdf
+cargo run -- run examples/platform-release-060.gr
+```
+
+Native capability examples (no Wasm activate required):
+
+```bash
+cargo run -- run examples/data-read-csv.gr
+cargo run -- run examples/media-probe.gr   # requires ffmpeg/ffprobe on PATH
+```
+
+See also: `plugins/README.md`, `docs/internal/runtime/wasm-module-manifest-v1.md`, `docs/internal/sdk-feature-flags.md`.
 
 ### `telemetry`
 

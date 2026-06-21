@@ -4,11 +4,14 @@ Grapheme is a language and runtime for building governed automation workflows wi
 
 Write workflows in `.gr`, compile them into verified MIR artifacts, and run them with policy controls across host-backed and Wasix-backed module paths.
 
+**0.6.0 (extensible platform):** opt-in capability modules for embedders (`data`, `pdf`, `image`, `plot`, `media`), dynamic Wasm discovery with hotload, and typed `{ data, meta, error }` result envelopes. The CLI ships full by default; the SDK opts in via Cargo features. See [CHANGELOG.md](CHANGELOG.md#060---2026-06-03).
+
 ## What You Can Build
 
 - Operational runbooks that branch and recover safely (`if`, `match`, `@loop`, `@retry`, `@timeout`).
 - Data and integration pipelines with explicit state transitions (`set`, `transition`, typed state machines).
 - Policy-scoped automations that call HTTP, SQL, SMTP, secrets, TCP, memory, and custom modules.
+- **Capability pipelines (0.6.0+):** Polars CSV ingest (`data`), Wasm PDF/image/plot plugins, ffmpeg probe/transcode (`media`).
 - Developer workflows with built-in CLI + LSP + VS Code support.
 
 ## Start In 5 Minutes
@@ -85,6 +88,26 @@ Machine-readable output:
 cargo run -- run examples/realworld/feature-flag-progressive-rollout.gr --native-modules --json
 ```
 
+### 0.6.0 capability stack (Wasm + native)
+
+Build reference Wasm plugins and scan discovered modules:
+
+```bash
+bash plugins/build-plugins.sh
+grapheme modules scan
+grapheme modules activate pdf
+grapheme run examples/platform-release-060.gr
+```
+
+Native data + media (CLI `full` build; `media` requires `ffmpeg`/`ffprobe` on `PATH`):
+
+```bash
+grapheme run examples/data-read-csv.gr
+grapheme run examples/media-probe.gr
+```
+
+Hotload state persists under `.grapheme/modules/hotload.json` across `modules activate`, `modules rollback`, and `grapheme run`. See `docs/internal/cli.md` and `docs/internal/sdk-feature-flags.md`.
+
 ## Copy-Paste Examples
 
 ### 1) Fetch a page and convert it to markdown
@@ -139,7 +162,7 @@ iterator Step on FlagState -> FlagState {
 
 - Workflow author: `docs/quickstart.md` -> `docs/language-tour.md` -> `docs/playbooks.md`
 - Runtime/operator: `docs/internal/runtime-policy.md` -> `docs/internal/modules.md` -> `docs/internal/native-modules.md`
-- SDK embedder (Rust): `docs/internal/sdk.md` -> `docs/internal/architecture.md`
+- SDK embedder (Rust): `docs/internal/sdk.md` -> `docs/internal/sdk-feature-flags.md` -> `docs/internal/architecture.md`
 - Editor/LSP user: `docs/internal/lsp/quickstart.md` -> `extensions/grapheme-vscode/README.md`
 
 ## Runtime Policy Controls
@@ -173,7 +196,8 @@ GRAPHEME_ALLOWED_HTTP_DOMAINS=example.com \
 - `crates/grapheme-cli`: `grapheme` commands (`parse`, `compile`, `build`, `run`, `modules`).
 - `crates/grapheme-lsp`: language server for `.gr` authoring.
 - `extensions/grapheme-vscode`: VS Code extension.
-- `plugins/*-rs`: Wasm plugins.
+- `plugins/*-rs`: Wasm plugins (legacy host-adjacent + 0.6.0 capability plugins: `pdf-rs`, `image-rs`, `plot-rs`).
+- `modules/`: Wasm sidecar manifests and built `.wasm` artifacts for discovery.
 - `examples/`: runnable examples and real-world scenarios.
 - `docs/`: primary docs.
 - `docs/internal/`: architecture, runtime, release, and contributor docs.

@@ -1,6 +1,6 @@
 # Wasm Module Manifest v1
 
-Status: **draft (0.6.0)**
+Status: **active (0.6.0)**
 Schema: `schemas/wasm-module-manifest.schema.json`
 
 ## Purpose

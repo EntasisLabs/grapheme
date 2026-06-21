@@ -13,7 +13,26 @@ This path is for Rust embedders building Grapheme into services, agents, or inte
 
 Crate:
 
-- `crates/grapheme-sdk`
+- `crates/grapheme-sdk` (version **0.5.0** with 0.6.0 release train)
+
+## Feature flags (0.6.0+)
+
+The SDK ships with **no default features**. Enable capabilities explicitly:
+
+```toml
+[dependencies]
+grapheme-sdk = { version = "0.5", default-features = false, features = ["full"] }
+```
+
+Per-module opt-in:
+
+```toml
+grapheme-sdk = { version = "0.5", default-features = false, features = ["data", "pdf"] }
+```
+
+Available flags: `data`, `pdf`, `image`, `plot`, `media`, `wasix-runtime`, `full`.
+
+See `docs/internal/sdk-feature-flags.md` for CLI vs SDK defaults and envelope shape.
 
 ## Basic Execution
 
@@ -171,6 +190,39 @@ query Hello {
 
 Use source reflection when you need HIR-level signature metadata; use artifact reflection when you already operate on compiled envelopes.
 
+## Hotload persistence (0.6.0+)
+
+Hydrate module manager state from the project hotload store on engine build:
+
+```rust
+use grapheme_sdk::GraphemeEngine;
+
+let engine = GraphemeEngine::builder()
+    .with_default_hotload_store() // reads .grapheme/modules/hotload.json when present
+    .build();
+```
+
+Discover, activate, and persist from a session:
+
+```rust
+use grapheme_sdk::GraphemeEngine;
+use std::path::PathBuf;
+
+let engine = GraphemeEngine::builder().build();
+let mut session = engine.runtime_session();
+
+let activation = session
+    .activate_discovered_module("pdf", &[PathBuf::from("modules"), PathBuf::from("plugins")])
+    .expect("activate pdf from scan roots");
+
+println!("generation {}", activation.generation_id);
+
+// rollback_module_generation() also persists hotload state
+session.save_default_hotload_store().expect("persist hotload");
+```
+
+Hotload store path: `.grapheme/modules/hotload.json` (schema `grapheme.modules.hotload/v1`).
+
 ## Stateful Runtime Session + Hotmodule Lifecycle
 
 Use `runtime_session()` when you need persistent activation state across multiple executions.
@@ -190,7 +242,7 @@ fn main() {
             wasm_path: PathBuf::from("plugins/http-rs/target/wasm32-wasip1/release/http_rs.wasm"),
             compatibility_mode: CompatibilityMode::Strict,
             abi: ModuleAbi::MirV1,
-            version: Some("0.4.0".to_string()),
+            version: Some("0.5.0".to_string()),
         })
         .expect("activate module");
 

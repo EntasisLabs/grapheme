@@ -166,8 +166,65 @@ cargo build -p grapheme-lsp --release
 ```
 
 2. Validate extension binary resolution order and settings via:
-- `docs/lsp/quickstart.md`
+- `docs/internal/lsp/quickstart.md`
 - `extensions/grapheme-vscode/README.md`
+
+Set `grapheme.lsp.releaseTag` to `v0.6.0` when using auto-download for envelope-hint support.
+
+## 11) Wasm capability module not found on run
+
+Symptoms:
+
+- `grapheme run examples/pdf-generate.gr` fails to resolve `pdf` ops.
+- `modules scan` returns empty for expected plugins.
+
+Fix:
+
+1. Build capability plugins:
+
+```bash
+bash plugins/build-plugins.sh
+```
+
+2. Scan and activate (or rely on auto-bind after activate once):
+
+```bash
+grapheme modules scan
+grapheme modules activate pdf
+grapheme modules status
+```
+
+3. Confirm artifacts exist: `modules/pdf.wasm`, `modules/pdf.module.json`.
+
+4. Optional `grapheme.toml` scan paths:
+
+```toml
+[modules]
+scan = ["modules", "plugins"]
+```
+
+See `docs/internal/cli.md` and `plugins/README.md`.
+
+## 12) `media.probe` / `media.transcode` fails
+
+Symptoms:
+
+- Envelope error mentioning `ffprobe not available` or `ffmpeg not available`.
+
+Fix:
+
+1. Install ffmpeg (includes ffprobe) and ensure both are on `PATH`:
+
+```bash
+ffmpeg -version
+ffprobe -version
+```
+
+2. Re-run:
+
+```bash
+grapheme run examples/media-probe.gr
+```
 
 ## Fast Recovery Checklist
 

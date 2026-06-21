@@ -16,6 +16,7 @@ This is the front door for the docs set. Use this page for fast navigation.
    - docs/internal/runtime/README.md
 3. SDK embedder (Rust)
    - docs/internal/sdk.md
+   - docs/internal/sdk-feature-flags.md
    - docs/internal/architecture.md
    - docs/internal/governance/rustdoc-readiness.md
 4. Editor user
@@ -30,10 +31,12 @@ This is the front door for the docs set. Use this page for fast navigation.
 4. docs/internal/language/llm-native-contract-v1.md
 5. docs/internal/architecture.md
 6. docs/internal/cli.md
-7. docs/internal/runtime-policy.md
-8. docs/internal/modules.md
-9. docs/internal/native-modules.md
-10. docs/internal/troubleshooting.md
+7. docs/internal/sdk-feature-flags.md
+8. docs/internal/runtime-policy.md
+9. docs/internal/modules.md
+10. docs/internal/native-modules.md
+11. docs/internal/troubleshooting.md
+12. docs/internal/roadmaps/release-0.6.0-extensible-platform.md
 
 ## Domain Indexes
 
