@@ -20,8 +20,10 @@ use grapheme_compiler::ast::Definition;
 use grapheme_compiler::verifier::{ExecutableKindPolicyMode, LintWarning};
 use grapheme_compiler::{Compiler, CompilerError, CompilerOptions};
 use grapheme_runtime::{
-    discover_wasm_modules, discovered_module_to_load_request, PolicyGuard, RuntimeEngine,
-    RuntimeOptions, TracePolicy, TraceProjection,
+    apply_hotload_store, default_hotload_store_path, discover_wasm_modules,
+    discovered_module_to_load_request, hotload_status_payload, load_hotload_store,
+    save_hotload_store, HotloadError, ModuleLifecycleEvent, ModuleLifecycleEventKind,
+    PolicyGuard, RuntimeEngine, RuntimeOptions, TracePolicy, TraceProjection,
 };
 use grapheme_runtime::ModuleLoadError;
 use grapheme_sdk::{
@@ -932,8 +934,9 @@ fn emit_modules_cmd(args: &[String]) -> Result<(), CompilerError> {
             }
             emit_modules_rollback(&cmd_args[1], mode)
         }
+        "status" => emit_modules_hotload_status(mode),
         other => Err(CompilerError::RuntimeError(format!(
-            "unknown modules subcommand '{}'; expected search|ops|info|types|examples|scan|activate|rollback",
+            "unknown modules subcommand '{}'; expected search|ops|info|types|examples|scan|activate|rollback|status",
             other
         ))),
     }
@@ -1142,6 +1145,34 @@ fn module_bindings_store_path() -> PathBuf {
     PathBuf::from(".grapheme/modules/bindings.json")
 }
 
+fn hotload_store_path() -> PathBuf {
+    default_hotload_store_path()
+}
+
+fn hydrate_runtime_options(options: &mut RuntimeOptions) -> Result<(), CompilerError> {
+    if let Some(store) = load_hotload_store(&hotload_store_path()).map_err(map_hotload_error)? {
+        apply_hotload_store(&store, &mut options.module_manager, &mut options.module_registry);
+        return Ok(());
+    }
+
+    for (module, path) in load_persisted_module_bindings()? {
+        options.module_registry.set_wasm_path(&module, path);
+    }
+
+    Ok(())
+}
+
+fn runtime_options_with_hotload() -> Result<RuntimeOptions, CompilerError> {
+    let mut options = RuntimeOptions::default();
+    hydrate_runtime_options(&mut options)?;
+    Ok(options)
+}
+
+fn persist_runtime_hotload(runtime: &RuntimeEngine) -> Result<(), CompilerError> {
+    let store = runtime.hotload_snapshot();
+    save_hotload_store(&hotload_store_path(), &store).map_err(map_hotload_error)
+}
+
 fn load_persisted_module_bindings() -> Result<BTreeMap<String, PathBuf>, CompilerError> {
     let path = module_bindings_store_path();
     if !path.exists() {
@@ -1239,10 +1270,13 @@ fn discovered_module_by_id(module_id: &str) -> Result<grapheme_runtime::Discover
 
 fn emit_modules_activate(module_id: &str, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
     let discovered = discovered_module_by_id(module_id)?;
-    let mut runtime = RuntimeEngine::new(RuntimeOptions::default());
+    let mut runtime = RuntimeEngine::new(runtime_options_with_hotload()?);
     let request = discovered_module_to_load_request(&discovered);
-    let activation = runtime.activate_module_generation(request).map_err(map_module_load_error)?;
+    let activation = runtime
+        .activate_module_generation(request)
+        .map_err(map_module_load_error)?;
 
+    persist_runtime_hotload(&runtime)?;
     save_persisted_module_binding(&discovered.module_id, &discovered.wasm_path, &activation)?;
 
     let payload = json!({
@@ -1256,20 +1290,75 @@ fn emit_modules_activate(module_id: &str, mode: DiscoveryOutputMode) -> Result<(
             "version": activation.version,
             "content_hash": activation.content_hash,
         },
-        "bindings_store": module_bindings_store_path().display().to_string(),
+        "hotload_store": hotload_store_path().display().to_string(),
+        "lifecycle_events": lifecycle_events_payload(&runtime.module_lifecycle_events()),
     });
     print_discovery(&payload, mode)
 }
 
 fn emit_modules_rollback(module_id: &str, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
+    let mut runtime = RuntimeEngine::new(runtime_options_with_hotload()?);
+    let activation = runtime
+        .rollback_module_generation(module_id)
+        .map_err(map_module_load_error)?;
+
+    persist_runtime_hotload(&runtime)?;
     remove_persisted_module_binding(module_id)?;
 
     let payload = json!({
         "module_id": module_id,
-        "status": "unbound",
-        "bindings_store": module_bindings_store_path(),
-        "note": "removed persisted wasm binding; rediscover on next run or run modules activate again",
+        "status": "rolled_back",
+        "activation": {
+            "module_id": activation.module_id,
+            "generation_id": activation.generation_id,
+            "version": activation.version,
+            "content_hash": activation.content_hash,
+        },
+        "hotload_store": hotload_store_path().display().to_string(),
+        "lifecycle_events": lifecycle_events_payload(&runtime.module_lifecycle_events()),
     });
+    print_discovery(&payload, mode)
+}
+
+fn lifecycle_events_payload(events: &[ModuleLifecycleEvent]) -> JsonValue {
+    events
+        .iter()
+        .map(|event| {
+            json!({
+                "kind": lifecycle_event_kind_name(event.kind),
+                "module_id": event.module_id,
+                "generation_id": event.generation_id,
+                "version": event.version,
+                "content_hash": event.content_hash,
+                "reason": event.reason,
+            })
+        })
+        .collect()
+}
+
+fn lifecycle_event_kind_name(kind: ModuleLifecycleEventKind) -> &'static str {
+    match kind {
+        ModuleLifecycleEventKind::Loaded => "module.loaded",
+        ModuleLifecycleEventKind::Validated => "module.validated",
+        ModuleLifecycleEventKind::Activated => "module.activated",
+        ModuleLifecycleEventKind::ActivationFailed => "module.activation_failed",
+        ModuleLifecycleEventKind::Draining => "module.draining",
+        ModuleLifecycleEventKind::Retired => "module.retired",
+        ModuleLifecycleEventKind::Rollback => "module.rollback",
+    }
+}
+
+fn emit_modules_hotload_status(mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
+    let store = load_hotload_store(&hotload_store_path())
+        .map_err(map_hotload_error)?
+        .unwrap_or_default();
+    let mut payload = hotload_status_payload(&store);
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert(
+            "hotload_store".to_string(),
+            json!(hotload_store_path().display().to_string()),
+        );
+    }
     print_discovery(&payload, mode)
 }
 
@@ -1277,11 +1366,22 @@ fn map_module_load_error(err: ModuleLoadError) -> CompilerError {
     CompilerError::RuntimeError(err.to_string())
 }
 
+fn map_hotload_error(err: HotloadError) -> CompilerError {
+    CompilerError::RuntimeError(err.to_string())
+}
+
 fn resolve_module_bindings_for_run(
     run_options: &RunOptions,
     required_modules: &[String],
 ) -> Result<Vec<(String, PathBuf)>, CompilerError> {
-    let mut bindings: BTreeMap<String, PathBuf> = load_persisted_module_bindings()?;
+    let mut bindings: BTreeMap<String, PathBuf> = load_hotload_store(&hotload_store_path())
+        .map_err(map_hotload_error)?
+        .map(|store| store.active_bindings().into_iter().collect())
+        .unwrap_or_default();
+
+    if bindings.is_empty() {
+        bindings = load_persisted_module_bindings()?;
+    }
 
     let roots = resolve_module_scan_roots(&[]);
     let report = discover_wasm_modules(&roots);
@@ -1849,7 +1949,8 @@ fn run_program(file_path: &str, run_options: RunOptions) -> Result<(), CompilerE
         .with_strict_stage_b_container_execution(strict_stage_b_container_execution)
         .with_stream_step_output(
             run_options.output_mode == RunOutputMode::Plain && run_options.stream_steps,
-        );
+        )
+        .with_default_hotload_store();
 
     if let Some(initial_current) = initial_state_current {
         engine_builder = engine_builder.with_initial_state_current(initial_current);
@@ -2856,6 +2957,7 @@ fn print_usage() {
     eprintln!("  grapheme modules scan [paths...] [--yaml|--json]");
     eprintln!("  grapheme modules activate <module> [--yaml|--json]");
     eprintln!("  grapheme modules rollback <module> [--yaml|--json]");
+    eprintln!("  grapheme modules status [--yaml|--json]");
     eprintln!("  grapheme telemetry [summarize|export] [--out path] [--yaml|--json]");
     eprintln!("  grapheme help");
 }
@@ -2871,6 +2973,7 @@ fn print_modules_usage() {
     eprintln!("  grapheme modules scan [paths...] [--yaml|--json]");
     eprintln!("  grapheme modules activate <module> [--yaml|--json]");
     eprintln!("  grapheme modules rollback <module> [--yaml|--json]");
+    eprintln!("  grapheme modules status [--yaml|--json]");
     eprintln!("\nnotes:");
     eprintln!("  --yaml is the default for modules discovery output");
 }

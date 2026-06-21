@@ -75,7 +75,7 @@ pub fn core_v1_manifests() -> Vec<ModuleManifest> {
 }
 
 fn capability_manifests() -> Vec<ModuleManifest> {
-    let manifests = Vec::new();
+    let mut manifests = Vec::new();
     #[cfg(feature = "data")]
     manifests.push(module_data());
     #[cfg(feature = "pdf")]

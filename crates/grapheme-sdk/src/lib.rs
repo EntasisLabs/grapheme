@@ -13,7 +13,9 @@ use grapheme_compiler::hir::HirExecutableKind;
 use grapheme_compiler::verifier::LintWarning;
 use grapheme_compiler::{CompiledScript, Compiler, CompilerError, CompilerOptions};
 use grapheme_runtime::{
-    ActivationResult, CapabilityCall, CapabilityHost, HostCallError, LoadModuleRequest,
+    apply_hotload_store, default_hotload_store_path, discover_wasm_modules,
+    discovered_module_to_load_request, load_hotload_store, save_hotload_store, ActivationResult,
+    CapabilityCall, CapabilityHost, HostCallError, HotloadError, LoadModuleRequest,
     ModuleLifecycleEvent, ModuleLoadError, PolicyGuard, RuntimeEngine, RuntimeError,
     RuntimeOptions, TracePolicy,
 };
@@ -163,6 +165,18 @@ impl GraphemeEngineBuilder {
     pub fn with_module_path(mut self, module: &str, path: impl Into<PathBuf>) -> Self {
         self.module_bindings
             .insert(module.to_lowercase(), path.into());
+        self
+    }
+
+    /// Hydrate module manager/registry state from `.grapheme/modules/hotload.json` when present.
+    pub fn with_default_hotload_store(mut self) -> Self {
+        if let Ok(Some(store)) = load_hotload_store(&default_hotload_store_path()) {
+            apply_hotload_store(
+                &store,
+                &mut self.runtime_options.module_manager,
+                &mut self.runtime_options.module_registry,
+            );
+        }
         self
     }
 
@@ -435,14 +449,48 @@ impl GraphemeRuntimeSession {
             .map_err(map_module_load_error)
     }
 
+    /// Activate a discovered module by id from scan roots and persist hotload state.
+    pub fn activate_discovered_module(
+        &mut self,
+        module_id: &str,
+        scan_roots: &[PathBuf],
+    ) -> Result<ActivationResult, GraphemeSdkError> {
+        let report = discover_wasm_modules(scan_roots);
+        let discovered = report
+            .modules
+            .into_iter()
+            .find(|module| module.module_id == module_id)
+            .ok_or_else(|| {
+                GraphemeSdkError::ModuleLifecycle(format!(
+                    "module '{module_id}' not found in scan roots"
+                ))
+            })?;
+        let request = discovered_module_to_load_request(&discovered);
+        let activation = self.activate_module_generation(request)?;
+        self.save_default_hotload_store()?;
+        Ok(activation)
+    }
+
     /// Roll back the active module generation for a module.
     pub fn rollback_module_generation(
         &mut self,
         module_id: &str,
     ) -> Result<ActivationResult, GraphemeSdkError> {
-        self.runtime
+        let activation = self
+            .runtime
             .rollback_module_generation(module_id)
-            .map_err(map_module_load_error)
+            .map_err(map_module_load_error)?;
+        self.save_default_hotload_store()?;
+        Ok(activation)
+    }
+
+    /// Persist the current session module manager state to `.grapheme/modules/hotload.json`.
+    pub fn save_default_hotload_store(&self) -> Result<(), GraphemeSdkError> {
+        save_hotload_store(
+            &default_hotload_store_path(),
+            &self.runtime.hotload_snapshot(),
+        )
+        .map_err(map_hotload_error)
     }
 
     /// Return a snapshot of lifecycle events observed in this session runtime.
@@ -511,6 +559,10 @@ fn map_runtime_aot_error(err: RuntimeError) -> GraphemeSdkError {
 }
 
 fn map_module_load_error(err: ModuleLoadError) -> GraphemeSdkError {
+    GraphemeSdkError::ModuleLifecycle(err.to_string())
+}
+
+fn map_hotload_error(err: HotloadError) -> GraphemeSdkError {
     GraphemeSdkError::ModuleLifecycle(err.to_string())
 }
 

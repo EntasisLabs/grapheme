@@ -319,6 +319,11 @@ impl RuntimeEngine {
         Ok(())
     }
 
+    /// Return a hotload snapshot of the current module manager state.
+    pub fn hotload_snapshot(&self) -> crate::module_hotload::HotloadStore {
+        self.options.module_manager.export_hotload()
+    }
+
     /// Roll back the active module generation for a module.
     pub fn rollback_module_generation(
         &mut self,

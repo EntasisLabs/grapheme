@@ -29,6 +29,7 @@ Foundation train for the coordinated 0.6.0 release. See `docs/internal/roadmaps/
 - Examples: `examples/data-read-csv.gr`, `examples/data-filter.gr`, fixture `examples/fixtures/sample-users.csv`.
 - **`pdf` Wasm plugin (reference):** `plugins/pdf-rs` implements `pdf.generate` + `pdf.extract_text` with host envelope output; sidecar at `modules/pdf.module.json`.
 - **`grapheme modules activate|rollback`** — persist/remove Wasm bindings under `.grapheme/modules/bindings.json`.
+- **Hotload store (v1)** — `.grapheme/modules/hotload.json` persists module generation slots across CLI commands and SDK sessions; `grapheme modules status` reports active/previous generations.
 - **Auto-bind on run** — discovered modules from `[modules].scan` (or `modules/` + `plugins/` defaults) bind automatically when referenced in a workflow.
 - **`image` Wasm plugin:** `plugins/image-rs` — metadata, resize, convert (PNG/JPEG/GIF/WebP via `image` crate).
 - **`plot` Wasm plugin:** `plugins/plot-rs` — line/bar/scatter charts as SVG envelope payloads.
