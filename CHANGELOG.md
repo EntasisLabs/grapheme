@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-06-03
+
+### Fixed
+
+- **`grapheme-stdlib` publish tarball** — `src/data/` was excluded by a overly broad `.gitignore` rule (`data/`); fixed to `/data/` and included `data/mod.rs` + `data/frame.rs` in the crate.
+
 ## [0.6.0] - 2026-06-03
 
 **Extensible platform release** — Wasm discovery, hotload, typed host envelopes, and opt-in capability modules. See `docs/internal/roadmaps/release-0.6.0-extensible-platform.md`.
@@ -35,13 +41,13 @@ All workspace crates ship at **0.6.0** except `grapheme-artifact` (unchanged at 
 
 | Crate | Version |
 | --- | --- |
-| `grapheme-signatures` | 0.6.0 |
-| `grapheme-stdlib` | 0.6.0 |
-| `grapheme-runtime` | 0.6.0 |
-| `grapheme-compiler` | 0.6.0 |
-| `grapheme-sdk` | 0.6.0 |
-| `grapheme-cli` | 0.6.0 |
-| `grapheme-lsp` | 0.6.0 |
+| `grapheme-signatures` | 0.6.1 |
+| `grapheme-stdlib` | 0.6.1 |
+| `grapheme-runtime` | 0.6.1 |
+| `grapheme-compiler` | 0.6.1 |
+| `grapheme-sdk` | 0.6.1 |
+| `grapheme-cli` | 0.6.1 |
+| `grapheme-lsp` | 0.6.1 |
 | VS Code extension | 0.6.0 |
 | `grapheme-artifact` | 0.2.0 (unchanged) |
 

@@ -2499,7 +2499,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-cli"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "grapheme-artifact",
  "grapheme-compiler",
@@ -2514,7 +2514,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-compiler"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "grapheme-artifact",
  "grapheme-signatures",
@@ -2527,7 +2527,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-lsp"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "grapheme-compiler",
  "grapheme-signatures",
@@ -2537,7 +2537,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-runtime"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "grapheme-artifact",
  "grapheme-signatures",
@@ -2556,7 +2556,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-sdk"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "grapheme-artifact",
  "grapheme-compiler",
@@ -2571,11 +2571,11 @@ dependencies = [
 
 [[package]]
 name = "grapheme-signatures"
-version = "0.6.0"
+version = "0.6.1"
 
 [[package]]
 name = "grapheme-stdlib"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "csv",
  "ehttp",
