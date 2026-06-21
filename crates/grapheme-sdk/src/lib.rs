@@ -13,7 +13,9 @@ use grapheme_compiler::hir::HirExecutableKind;
 use grapheme_compiler::verifier::LintWarning;
 use grapheme_compiler::{CompiledScript, Compiler, CompilerError, CompilerOptions};
 use grapheme_runtime::{
-    ActivationResult, CapabilityCall, CapabilityHost, HostCallError, LoadModuleRequest,
+    apply_hotload_store, default_hotload_store_path, discover_wasm_modules,
+    discovered_module_to_load_request, load_hotload_store, save_hotload_store, ActivationResult,
+    CapabilityCall, CapabilityHost, HostCallError, HotloadError, LoadModuleRequest,
     ModuleLifecycleEvent, ModuleLoadError, PolicyGuard, RuntimeEngine, RuntimeError,
     RuntimeOptions, TracePolicy,
 };
@@ -163,6 +165,18 @@ impl GraphemeEngineBuilder {
     pub fn with_module_path(mut self, module: &str, path: impl Into<PathBuf>) -> Self {
         self.module_bindings
             .insert(module.to_lowercase(), path.into());
+        self
+    }
+
+    /// Hydrate module manager/registry state from `.grapheme/modules/hotload.json` when present.
+    pub fn with_default_hotload_store(mut self) -> Self {
+        if let Ok(Some(store)) = load_hotload_store(&default_hotload_store_path()) {
+            apply_hotload_store(
+                &store,
+                &mut self.runtime_options.module_manager,
+                &mut self.runtime_options.module_registry,
+            );
+        }
         self
     }
 
@@ -435,14 +449,48 @@ impl GraphemeRuntimeSession {
             .map_err(map_module_load_error)
     }
 
+    /// Activate a discovered module by id from scan roots and persist hotload state.
+    pub fn activate_discovered_module(
+        &mut self,
+        module_id: &str,
+        scan_roots: &[PathBuf],
+    ) -> Result<ActivationResult, GraphemeSdkError> {
+        let report = discover_wasm_modules(scan_roots);
+        let discovered = report
+            .modules
+            .into_iter()
+            .find(|module| module.module_id == module_id)
+            .ok_or_else(|| {
+                GraphemeSdkError::ModuleLifecycle(format!(
+                    "module '{module_id}' not found in scan roots"
+                ))
+            })?;
+        let request = discovered_module_to_load_request(&discovered);
+        let activation = self.activate_module_generation(request)?;
+        self.save_default_hotload_store()?;
+        Ok(activation)
+    }
+
     /// Roll back the active module generation for a module.
     pub fn rollback_module_generation(
         &mut self,
         module_id: &str,
     ) -> Result<ActivationResult, GraphemeSdkError> {
-        self.runtime
+        let activation = self
+            .runtime
             .rollback_module_generation(module_id)
-            .map_err(map_module_load_error)
+            .map_err(map_module_load_error)?;
+        self.save_default_hotload_store()?;
+        Ok(activation)
+    }
+
+    /// Persist the current session module manager state to `.grapheme/modules/hotload.json`.
+    pub fn save_default_hotload_store(&self) -> Result<(), GraphemeSdkError> {
+        save_hotload_store(
+            &default_hotload_store_path(),
+            &self.runtime.hotload_snapshot(),
+        )
+        .map_err(map_hotload_error)
     }
 
     /// Return a snapshot of lifecycle events observed in this session runtime.
@@ -511,6 +559,10 @@ fn map_runtime_aot_error(err: RuntimeError) -> GraphemeSdkError {
 }
 
 fn map_module_load_error(err: ModuleLoadError) -> GraphemeSdkError {
+    GraphemeSdkError::ModuleLifecycle(err.to_string())
+}
+
+fn map_hotload_error(err: HotloadError) -> GraphemeSdkError {
     GraphemeSdkError::ModuleLifecycle(err.to_string())
 }
 
@@ -844,6 +896,11 @@ pub fn curated_examples_for_module(module_id: &str) -> &'static [&'static str] {
             "examples/surreal-update.gr",
             "examples/surreal-delete.gr",
         ],
+        "email" => &["examples/email-smtp.gr"],
+        "data" => &["examples/data-read-csv.gr", "examples/data-filter.gr"],
+        "pdf" => &["examples/pdf-generate.gr"],
+        "image" => &["examples/image-metadata.gr"],
+        "plot" => &["examples/plot-line.gr"],
         "io" => &["examples/io-list.gr"],
         "memory" => &["examples/memory-roundtrip.gr"],
         "secrets" => &["examples/secrets-handle.gr", "examples/secrets-sign.gr"],
@@ -1618,6 +1675,16 @@ fn module_search_guidance(module_id: &str) -> ModuleSearchGuidance {
             summary: "Database capability modules for read/write and transactional patterns.",
             use_when: "You need persistent state queries and durable updates.",
             avoid_when: "You only need ephemeral in-memory state.",
+        },
+        "data" => ModuleSearchGuidance {
+            summary: "Polars-backed CSV ingest and JSON frame analytics pipeline.",
+            use_when: "You need tabular reads, filtering, grouping, or schema introspection on local CSV files.",
+            avoid_when: "You only need lightweight string CSV parsing (use csv.to_list) or remote fetch.",
+        },
+        "pdf" | "image" | "plot" | "media" => ModuleSearchGuidance {
+            summary: "Heavy capability modules (PDF, image, plot, media) — Wasm or native; opt-in in SDK, full in CLI.",
+            use_when: "You need document generation, image transforms, charts, or ffmpeg media ops.",
+            avoid_when: "You can stay with core/json/csv transforms or defer until implementations are enabled.",
         },
         "memory" => ModuleSearchGuidance {
             summary: "In-memory storage/roundtrip examples and lightweight persistence patterns.",

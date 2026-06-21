@@ -53,6 +53,11 @@ Run these first:
 - `surreal-create.gr`
 - `surreal-update.gr`
 - `surreal-delete.gr`
+- `data-read-csv.gr` (requires CLI/SDK `full` or `data` feature)
+- `data-filter.gr` (requires CLI/SDK `full` or `data` feature)
+- `pdf-generate.gr` (requires `modules/pdf.wasm`; build with `plugins/build-plugins.sh`)
+- `image-metadata.gr` (requires `modules/image.wasm`)
+- `plot-line.gr` (requires `modules/plot.wasm`)
 
 Pipeline tip:
 

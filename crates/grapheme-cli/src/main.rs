@@ -13,13 +13,19 @@
 ///    grapheme plugins build [all|core|io ...]")
 ///    grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules]
 ///                          [--aot-stage stage_a|stage_b] [--strict-stage-b]
-///    grapheme modules [search <query> | ops <query> | info <module> | types <module> | examples <module>]
+///    grapheme modules [search <query> | ops <query> | info <module> | types <module> | examples <module> | scan [paths...]]
 /// ─────────────────────────────────────────────────────────────
 use grapheme_artifact::{ExecutionResult, MirInst};
 use grapheme_compiler::ast::Definition;
 use grapheme_compiler::verifier::{ExecutableKindPolicyMode, LintWarning};
 use grapheme_compiler::{Compiler, CompilerError, CompilerOptions};
-use grapheme_runtime::{PolicyGuard, TracePolicy, TraceProjection};
+use grapheme_runtime::{
+    apply_hotload_store, default_hotload_store_path, discover_wasm_modules,
+    discovered_module_to_load_request, hotload_status_payload, load_hotload_store,
+    save_hotload_store, HotloadError, ModuleLifecycleEvent, ModuleLifecycleEventKind,
+    PolicyGuard, RuntimeEngine, RuntimeOptions, TracePolicy, TraceProjection,
+};
+use grapheme_runtime::ModuleLoadError;
 use grapheme_sdk::{
     discover_examples, discover_module_manifests, example_by_name, modules_examples_payload,
     modules_info_payload, modules_ops_payload, modules_search_payload, modules_types_payload,
@@ -169,6 +175,8 @@ struct GraphemeProjectToml {
     project: GraphemeProjectSection,
     #[serde(default)]
     examples: Option<GraphemeExamplesSection>,
+    #[serde(default)]
+    modules: Option<GraphemeModulesSection>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -181,6 +189,26 @@ struct GraphemeProjectSection {
 struct GraphemeExamplesSection {
     #[serde(default)]
     namespaces: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct GraphemeModulesSection {
+    #[serde(default)]
+    scan: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedModuleBinding {
+    wasm_path: String,
+    generation_id: u64,
+    version: String,
+    content_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct PersistedModuleBindingsFile {
+    #[serde(default)]
+    bindings: BTreeMap<String, PersistedModuleBinding>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -241,6 +269,24 @@ const PLUGIN_BUILD_SPECS: &[PluginBuildSpec] = &[
         manifest_rel: "plugins/docs-rs/Cargo.toml",
         wasm_binary_name: "docs-plugin",
         output_rel: "plugins/docs-rs.wasm",
+    },
+    PluginBuildSpec {
+        name: "pdf",
+        manifest_rel: "plugins/pdf-rs/Cargo.toml",
+        wasm_binary_name: "pdf-plugin",
+        output_rel: "plugins/pdf-rs.wasm",
+    },
+    PluginBuildSpec {
+        name: "image",
+        manifest_rel: "plugins/image-rs/Cargo.toml",
+        wasm_binary_name: "image-plugin",
+        output_rel: "plugins/image-rs.wasm",
+    },
+    PluginBuildSpec {
+        name: "plot",
+        manifest_rel: "plugins/plot-rs/Cargo.toml",
+        wasm_binary_name: "plot-plugin",
+        output_rel: "plugins/plot-rs.wasm",
     },
 ];
 
@@ -868,8 +914,29 @@ fn emit_modules_cmd(args: &[String]) -> Result<(), CompilerError> {
             }
             emit_modules_examples(&cmd_args[1], mode)
         }
+        "scan" => {
+            let (scan_mode, scan_args) = parse_discovery_args(&cmd_args[1..])?;
+            emit_modules_scan(&scan_args, scan_mode)
+        }
+        "activate" => {
+            if cmd_args.len() != 2 {
+                return Err(CompilerError::RuntimeError(
+                    "modules activate requires a module id".to_string(),
+                ));
+            }
+            emit_modules_activate(&cmd_args[1], mode)
+        }
+        "rollback" => {
+            if cmd_args.len() != 2 {
+                return Err(CompilerError::RuntimeError(
+                    "modules rollback requires a module id".to_string(),
+                ));
+            }
+            emit_modules_rollback(&cmd_args[1], mode)
+        }
+        "status" => emit_modules_hotload_status(mode),
         other => Err(CompilerError::RuntimeError(format!(
-            "unknown modules subcommand '{}'; expected search|ops|info|types|examples",
+            "unknown modules subcommand '{}'; expected search|ops|info|types|examples|scan|activate|rollback|status",
             other
         ))),
     }
@@ -1034,6 +1101,308 @@ fn emit_modules_examples(module: &str, mode: DiscoveryOutputMode) -> Result<(), 
         ))
     })?;
     print_discovery(&payload, mode)
+}
+
+fn emit_modules_scan(extra_paths: &[String], mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
+    let roots = resolve_module_scan_roots(extra_paths);
+    let report = discover_wasm_modules(&roots);
+    print_discovery(&report, mode)
+}
+
+fn resolve_module_scan_roots(extra_paths: &[String]) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    if let Ok(cwd) = env::current_dir() {
+        if let Ok(Some((config_path, config))) = discover_project_config(&cwd) {
+            if let Some(modules) = config.modules {
+                let project_root = config_path.parent().unwrap_or(&cwd);
+                for path in modules.scan {
+                    if !path.trim().is_empty() {
+                        roots.push(project_root.join(path));
+                    }
+                }
+            }
+        }
+    }
+
+    for path in extra_paths {
+        if !path.trim().is_empty() {
+            roots.push(PathBuf::from(path));
+        }
+    }
+
+    if roots.is_empty() {
+        if let Ok(cwd) = env::current_dir() {
+            roots.push(cwd.join("plugins"));
+            roots.push(cwd.join("modules"));
+        }
+    }
+
+    roots
+}
+
+fn module_bindings_store_path() -> PathBuf {
+    PathBuf::from(".grapheme/modules/bindings.json")
+}
+
+fn hotload_store_path() -> PathBuf {
+    default_hotload_store_path()
+}
+
+fn hydrate_runtime_options(options: &mut RuntimeOptions) -> Result<(), CompilerError> {
+    if let Some(store) = load_hotload_store(&hotload_store_path()).map_err(map_hotload_error)? {
+        apply_hotload_store(&store, &mut options.module_manager, &mut options.module_registry);
+        return Ok(());
+    }
+
+    for (module, path) in load_persisted_module_bindings()? {
+        options.module_registry.set_wasm_path(&module, path);
+    }
+
+    Ok(())
+}
+
+fn runtime_options_with_hotload() -> Result<RuntimeOptions, CompilerError> {
+    let mut options = RuntimeOptions::default();
+    hydrate_runtime_options(&mut options)?;
+    Ok(options)
+}
+
+fn persist_runtime_hotload(runtime: &RuntimeEngine) -> Result<(), CompilerError> {
+    let store = runtime.hotload_snapshot();
+    save_hotload_store(&hotload_store_path(), &store).map_err(map_hotload_error)
+}
+
+fn load_persisted_module_bindings() -> Result<BTreeMap<String, PathBuf>, CompilerError> {
+    let path = module_bindings_store_path();
+    if !path.exists() {
+        return Ok(BTreeMap::new());
+    }
+
+    let raw = fs::read_to_string(&path)
+        .map_err(|e| CompilerError::RuntimeError(format!("read '{}': {e}", path.display())))?;
+    let parsed = serde_json::from_str::<PersistedModuleBindingsFile>(&raw).map_err(|e| {
+        CompilerError::RuntimeError(format!("parse '{}': {e}", path.display()))
+    })?;
+
+    Ok(parsed
+        .bindings
+        .into_iter()
+        .map(|(module, binding)| (module, PathBuf::from(binding.wasm_path)))
+        .collect())
+}
+
+fn save_persisted_module_binding(
+    module_id: &str,
+    wasm_path: &Path,
+    activation: &grapheme_runtime::ActivationResult,
+) -> Result<(), CompilerError> {
+    let store_path = module_bindings_store_path();
+    if let Some(parent) = store_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| {
+            CompilerError::RuntimeError(format!("create '{}': {e}", parent.display()))
+        })?;
+    }
+
+    let mut file = if store_path.exists() {
+        let raw = fs::read_to_string(&store_path).map_err(|e| {
+            CompilerError::RuntimeError(format!("read '{}': {e}", store_path.display()))
+        })?;
+        serde_json::from_str::<PersistedModuleBindingsFile>(&raw).unwrap_or_default()
+    } else {
+        PersistedModuleBindingsFile::default()
+    };
+
+    file.bindings.insert(
+        module_id.to_string(),
+        PersistedModuleBinding {
+            wasm_path: wasm_path.display().to_string(),
+            generation_id: activation.generation_id,
+            version: activation.version.clone(),
+            content_hash: activation.content_hash.clone(),
+        },
+    );
+
+    let serialized = serde_json::to_string_pretty(&file).map_err(|e| {
+        CompilerError::RuntimeError(format!("serialize module bindings: {e}"))
+    })?;
+    fs::write(&store_path, serialized).map_err(|e| {
+        CompilerError::RuntimeError(format!("write '{}': {e}", store_path.display()))
+    })?;
+    Ok(())
+}
+
+fn remove_persisted_module_binding(module_id: &str) -> Result<(), CompilerError> {
+    let store_path = module_bindings_store_path();
+    if !store_path.exists() {
+        return Ok(());
+    }
+
+    let raw = fs::read_to_string(&store_path)
+        .map_err(|e| CompilerError::RuntimeError(format!("read '{}': {e}", store_path.display())))?;
+    let mut file = serde_json::from_str::<PersistedModuleBindingsFile>(&raw).map_err(|e| {
+        CompilerError::RuntimeError(format!("parse '{}': {e}", store_path.display()))
+    })?;
+    file.bindings.remove(module_id);
+    let serialized = serde_json::to_string_pretty(&file).map_err(|e| {
+        CompilerError::RuntimeError(format!("serialize module bindings: {e}"))
+    })?;
+    fs::write(&store_path, serialized).map_err(|e| {
+        CompilerError::RuntimeError(format!("write '{}': {e}", store_path.display()))
+    })?;
+    Ok(())
+}
+
+fn discovered_module_by_id(module_id: &str) -> Result<grapheme_runtime::DiscoveredWasmModule, CompilerError> {
+    let roots = resolve_module_scan_roots(&[]);
+    let report = discover_wasm_modules(&roots);
+    report
+        .modules
+        .into_iter()
+        .find(|module| module.module_id.eq_ignore_ascii_case(module_id))
+        .ok_or_else(|| {
+            CompilerError::RuntimeError(format!(
+                "module '{}' not found in scan roots; run `grapheme modules scan`",
+                module_id
+            ))
+        })
+}
+
+fn emit_modules_activate(module_id: &str, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
+    let discovered = discovered_module_by_id(module_id)?;
+    let mut runtime = RuntimeEngine::new(runtime_options_with_hotload()?);
+    let request = discovered_module_to_load_request(&discovered);
+    let activation = runtime
+        .activate_module_generation(request)
+        .map_err(map_module_load_error)?;
+
+    persist_runtime_hotload(&runtime)?;
+    save_persisted_module_binding(&discovered.module_id, &discovered.wasm_path, &activation)?;
+
+    let payload = json!({
+        "module_id": discovered.module_id,
+        "version": discovered.version,
+        "wasm_path": discovered.wasm_path.display().to_string(),
+        "manifest_path": discovered.manifest_path.display().to_string(),
+        "activation": {
+            "module_id": activation.module_id,
+            "generation_id": activation.generation_id,
+            "version": activation.version,
+            "content_hash": activation.content_hash,
+        },
+        "hotload_store": hotload_store_path().display().to_string(),
+        "lifecycle_events": lifecycle_events_payload(&runtime.module_lifecycle_events()),
+    });
+    print_discovery(&payload, mode)
+}
+
+fn emit_modules_rollback(module_id: &str, mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
+    let mut runtime = RuntimeEngine::new(runtime_options_with_hotload()?);
+    let activation = runtime
+        .rollback_module_generation(module_id)
+        .map_err(map_module_load_error)?;
+
+    persist_runtime_hotload(&runtime)?;
+    remove_persisted_module_binding(module_id)?;
+
+    let payload = json!({
+        "module_id": module_id,
+        "status": "rolled_back",
+        "activation": {
+            "module_id": activation.module_id,
+            "generation_id": activation.generation_id,
+            "version": activation.version,
+            "content_hash": activation.content_hash,
+        },
+        "hotload_store": hotload_store_path().display().to_string(),
+        "lifecycle_events": lifecycle_events_payload(&runtime.module_lifecycle_events()),
+    });
+    print_discovery(&payload, mode)
+}
+
+fn lifecycle_events_payload(events: &[ModuleLifecycleEvent]) -> JsonValue {
+    events
+        .iter()
+        .map(|event| {
+            json!({
+                "kind": lifecycle_event_kind_name(event.kind),
+                "module_id": event.module_id,
+                "generation_id": event.generation_id,
+                "version": event.version,
+                "content_hash": event.content_hash,
+                "reason": event.reason,
+            })
+        })
+        .collect()
+}
+
+fn lifecycle_event_kind_name(kind: ModuleLifecycleEventKind) -> &'static str {
+    match kind {
+        ModuleLifecycleEventKind::Loaded => "module.loaded",
+        ModuleLifecycleEventKind::Validated => "module.validated",
+        ModuleLifecycleEventKind::Activated => "module.activated",
+        ModuleLifecycleEventKind::ActivationFailed => "module.activation_failed",
+        ModuleLifecycleEventKind::Draining => "module.draining",
+        ModuleLifecycleEventKind::Retired => "module.retired",
+        ModuleLifecycleEventKind::Rollback => "module.rollback",
+    }
+}
+
+fn emit_modules_hotload_status(mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
+    let store = load_hotload_store(&hotload_store_path())
+        .map_err(map_hotload_error)?
+        .unwrap_or_default();
+    let mut payload = hotload_status_payload(&store);
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert(
+            "hotload_store".to_string(),
+            json!(hotload_store_path().display().to_string()),
+        );
+    }
+    print_discovery(&payload, mode)
+}
+
+fn map_module_load_error(err: ModuleLoadError) -> CompilerError {
+    CompilerError::RuntimeError(err.to_string())
+}
+
+fn map_hotload_error(err: HotloadError) -> CompilerError {
+    CompilerError::RuntimeError(err.to_string())
+}
+
+fn resolve_module_bindings_for_run(
+    run_options: &RunOptions,
+    required_modules: &[String],
+) -> Result<Vec<(String, PathBuf)>, CompilerError> {
+    let mut bindings: BTreeMap<String, PathBuf> = load_hotload_store(&hotload_store_path())
+        .map_err(map_hotload_error)?
+        .map(|store| store.active_bindings().into_iter().collect())
+        .unwrap_or_default();
+
+    if bindings.is_empty() {
+        bindings = load_persisted_module_bindings()?;
+    }
+
+    let roots = resolve_module_scan_roots(&[]);
+    let report = discover_wasm_modules(&roots);
+    for module_id in required_modules {
+        if bindings.contains_key(module_id) {
+            continue;
+        }
+        if let Some(discovered) = report
+            .modules
+            .iter()
+            .find(|module| &module.module_id == module_id)
+        {
+            bindings.insert(module_id.clone(), discovered.wasm_path.clone());
+        }
+    }
+
+    for (module, path) in &run_options.bindings {
+        bindings.insert(module.clone(), path.clone());
+    }
+
+    Ok(bindings.into_iter().collect())
 }
 
 fn emit_telemetry_cmd(args: &[String]) -> Result<(), CompilerError> {
@@ -1545,10 +1914,10 @@ fn run_program(file_path: &str, run_options: RunOptions) -> Result<(), CompilerE
     let strict_stage_b_container_execution = resolve_stage_b_strict_mode(&run_options);
     let initial_state_current = run_options.initial_state_current.clone();
 
-    let mut module_bindings = run_options.bindings;
+    let required_modules = collect_called_modules(&compiled.artifact);
+    let mut module_bindings = resolve_module_bindings_for_run(&run_options, &required_modules)?;
 
     if run_options.native_modules {
-        let required_modules = collect_called_modules(&compiled.artifact);
         let plugin_targets = required_modules
             .into_iter()
             .filter(|module| !HOST_PREFERRED_MODULES.contains(&module.as_str()))
@@ -1580,7 +1949,8 @@ fn run_program(file_path: &str, run_options: RunOptions) -> Result<(), CompilerE
         .with_strict_stage_b_container_execution(strict_stage_b_container_execution)
         .with_stream_step_output(
             run_options.output_mode == RunOutputMode::Plain && run_options.stream_steps,
-        );
+        )
+        .with_default_hotload_store();
 
     if let Some(initial_current) = initial_state_current {
         engine_builder = engine_builder.with_initial_state_current(initial_current);
@@ -2584,6 +2954,10 @@ fn print_usage() {
     eprintln!("  grapheme modules info <module> [--yaml|--json]");
     eprintln!("  grapheme modules types <module> [--yaml|--json]");
     eprintln!("  grapheme modules examples <module> [--yaml|--json]");
+    eprintln!("  grapheme modules scan [paths...] [--yaml|--json]");
+    eprintln!("  grapheme modules activate <module> [--yaml|--json]");
+    eprintln!("  grapheme modules rollback <module> [--yaml|--json]");
+    eprintln!("  grapheme modules status [--yaml|--json]");
     eprintln!("  grapheme telemetry [summarize|export] [--out path] [--yaml|--json]");
     eprintln!("  grapheme help");
 }
@@ -2596,6 +2970,10 @@ fn print_modules_usage() {
     eprintln!("  grapheme modules info <module> [--yaml|--json]");
     eprintln!("  grapheme modules types <module> [--yaml|--json]");
     eprintln!("  grapheme modules examples <module> [--yaml|--json]");
+    eprintln!("  grapheme modules scan [paths...] [--yaml|--json]");
+    eprintln!("  grapheme modules activate <module> [--yaml|--json]");
+    eprintln!("  grapheme modules rollback <module> [--yaml|--json]");
+    eprintln!("  grapheme modules status [--yaml|--json]");
     eprintln!("\nnotes:");
     eprintln!("  --yaml is the default for modules discovery output");
 }

@@ -1,0 +1,9 @@
+import data from "grapheme/data"
+import core from "grapheme/core"
+
+query DataReadCsvDemo {
+  set { path: "examples/fixtures/sample-users.csv" }
+  |> data.read_csv(path: $state.path)
+  |> core.get_path(path: ["data", "frame", "row_count"])
+  |> core.echo()
+}

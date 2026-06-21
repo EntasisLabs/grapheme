@@ -1,0 +1,9 @@
+import media from "grapheme/media"
+import core from "grapheme/core"
+
+query MediaProbeDemo {
+  set { path: "examples/fixtures/sample.png" }
+  |> media.probe(path: $state.path)
+  |> core.get_path(path: ["data", "stream_count"])
+  |> core.echo()
+}

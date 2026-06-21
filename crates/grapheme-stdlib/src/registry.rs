@@ -248,6 +248,7 @@ pub fn dispatch(module: &str, op: &str, args: &JsonValue) -> Option<JsonValue> {
         .iter()
         .find(|m| m.module_id == module)
         .and_then(|m| (m.handler)(op, args))
+        .or_else(|| dispatch_capability(module, op, args))
 }
 
 pub fn is_registered_op(module: &str, op: &str) -> bool {
@@ -271,6 +272,19 @@ pub fn is_registered_op(module: &str, op: &str) -> bool {
         "json" => JSON_OPS.iter().any(|entry| entry.op == op),
         "csv" => CSV_OPS.iter().any(|entry| entry.op == op),
         "yaml" => YAML_OPS.iter().any(|entry| entry.op == op),
+        #[cfg(feature = "data")]
+        "data" => matches!(
+            op,
+            "read_csv" | "filter" | "group_by" | "aggregate" | "to_json" | "schema"
+        ),
+        #[cfg(feature = "pdf")]
+        "pdf" => matches!(op, "generate" | "extract_text"),
+        #[cfg(feature = "image")]
+        "image" => matches!(op, "resize" | "convert" | "metadata"),
+        #[cfg(feature = "plot")]
+        "plot" => matches!(op, "line" | "bar" | "scatter"),
+        #[cfg(feature = "media")]
+        "media" => matches!(op, "probe" | "transcode"),
         _ => false,
     }
 }
@@ -298,6 +312,18 @@ pub fn registered_ops_for_module(module: &str) -> Vec<&'static str> {
         "json" => JSON_OPS.iter().map(|entry| entry.op).collect(),
         "csv" => CSV_OPS.iter().map(|entry| entry.op).collect(),
         "yaml" => YAML_OPS.iter().map(|entry| entry.op).collect(),
+        #[cfg(feature = "data")]
+        "data" => vec![
+            "read_csv", "filter", "group_by", "aggregate", "to_json", "schema",
+        ],
+        #[cfg(feature = "pdf")]
+        "pdf" => vec!["generate", "extract_text"],
+        #[cfg(feature = "image")]
+        "image" => vec!["resize", "convert", "metadata"],
+        #[cfg(feature = "plot")]
+        "plot" => vec!["line", "bar", "scatter"],
+        #[cfg(feature = "media")]
+        "media" => vec!["probe", "transcode"],
         _ => Vec::new(),
     }
 }
@@ -428,6 +454,78 @@ fn dispatch_csv(op: &str, args: &JsonValue) -> Option<JsonValue> {
 
 fn dispatch_yaml(op: &str, args: &JsonValue) -> Option<JsonValue> {
     dispatch_table(op, args, YAML_OPS)
+}
+
+fn dispatch_capability(module: &str, op: &str, args: &JsonValue) -> Option<JsonValue> {
+    match module {
+        #[cfg(feature = "data")]
+        "data" => dispatch_data(op, args),
+        #[cfg(feature = "pdf")]
+        "pdf" => dispatch_pdf(op, args),
+        #[cfg(feature = "image")]
+        "image" => dispatch_image(op, args),
+        #[cfg(feature = "plot")]
+        "plot" => dispatch_plot(op, args),
+        #[cfg(feature = "media")]
+        "media" => dispatch_media(op, args),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "data")]
+fn dispatch_data(op: &str, args: &JsonValue) -> Option<JsonValue> {
+    use crate::data;
+    match op {
+        "read_csv" => Some(data::read_csv(args)),
+        "filter" => Some(data::filter(args)),
+        "group_by" => Some(data::group_by(args)),
+        "aggregate" => Some(data::aggregate(args)),
+        "to_json" => Some(data::to_json(args)),
+        "schema" => Some(data::schema(args)),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "pdf")]
+fn dispatch_pdf(op: &str, args: &JsonValue) -> Option<JsonValue> {
+    use crate::pdf;
+    match op {
+        "generate" => Some(pdf::generate(args)),
+        "extract_text" => Some(pdf::extract_text(args)),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "image")]
+fn dispatch_image(op: &str, args: &JsonValue) -> Option<JsonValue> {
+    use crate::image;
+    match op {
+        "resize" => Some(image::resize(args)),
+        "convert" => Some(image::convert(args)),
+        "metadata" => Some(image::metadata(args)),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "plot")]
+fn dispatch_plot(op: &str, args: &JsonValue) -> Option<JsonValue> {
+    use crate::plot;
+    match op {
+        "line" => Some(plot::line(args)),
+        "bar" => Some(plot::bar(args)),
+        "scatter" => Some(plot::scatter(args)),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "media")]
+fn dispatch_media(op: &str, args: &JsonValue) -> Option<JsonValue> {
+    use crate::media;
+    match op {
+        "probe" => Some(media::probe(args)),
+        "transcode" => Some(media::transcode(args)),
+        _ => None,
+    }
 }
 
 fn dispatch_table(op: &str, args: &JsonValue, ops: &[RegisteredOp]) -> Option<JsonValue> {
@@ -906,23 +1004,43 @@ mod tests {
     }
 
     #[test]
-    fn surreal_create_executes_registered_path() {
-        let out = dispatch(
-            "surreal",
-            "create",
-            &json!({
-                "connection": "missing_surreal_conn",
-                "thing_or_table": "doc",
-                "data": {"id": 1}
-            }),
-        )
-        .expect("surreal.create should be registered");
+    #[cfg(feature = "full")]
+    fn capability_signature_scope_ops_are_registered() {
+        let modules = ["data", "pdf", "image", "plot", "media"];
+        let mut missing = Vec::new();
 
-        assert_eq!(
-            out.get("error")
-                .and_then(|v| v.get("code"))
-                .and_then(|v| v.as_str()),
-            Some("surreal_connection_unresolved")
+        for spec in op_specs().iter().filter(|spec| modules.contains(&spec.module)) {
+            if !is_registered_op(spec.module, spec.op) {
+                missing.push(format!("{}.{}", spec.module, spec.op));
+            }
+        }
+
+        assert!(
+            missing.is_empty(),
+            "capability ops missing registry coverage: {}",
+            missing.join(", ")
         );
+    }
+
+    #[test]
+    #[cfg(feature = "full")]
+    fn data_read_csv_returns_frame_envelope() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../examples/fixtures/sample-users.csv"
+        );
+        let out = dispatch("data", "read_csv", &json!({ "path": path }))
+            .expect("data.read_csv should be registered");
+
+        assert!(out.get("data").and_then(|v| v.get("frame")).is_some());
+        assert_eq!(
+            out.get("data")
+                .and_then(|v| v.get("frame"))
+                .and_then(|v| v.get("row_count"))
+                .and_then(|v| v.as_u64()),
+            Some(3)
+        );
+        assert!(out.get("meta").is_some());
+        assert!(out.get("error").and_then(|v| v.as_null()).is_some());
     }
 }

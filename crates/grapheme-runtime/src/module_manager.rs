@@ -336,6 +336,109 @@ impl ModuleManager {
             self.emit_event(ModuleLifecycleEventKind::Retired, &generation, None);
         }
     }
+
+    /// Return all module ids tracked by the manager.
+    pub fn module_ids(&self) -> Vec<String> {
+        self.slots.keys().cloned().collect()
+    }
+
+    /// Export persistent hotload state for cross-command/session restore.
+    pub fn export_hotload(&self) -> crate::module_hotload::HotloadStore {
+        use crate::module_hotload::{HotloadGenerationRecord, HotloadSlotRecord, HotloadStore, HOTLOAD_SCHEMA};
+
+        let mut slots = HashMap::new();
+        for (module_id, slot) in &self.slots {
+            let generations = slot
+                .generations
+                .values()
+                .map(|generation| HotloadGenerationRecord {
+                    generation_id: generation.generation_id,
+                    module_id: generation.module_id.clone(),
+                    version: generation.version.clone(),
+                    content_hash: generation.content_hash.clone(),
+                    wasm_path: generation.wasm_path.display().to_string(),
+                    abi: generation.abi.clone(),
+                    state: lifecycle_state_label(generation.state).to_string(),
+                })
+                .collect::<Vec<_>>();
+
+            slots.insert(
+                module_id.clone(),
+                HotloadSlotRecord {
+                    active_generation: slot.active_generation,
+                    previous_generation: slot.previous_generation,
+                    generations,
+                },
+            );
+        }
+
+        HotloadStore {
+            schema: HOTLOAD_SCHEMA.to_string(),
+            next_generation_id: self.next_generation_id,
+            slots,
+        }
+    }
+
+    /// Restore a module manager from a hotload store snapshot.
+    pub fn import_hotload(store: crate::module_hotload::HotloadStore) -> Self {
+        let mut manager = Self {
+            next_generation_id: store.next_generation_id.max(1),
+            slots: HashMap::new(),
+            events: Vec::new(),
+        };
+
+        for (module_id, slot_record) in store.slots {
+            let mut generations = BTreeMap::new();
+            for record in slot_record.generations {
+                generations.insert(
+                    record.generation_id,
+                    ModuleGeneration {
+                        module_id: record.module_id,
+                        generation_id: record.generation_id,
+                        version: record.version,
+                        content_hash: record.content_hash,
+                        wasm_path: PathBuf::from(record.wasm_path),
+                        abi: record.abi,
+                        state: parse_lifecycle_state(&record.state),
+                    },
+                );
+            }
+
+            manager.slots.insert(
+                module_id,
+                ModuleSlot {
+                    active_generation: slot_record.active_generation,
+                    previous_generation: slot_record.previous_generation,
+                    generations,
+                },
+            );
+        }
+
+        manager
+    }
+}
+
+fn lifecycle_state_label(state: ModuleLifecycleState) -> &'static str {
+    match state {
+        ModuleLifecycleState::Loaded => "loaded",
+        ModuleLifecycleState::Validated => "validated",
+        ModuleLifecycleState::Active => "active",
+        ModuleLifecycleState::Draining => "draining",
+        ModuleLifecycleState::Retired => "retired",
+        ModuleLifecycleState::Failed => "failed",
+    }
+}
+
+fn parse_lifecycle_state(label: &str) -> ModuleLifecycleState {
+    match label {
+        "loaded" => ModuleLifecycleState::Loaded,
+        "validated" => ModuleLifecycleState::Validated,
+        "active" => ModuleLifecycleState::Active,
+        "draining" => ModuleLifecycleState::Draining,
+        "retired" => ModuleLifecycleState::Retired,
+        "failed" => ModuleLifecycleState::Failed,
+        _ => ModuleLifecycleState::Active,
+    }
 }
 
 fn hash_bytes_from_path(path: &PathBuf) -> Result<String, ModuleLoadError> {

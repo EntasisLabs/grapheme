@@ -1,6 +1,6 @@
 [package]
 name = "grapheme-lsp"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 description = "Language Server Protocol implementation for Grapheme"
 license = "Apache-2.0"
@@ -11,8 +11,12 @@ homepage = "https://github.com/entasislabs/grapheme"
 name = "grapheme-lsp"
 path = "src/main.rs"
 
+[features]
+default = ["full"]
+full = ["grapheme-signatures/full", "grapheme-compiler/full"]
+
 [dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std"] }
 tower-lsp = "0.20"
-grapheme-compiler = { path = "../grapheme-compiler", version = "0.4.0" }
-grapheme-signatures = { path = "../grapheme-signatures", version = "0.4.0" }
+grapheme-compiler = { path = "../grapheme-compiler", version = "0.5.0", default-features = false, features = ["full"] }
+grapheme-signatures = { path = "../grapheme-signatures", version = "0.5.0", default-features = false, features = ["full"] }

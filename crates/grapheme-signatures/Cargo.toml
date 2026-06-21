@@ -1,10 +1,19 @@
 [package]
 name = "grapheme-signatures"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 description = "Shared operation signatures and effects metadata for Grapheme"
 license = "Apache-2.0"
 repository = "https://github.com/entasislabs/grapheme"
 homepage = "https://github.com/entasislabs/grapheme"
+
+[features]
+default = []
+full = ["data", "pdf", "image", "plot", "media"]
+data = []
+pdf = []
+image = []
+plot = []
+media = []
 
 [dependencies]

@@ -1,0 +1,32 @@
+{
+  "schema": "grapheme.module.manifest/v1",
+  "module_id": "plot",
+  "version": "0.1.0",
+  "abi": "wasix_v1",
+  "wasm": "plot.wasm",
+  "entrypoint": "plot.main",
+  "exported_ops": [
+    {
+      "op": "line",
+      "effect": "pure",
+      "output_schema_ref": "grapheme.host.result.envelope/v1"
+    },
+    {
+      "op": "bar",
+      "effect": "pure",
+      "output_schema_ref": "grapheme.host.result.envelope/v1"
+    },
+    {
+      "op": "scatter",
+      "effect": "pure",
+      "output_schema_ref": "grapheme.host.result.envelope/v1"
+    }
+  ],
+  "required_capabilities": ["plot.render.workspace"],
+  "limits": {
+    "max_cpu_ms": 5000,
+    "max_memory_mb": 256,
+    "max_io_bytes": 10485760,
+    "max_network_calls": 0
+  }
+}

@@ -200,7 +200,7 @@ impl WasixBackend {
         }
 
         match serde_json::from_str::<JsonValue>(trimmed) {
-            Ok(parsed) => Ok(parsed),
+            Ok(parsed) => Ok(normalize_host_envelope(parsed)),
             Err(_) => Ok(json!({ "stdout": trimmed })),
         }
     }
@@ -276,6 +276,30 @@ impl Drop for WasixBackend {
             stats.total_ms_max,
         );
     }
+}
+
+#[cfg(feature = "wasix-runtime")]
+fn normalize_host_envelope(raw: JsonValue) -> JsonValue {
+    if raw
+        .as_object()
+        .is_some_and(|obj| obj.contains_key("data") && obj.contains_key("meta") && obj.contains_key("error"))
+    {
+        return raw;
+    }
+
+    if raw.get("error").and_then(|v| v.as_str()).is_some() {
+        return json!({
+            "data": raw.get("data").cloned().unwrap_or(JsonValue::Null),
+            "meta": json!({ "legacy_flat": true, "adapter": "wasix" }),
+            "error": raw.get("error").and_then(|v| v.as_str()),
+        });
+    }
+
+    json!({
+        "data": raw,
+        "meta": json!({ "legacy_flat": true, "adapter": "wasix" }),
+        "error": null,
+    })
 }
 
 #[cfg(feature = "wasix-runtime")]

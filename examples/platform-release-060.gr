@@ -1,0 +1,24 @@
+# Grapheme 0.6.0 platform demo — native data + Wasm plot + Wasm pdf.
+# Requires: full CLI build and built Wasm plugins (`bash plugins/build-plugins.sh`).
+#   grapheme modules activate plot
+#   grapheme modules activate pdf
+#   grapheme run examples/platform-release-060.gr
+
+import data from "grapheme/data"
+import plot from "grapheme/plot"
+import pdf from "grapheme/pdf"
+import core from "grapheme/core"
+
+query PlatformRelease060 {
+  set {
+    csv: "examples/fixtures/sample-users.csv"
+    title: "Grapheme 0.6.0 capability stack"
+    series: [4, 6, 5, 8, 7]
+  }
+  |> data.read_csv(path: $state.csv)
+  |> data.aggregate(op: "count")
+  |> plot.bar(series: $state.series, title: "Sample trend")
+  |> pdf.generate(title: $state.title, body: "Polars data, SVG plot, and PDF on the extensible platform.")
+  |> core.get_path(path: ["data", "page_count"])
+  |> core.echo()
+}

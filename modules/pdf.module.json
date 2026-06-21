@@ -1,0 +1,27 @@
+{
+  "schema": "grapheme.module.manifest/v1",
+  "module_id": "pdf",
+  "version": "0.1.0",
+  "abi": "wasix_v1",
+  "wasm": "pdf.wasm",
+  "entrypoint": "pdf.main",
+  "exported_ops": [
+    {
+      "op": "generate",
+      "effect": "io",
+      "output_schema_ref": "grapheme.host.result.envelope/v1"
+    },
+    {
+      "op": "extract_text",
+      "effect": "io",
+      "output_schema_ref": "grapheme.host.result.envelope/v1"
+    }
+  ],
+  "required_capabilities": ["pdf.generate.workspace"],
+  "limits": {
+    "max_cpu_ms": 5000,
+    "max_memory_mb": 256,
+    "max_io_bytes": 10485760,
+    "max_network_calls": 0
+  }
+}

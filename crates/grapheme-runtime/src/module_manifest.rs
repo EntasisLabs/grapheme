@@ -69,6 +69,89 @@ pub fn core_v1_manifests() -> Vec<ModuleManifest> {
         module_secrets(),
         module_policy(),
     ]
+    .into_iter()
+    .chain(capability_manifests())
+    .collect()
+}
+
+fn capability_manifests() -> Vec<ModuleManifest> {
+    let mut manifests = Vec::new();
+    #[cfg(feature = "data")]
+    manifests.push(module_data());
+    #[cfg(feature = "pdf")]
+    manifests.push(module_pdf());
+    #[cfg(feature = "image")]
+    manifests.push(module_image());
+    #[cfg(feature = "plot")]
+    manifests.push(module_plot());
+    #[cfg(feature = "media")]
+    manifests.push(module_media());
+    manifests
+}
+
+#[cfg(feature = "data")]
+fn module_data() -> ModuleManifest {
+    ModuleManifest {
+        module_id: "data".to_string(),
+        version: "1.0.0".to_string(),
+        abi: ModuleAbi::MirV1,
+        entrypoint: "data.main".to_string(),
+        exported_ops: exported_ops_for("data"),
+        required_capabilities: vec!["data.read.workspace".to_string()],
+        limits: limits_standard(),
+    }
+}
+
+#[cfg(feature = "pdf")]
+fn module_pdf() -> ModuleManifest {
+    ModuleManifest {
+        module_id: "pdf".to_string(),
+        version: "1.0.0".to_string(),
+        abi: ModuleAbi::WasixV1,
+        entrypoint: "pdf.main".to_string(),
+        exported_ops: exported_ops_for("pdf"),
+        required_capabilities: vec!["pdf.generate.workspace".to_string()],
+        limits: limits_standard(),
+    }
+}
+
+#[cfg(feature = "image")]
+fn module_image() -> ModuleManifest {
+    ModuleManifest {
+        module_id: "image".to_string(),
+        version: "1.0.0".to_string(),
+        abi: ModuleAbi::WasixV1,
+        entrypoint: "image.main".to_string(),
+        exported_ops: exported_ops_for("image"),
+        required_capabilities: vec!["image.transform.workspace".to_string()],
+        limits: limits_standard(),
+    }
+}
+
+#[cfg(feature = "plot")]
+fn module_plot() -> ModuleManifest {
+    ModuleManifest {
+        module_id: "plot".to_string(),
+        version: "1.0.0".to_string(),
+        abi: ModuleAbi::WasixV1,
+        entrypoint: "plot.main".to_string(),
+        exported_ops: exported_ops_for("plot"),
+        required_capabilities: vec!["plot.render.workspace".to_string()],
+        limits: limits_standard(),
+    }
+}
+
+#[cfg(feature = "media")]
+fn module_media() -> ModuleManifest {
+    ModuleManifest {
+        module_id: "media".to_string(),
+        version: "1.0.0".to_string(),
+        abi: ModuleAbi::MirV1,
+        entrypoint: "media.main".to_string(),
+        exported_ops: exported_ops_for("media"),
+        required_capabilities: vec!["media.transcode.workspace".to_string()],
+        limits: limits_standard(),
+    }
 }
 
 fn module_html() -> ModuleManifest {
