@@ -10,7 +10,7 @@ homepage = "https://github.com/entasislabs/grapheme"
 [features]
 default = []
 full = ["data", "pdf", "image", "plot", "media"]
-data = []
+data = ["dep:polars"]
 pdf = []
 image = []
 plot = []
@@ -27,6 +27,8 @@ websearch = "0.1.1"
 lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "rustls-tls"] }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "any", "sqlite", "postgres", "json"] }
 surrealdb = { version = "3.0.5", default-features = false, features = ["protocol-http", "rustls"] }
+polars = { version = "0.46", optional = true, default-features = false, features = ["csv", "fmt"] }
 
 [dev-dependencies]
 grapheme-signatures = { path = "../grapheme-signatures", version = "0.4.0", features = ["full"] }
+tempfile = "3.20"

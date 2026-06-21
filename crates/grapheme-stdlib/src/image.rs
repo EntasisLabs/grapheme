@@ -9,21 +9,30 @@ pub fn resize(args: &JsonValue) -> JsonValue {
     {
         return CapabilityResponse::invalid_args("missing required args: width and height");
     }
-    CapabilityResponse::scaffold("image.resize", "photon resize")
+    CapabilityResponse::scaffold(
+        "image.resize",
+        "bind Wasm via modules/image.module.json or run: grapheme modules activate image",
+    )
 }
 
 pub fn convert(args: &JsonValue) -> JsonValue {
     if arg_text(args, "format").is_empty() {
         return CapabilityResponse::invalid_args("missing required arg: format");
     }
-    CapabilityResponse::scaffold("image.convert", "photon format conversion")
+    CapabilityResponse::scaffold(
+        "image.convert",
+        "bind Wasm via modules/image.module.json or run: grapheme modules activate image",
+    )
 }
 
 pub fn metadata(args: &JsonValue) -> JsonValue {
     if arg_text(args, "path").is_empty() && args.get("bytes").is_none() {
         return CapabilityResponse::invalid_args("missing required arg: path or bytes");
     }
-    CapabilityResponse::scaffold("image.metadata", "image metadata probe")
+    CapabilityResponse::scaffold(
+        "image.metadata",
+        "bind Wasm via modules/image.module.json or run: grapheme modules activate image",
+    )
 }
 
 fn arg_text(args: &JsonValue, key: &str) -> String {

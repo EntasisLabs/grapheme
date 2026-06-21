@@ -1,0 +1,12 @@
+import plot from "grapheme/plot"
+import core from "grapheme/core"
+
+query PlotLineDemo {
+  set {
+    series: [2, 4, 3, 7, 5]
+    title: "Weekly trend"
+  }
+  |> plot.line(series: $state.series, title: $state.title)
+  |> core.get_path(path: ["data", "format"])
+  |> core.echo()
+}

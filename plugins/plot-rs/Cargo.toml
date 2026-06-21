@@ -1,0 +1,21 @@
+[package]
+name = "plot-plugin"
+version = "0.1.0"
+edition = "2021"
+description = "Grapheme reference Wasm plot capability plugin (SVG output)"
+
+[[bin]]
+name = "plot-plugin"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

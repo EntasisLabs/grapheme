@@ -1014,11 +1014,18 @@ const SURREAL_HEALTH_ARGS: &[ArgSpec] = &[
     },
 ];
 
-const DATA_READ_CSV_ARGS: &[ArgSpec] = &[ArgSpec {
-    name: "path",
-    ty: ArgType::String,
-    required: true,
-}];
+const DATA_READ_CSV_ARGS: &[ArgSpec] = &[
+    ArgSpec {
+        name: "path",
+        ty: ArgType::String,
+        required: true,
+    },
+    ArgSpec {
+        name: "max_rows",
+        ty: ArgType::Number,
+        required: false,
+    },
+];
 const DATA_FRAME_ARGS: &[ArgSpec] = &[ArgSpec {
     name: "frame",
     ty: ArgType::Object,
@@ -1031,9 +1038,26 @@ const DATA_FILTER_ARGS: &[ArgSpec] = &[
         required: true,
     },
     ArgSpec {
-        name: "predicate",
+        name: "column",
+        ty: ArgType::String,
+        required: true,
+    },
+    ArgSpec {
+        name: "eq",
+        ty: ArgType::Any,
+        required: true,
+    },
+];
+const DATA_AGGREGATE_ARGS: &[ArgSpec] = &[
+    ArgSpec {
+        name: "frame",
         ty: ArgType::Object,
-        required: false,
+        required: true,
+    },
+    ArgSpec {
+        name: "op",
+        ty: ArgType::String,
+        required: true,
     },
 ];
 const DATA_GROUP_BY_ARGS: &[ArgSpec] = &[
@@ -1817,7 +1841,7 @@ pub const OP_SPECS: &[OpSpec] = &[
     OpSpec {
         module: "data",
         op: "aggregate",
-        args: DATA_FRAME_ARGS,
+        args: DATA_AGGREGATE_ARGS,
         effect: SignatureEffect::Pure,
         input_schema_ref: None,
         output_schema_ref: Some("grapheme.host.result.envelope/v1"),

@@ -1,0 +1,32 @@
+{
+  "schema": "grapheme.module.manifest/v1",
+  "module_id": "image",
+  "version": "0.1.0",
+  "abi": "wasix_v1",
+  "wasm": "image.wasm",
+  "entrypoint": "image.main",
+  "exported_ops": [
+    {
+      "op": "resize",
+      "effect": "pure",
+      "output_schema_ref": "grapheme.host.result.envelope/v1"
+    },
+    {
+      "op": "convert",
+      "effect": "pure",
+      "output_schema_ref": "grapheme.host.result.envelope/v1"
+    },
+    {
+      "op": "metadata",
+      "effect": "io",
+      "output_schema_ref": "grapheme.host.result.envelope/v1"
+    }
+  ],
+  "required_capabilities": ["image.transform.workspace"],
+  "limits": {
+    "max_cpu_ms": 5000,
+    "max_memory_mb": 256,
+    "max_io_bytes": 10485760,
+    "max_network_calls": 0
+  }
+}

@@ -844,6 +844,11 @@ pub fn curated_examples_for_module(module_id: &str) -> &'static [&'static str] {
             "examples/surreal-update.gr",
             "examples/surreal-delete.gr",
         ],
+        "email" => &["examples/email-smtp.gr"],
+        "data" => &["examples/data-read-csv.gr", "examples/data-filter.gr"],
+        "pdf" => &["examples/pdf-generate.gr"],
+        "image" => &["examples/image-metadata.gr"],
+        "plot" => &["examples/plot-line.gr"],
         "io" => &["examples/io-list.gr"],
         "memory" => &["examples/memory-roundtrip.gr"],
         "secrets" => &["examples/secrets-handle.gr", "examples/secrets-sign.gr"],
@@ -1618,6 +1623,16 @@ fn module_search_guidance(module_id: &str) -> ModuleSearchGuidance {
             summary: "Database capability modules for read/write and transactional patterns.",
             use_when: "You need persistent state queries and durable updates.",
             avoid_when: "You only need ephemeral in-memory state.",
+        },
+        "data" => ModuleSearchGuidance {
+            summary: "Polars-backed CSV ingest and JSON frame analytics pipeline.",
+            use_when: "You need tabular reads, filtering, grouping, or schema introspection on local CSV files.",
+            avoid_when: "You only need lightweight string CSV parsing (use csv.to_list) or remote fetch.",
+        },
+        "pdf" | "image" | "plot" | "media" => ModuleSearchGuidance {
+            summary: "Heavy capability modules (PDF, image, plot, media) — Wasm or native; opt-in in SDK, full in CLI.",
+            use_when: "You need document generation, image transforms, charts, or ffmpeg media ops.",
+            avoid_when: "You can stay with core/json/csv transforms or defer until implementations are enabled.",
         },
         "memory" => ModuleSearchGuidance {
             summary: "In-memory storage/roundtrip examples and lightweight persistence patterns.",

@@ -50,8 +50,10 @@ flowchart TB
 | --- | --- | --- |
 | Wasm module manifest v1 sidecar | in progress | See `docs/internal/runtime/wasm-module-manifest-v1.md` |
 | `grapheme.toml` `[modules]` scan paths | in progress | Schema in `grapheme.schema.json` |
-| `grapheme modules scan` | in progress | Lists discovered Wasm + manifests |
-| WASIX op invocation (real) | planned | Finish beyond routing scaffold |
+| `grapheme modules scan` | done | Lists discovered Wasm + manifests |
+| `grapheme modules activate` | done | Persists binding to `.grapheme/modules/bindings.json` |
+| `pdf-rs Wasm reference plugin` | done | `plugins/pdf-rs`, manifest `modules/pdf.module.json` |
+| WASIX op invocation (real) | partial | Backend executes; envelope normalize added |
 | Hot activate / rollback CLI | planned | Wire `ModuleManager` to CLI + SDK session |
 | Compatibility validator | planned | ABI + signature + policy on activation |
 
@@ -71,13 +73,13 @@ flowchart TB
 
 ### C — Capability modules
 
-| Module | Route | Rust stack | Feature flag |
-| --- | --- | --- | --- |
-| `data` | **native** `mir_v1` | Polars | `grapheme-stdlib/data` |
-| `media` | **native** `mir_v1` | ffmpeg bridge | `grapheme-stdlib/media` |
-| `pdf` | **Wasm** `wasix_v1` | printpdf (+ extract later) | `grapheme-stdlib/pdf` |
-| `image` | **Wasm** `wasix_v1` | photon | `grapheme-stdlib/image` |
-| `plot` | **Wasm** `wasix_v1` | plotters | `grapheme-stdlib/plot` |
+| Module | Route | Rust stack | Feature flag | Status |
+| --- | --- | --- | --- | --- |
+| `data` | **native** `mir_v1` | Polars ingest + JSON frame pipeline | `grapheme-stdlib/data` | **partial** — read_csv/filter/group_by/count live |
+| `media` | **native** `mir_v1` | ffmpeg bridge | `grapheme-stdlib/media` | scaffold |
+| `image` | **Wasm** `wasix_v1` | `image` crate in `image-rs` plugin | `grapheme-stdlib/image` | **done** — Wasm plugin + manifest |
+| `plot` | **Wasm** `wasix_v1` | SVG in `plot-rs` plugin | `grapheme-stdlib/plot` | **done** — Wasm plugin + manifest |
+| `pdf` | **Wasm** `wasix_v1` | minimal PDF in `pdf-rs` plugin | `grapheme-stdlib/pdf` | **done** — Wasm plugin + manifest |
 
 **Initial ops (v1):**
 

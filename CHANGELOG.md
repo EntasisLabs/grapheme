@@ -25,8 +25,14 @@ Foundation train for the coordinated 0.6.0 release. See `docs/internal/roadmaps/
 
 ### Notes
 
-- Capability ops return **scaffold** responses in this train (`status: "scaffold"`); Polars / printpdf / photon / plotters / ffmpeg implementations land in follow-up PRs within the 0.6.0 release.
-- Signatures mark capability modules as **experimental** until implementations stabilize.
+- **`data` module (Polars, opt-in):** `data.read_csv` reads local CSV into `grapheme.data.frame/v1` handles; `data.filter`, `data.group_by`, `data.aggregate(op=count)`, `data.schema`, `data.to_json` operate on JSON frames in-pipeline.
+- Examples: `examples/data-read-csv.gr`, `examples/data-filter.gr`, fixture `examples/fixtures/sample-users.csv`.
+- **`pdf` Wasm plugin (reference):** `plugins/pdf-rs` implements `pdf.generate` + `pdf.extract_text` with host envelope output; sidecar at `modules/pdf.module.json`.
+- **`grapheme modules activate|rollback`** — persist/remove Wasm bindings under `.grapheme/modules/bindings.json`.
+- **Auto-bind on run** — discovered modules from `[modules].scan` (or `modules/` + `plugins/` defaults) bind automatically when referenced in a workflow.
+- **`image` Wasm plugin:** `plugins/image-rs` — metadata, resize, convert (PNG/JPEG/GIF/WebP via `image` crate).
+- **`plot` Wasm plugin:** `plugins/plot-rs` — line/bar/scatter charts as SVG envelope payloads.
+- Examples: `examples/image-metadata.gr`, `examples/plot-line.gr`, fixture `examples/fixtures/sample.png`.
 
 ## [0.5.0] - 2026-06-03
 

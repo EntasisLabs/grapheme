@@ -236,6 +236,20 @@ fn validate_manifest(manifest: &WasmModuleManifest, path: &Path) -> Result<(), W
     Ok(())
 }
 
+/// Build a module activation request from a discovery scan record.
+pub fn discovered_module_to_load_request(module: &DiscoveredWasmModule) -> crate::module_manager::LoadModuleRequest {
+    use crate::module_manager::CompatibilityMode;
+    use crate::module_manifest::ModuleAbi;
+
+    crate::module_manager::LoadModuleRequest {
+        module_id: module.module_id.clone(),
+        wasm_path: module.wasm_path.clone(),
+        compatibility_mode: CompatibilityMode::Strict,
+        abi: ModuleAbi::WasixV1,
+        version: Some(module.version.clone()),
+    }
+}
+
 fn manifest_path_for_wasm(wasm_path: &Path) -> PathBuf {
     let stem = wasm_path.file_stem().and_then(|s| s.to_str()).unwrap_or("module");
     wasm_path
@@ -265,7 +279,7 @@ mod tests {
         let _ = fs::remove_dir_all(&base);
 
         let wasm_path = base.join("pdf.wasm");
-        write_file(&wasm_path, b"wasm-bytes");
+        write_file(&wasm_path, "wasm-bytes");
         write_file(
             &base.join("pdf.module.json"),
             r#"{

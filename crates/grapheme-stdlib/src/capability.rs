@@ -16,7 +16,18 @@ impl CapabilityResponse {
         }))
     }
 
-    pub fn invalid_args(message: &str) -> JsonValue {
-        envelope::failure(message)
+    pub fn invalid_args(message: impl AsRef<str>) -> JsonValue {
+        envelope::failure(message.as_ref())
+    }
+
+    pub fn ok(payload: JsonValue) -> JsonValue {
+        let body = match payload {
+            JsonValue::Object(mut map) => {
+                map.entry("ok".to_string()).or_insert(json!(true));
+                JsonValue::Object(map)
+            }
+            other => json!({ "ok": true, "value": other }),
+        };
+        envelope::success(body)
     }
 }

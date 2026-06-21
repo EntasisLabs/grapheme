@@ -1,0 +1,11 @@
+import data from "grapheme/data"
+import core from "grapheme/core"
+
+query DataFilterDemo {
+  set { path: "examples/fixtures/sample-users.csv" }
+  |> data.read_csv(path: $state.path)
+  |> core.get_path(path: ["data", "frame"])
+  |> data.filter(column: "city", eq: "Paris")
+  |> core.get_path(path: ["data", "frame", "rows"])
+  |> core.echo()
+}

@@ -1024,12 +1024,23 @@ mod tests {
 
     #[test]
     #[cfg(feature = "full")]
-    fn data_read_csv_scaffold_returns_envelope() {
-        let out = dispatch("data", "read_csv", &json!({ "path": "sample.csv" }))
+    fn data_read_csv_returns_frame_envelope() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../examples/fixtures/sample-users.csv"
+        );
+        let out = dispatch("data", "read_csv", &json!({ "path": path }))
             .expect("data.read_csv should be registered");
 
-        assert!(out.get("data").is_some());
+        assert!(out.get("data").and_then(|v| v.get("frame")).is_some());
+        assert_eq!(
+            out.get("data")
+                .and_then(|v| v.get("frame"))
+                .and_then(|v| v.get("row_count"))
+                .and_then(|v| v.as_u64()),
+            Some(3)
+        );
         assert!(out.get("meta").is_some());
-        assert!(out.get("error").is_some());
+        assert!(out.get("error").and_then(|v| v.as_null()).is_some());
     }
 }

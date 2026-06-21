@@ -1,0 +1,12 @@
+import pdf from "grapheme/pdf"
+import core from "grapheme/core"
+
+query PdfGenerateDemo {
+  set {
+    title: "Grapheme PDF"
+    body: "Hello from the pdf-rs Wasm capability plugin."
+  }
+  |> pdf.generate(title: $state.title, body: $state.body)
+  |> core.get_path(path: ["data", "page_count"])
+  |> core.echo()
+}

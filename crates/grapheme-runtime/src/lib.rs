@@ -18,8 +18,8 @@ pub mod wasix_backend;
 pub use error::RuntimeError;
 pub use host::{CapabilityCall, CapabilityHost, HostCallError};
 pub use module_discovery::{
-    discover_wasm_modules, DiscoveredWasmModule, WasmDiscoveryReport, WasmModuleManifest,
-    MANIFEST_SCHEMA,
+    discover_wasm_modules, discovered_module_to_load_request, DiscoveredWasmModule,
+    WasmDiscoveryReport, WasmModuleManifest, MANIFEST_SCHEMA,
 };
 pub use module_manager::{
     ActivationResult, CompatibilityMode, LoadModuleRequest, ModuleGeneration, ModuleLifecycleEvent,

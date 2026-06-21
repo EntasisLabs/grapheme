@@ -1,0 +1,9 @@
+import image from "grapheme/image"
+import core from "grapheme/core"
+
+query ImageMetadataDemo {
+  set { path: "examples/fixtures/sample.png" }
+  |> image.metadata(path: $state.path)
+  |> core.get_path(path: ["data", "width"])
+  |> core.echo()
+}
