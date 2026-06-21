@@ -1,6 +1,6 @@
 [package]
 name = "grapheme-stdlib"
-version = "0.5.0"
+version = "0.6.1"
 edition = "2021"
 description = "Standard library operation implementations for Grapheme"
 license = "Apache-2.0"
@@ -30,5 +30,5 @@ surrealdb = { version = "3.0.5", default-features = false, features = ["protocol
 polars = { version = "0.46", optional = true, default-features = false, features = ["csv", "fmt"] }
 
 [dev-dependencies]
-grapheme-signatures = { path = "../grapheme-signatures", version = "0.5.0", features = ["full"] }
+grapheme-signatures = { path = "../grapheme-signatures", version = "0.6.1", features = ["full"] }
 tempfile = "3.20"

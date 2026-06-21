@@ -8,20 +8,24 @@ Grapheme 0.6.0 introduces **opt-in capability modules** for embedders while the 
 | --- | --- | --- | --- |
 | `grapheme-cli` | 0.6.0 | `full` | All capabilities + WASIX runtime |
 | `grapheme-lsp` | 0.6.0 | `full` | Editor gets full signatures |
-| `grapheme-sdk` | 0.5.0 | *(none)* | Enable `full` or pick modules |
-| `grapheme-stdlib` | 0.5.0 | *(none)* | `data`, `pdf`, `image`, `plot`, `media` |
+| `grapheme-sdk` | 0.6.0 | *(none)* | Enable `full` or pick modules |
+| `grapheme-stdlib` | 0.6.0 | *(none)* | `data`, `pdf`, `image`, `plot`, `media` |
+| `grapheme-signatures` | 0.6.0 | *(none)* | Capability op metadata |
+| `grapheme-runtime` | 0.6.0 | *(none)* | Execution engine |
+| `grapheme-compiler` | 0.6.0 | *(none)* | Compiler pipeline |
+| `grapheme-artifact` | 0.2.0 | — | MIR envelope (independent semver) |
 
 ## SDK (embedders)
 
 ```toml
 [dependencies]
-grapheme-sdk = { version = "0.5", default-features = false, features = ["full"] }
+grapheme-sdk = { version = "0.6", default-features = false, features = ["full"] }
 ```
 
 Per-module opt-in:
 
 ```toml
-grapheme-sdk = { version = "0.5", default-features = false, features = ["data", "pdf"] }
+grapheme-sdk = { version = "0.6", default-features = false, features = ["data", "pdf"] }
 ```
 
 Available flags on `grapheme-sdk`:
@@ -63,7 +67,7 @@ grapheme run examples/platform-release-060.gr
 If you depend on `grapheme-stdlib` directly (tests, custom hosts):
 
 ```toml
-grapheme-stdlib = { version = "0.5", default-features = false, features = ["data"] }
+grapheme-stdlib = { version = "0.6", default-features = false, features = ["data"] }
 ```
 
 Dispatch via `grapheme_stdlib::registry::dispatch` returns `None` for disabled modules.
