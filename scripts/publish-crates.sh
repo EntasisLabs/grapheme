@@ -5,8 +5,8 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 PUBLISH_ORDER=(
-  # "grapheme-signatures"
-  # "grapheme-artifact"
+  "grapheme-signatures"
+  "grapheme-artifact"
   "grapheme-stdlib"
   "grapheme-runtime"
   "grapheme-compiler"
