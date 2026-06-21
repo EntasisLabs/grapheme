@@ -13,7 +13,7 @@ This path is for Rust embedders building Grapheme into services, agents, or inte
 
 Crate:
 
-- `crates/grapheme-sdk` (version **0.5.0** with 0.6.0 release train)
+- `crates/grapheme-sdk` (version **0.6.0**)
 
 ## Feature flags (0.6.0+)
 
@@ -21,13 +21,13 @@ The SDK ships with **no default features**. Enable capabilities explicitly:
 
 ```toml
 [dependencies]
-grapheme-sdk = { version = "0.5", default-features = false, features = ["full"] }
+grapheme-sdk = { version = "0.6", default-features = false, features = ["full"] }
 ```
 
 Per-module opt-in:
 
 ```toml
-grapheme-sdk = { version = "0.5", default-features = false, features = ["data", "pdf"] }
+grapheme-sdk = { version = "0.6", default-features = false, features = ["data", "pdf"] }
 ```
 
 Available flags: `data`, `pdf`, `image`, `plot`, `media`, `wasix-runtime`, `full`.
@@ -242,7 +242,7 @@ fn main() {
             wasm_path: PathBuf::from("plugins/http-rs/target/wasm32-wasip1/release/http_rs.wasm"),
             compatibility_mode: CompatibilityMode::Strict,
             abi: ModuleAbi::MirV1,
-            version: Some("0.5.0".to_string()),
+            version: Some("0.6.0".to_string()),
         })
         .expect("activate module");
 

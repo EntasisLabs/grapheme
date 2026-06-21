@@ -31,13 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Crate versions (this release)
 
+All workspace crates ship at **0.6.0** except `grapheme-artifact` (unchanged at 0.2.0). The release tag is **v0.6.0**.
+
 | Crate | Version |
 | --- | --- |
-| `grapheme-signatures` | 0.5.0 |
-| `grapheme-stdlib` | 0.5.0 |
-| `grapheme-runtime` | 0.5.0 |
-| `grapheme-compiler` | 0.5.0 |
-| `grapheme-sdk` | 0.5.0 |
+| `grapheme-signatures` | 0.6.0 |
+| `grapheme-stdlib` | 0.6.0 |
+| `grapheme-runtime` | 0.6.0 |
+| `grapheme-compiler` | 0.6.0 |
+| `grapheme-sdk` | 0.6.0 |
 | `grapheme-cli` | 0.6.0 |
 | `grapheme-lsp` | 0.6.0 |
 | VS Code extension | 0.6.0 |
