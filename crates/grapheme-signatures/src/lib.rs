@@ -1014,6 +1014,121 @@ const SURREAL_HEALTH_ARGS: &[ArgSpec] = &[
     },
 ];
 
+const DATA_READ_CSV_ARGS: &[ArgSpec] = &[ArgSpec {
+    name: "path",
+    ty: ArgType::String,
+    required: true,
+}];
+const DATA_FRAME_ARGS: &[ArgSpec] = &[ArgSpec {
+    name: "frame",
+    ty: ArgType::Object,
+    required: true,
+}];
+const DATA_FILTER_ARGS: &[ArgSpec] = &[
+    ArgSpec {
+        name: "frame",
+        ty: ArgType::Object,
+        required: true,
+    },
+    ArgSpec {
+        name: "predicate",
+        ty: ArgType::Object,
+        required: false,
+    },
+];
+const DATA_GROUP_BY_ARGS: &[ArgSpec] = &[
+    ArgSpec {
+        name: "frame",
+        ty: ArgType::Object,
+        required: true,
+    },
+    ArgSpec {
+        name: "by",
+        ty: ArgType::String,
+        required: true,
+    },
+];
+const PDF_GENERATE_ARGS: &[ArgSpec] = &[
+    ArgSpec {
+        name: "title",
+        ty: ArgType::String,
+        required: false,
+    },
+    ArgSpec {
+        name: "body",
+        ty: ArgType::String,
+        required: false,
+    },
+];
+const PDF_EXTRACT_ARGS: &[ArgSpec] = &[
+    ArgSpec {
+        name: "path",
+        ty: ArgType::String,
+        required: false,
+    },
+    ArgSpec {
+        name: "bytes",
+        ty: ArgType::String,
+        required: false,
+    },
+];
+const IMAGE_RESIZE_ARGS: &[ArgSpec] = &[
+    ArgSpec {
+        name: "width",
+        ty: ArgType::Number,
+        required: true,
+    },
+    ArgSpec {
+        name: "height",
+        ty: ArgType::Number,
+        required: true,
+    },
+];
+const IMAGE_CONVERT_ARGS: &[ArgSpec] = &[ArgSpec {
+    name: "format",
+    ty: ArgType::String,
+    required: true,
+}];
+const IMAGE_METADATA_ARGS: &[ArgSpec] = &[
+    ArgSpec {
+        name: "path",
+        ty: ArgType::String,
+        required: false,
+    },
+    ArgSpec {
+        name: "bytes",
+        ty: ArgType::String,
+        required: false,
+    },
+];
+const PLOT_SERIES_ARGS: &[ArgSpec] = &[ArgSpec {
+    name: "series",
+    ty: ArgType::Array,
+    required: true,
+}];
+const PLOT_SCATTER_ARGS: &[ArgSpec] = &[ArgSpec {
+    name: "points",
+    ty: ArgType::Array,
+    required: true,
+}];
+const MEDIA_PROBE_ARGS: &[ArgSpec] = &[ArgSpec {
+    name: "path",
+    ty: ArgType::String,
+    required: true,
+}];
+const MEDIA_TRANSCODE_ARGS: &[ArgSpec] = &[
+    ArgSpec {
+        name: "input",
+        ty: ArgType::String,
+        required: true,
+    },
+    ArgSpec {
+        name: "output",
+        ty: ArgType::String,
+        required: true,
+    },
+];
+
 pub const OP_SPECS: &[OpSpec] = &[
     OpSpec {
         module: "core",
@@ -1671,6 +1786,150 @@ pub const OP_SPECS: &[OpSpec] = &[
         input_schema_ref: None,
         output_schema_ref: None,
     },
+    #[cfg(feature = "data")]
+    OpSpec {
+        module: "data",
+        op: "read_csv",
+        args: DATA_READ_CSV_ARGS,
+        effect: SignatureEffect::Io,
+        input_schema_ref: None,
+        output_schema_ref: Some("grapheme.host.result.envelope/v1"),
+    },
+    #[cfg(feature = "data")]
+    OpSpec {
+        module: "data",
+        op: "filter",
+        args: DATA_FILTER_ARGS,
+        effect: SignatureEffect::Pure,
+        input_schema_ref: None,
+        output_schema_ref: Some("grapheme.host.result.envelope/v1"),
+    },
+    #[cfg(feature = "data")]
+    OpSpec {
+        module: "data",
+        op: "group_by",
+        args: DATA_GROUP_BY_ARGS,
+        effect: SignatureEffect::Pure,
+        input_schema_ref: None,
+        output_schema_ref: Some("grapheme.host.result.envelope/v1"),
+    },
+    #[cfg(feature = "data")]
+    OpSpec {
+        module: "data",
+        op: "aggregate",
+        args: DATA_FRAME_ARGS,
+        effect: SignatureEffect::Pure,
+        input_schema_ref: None,
+        output_schema_ref: Some("grapheme.host.result.envelope/v1"),
+    },
+    #[cfg(feature = "data")]
+    OpSpec {
+        module: "data",
+        op: "to_json",
+        args: DATA_FRAME_ARGS,
+        effect: SignatureEffect::Pure,
+        input_schema_ref: None,
+        output_schema_ref: Some("grapheme.host.result.envelope/v1"),
+    },
+    #[cfg(feature = "data")]
+    OpSpec {
+        module: "data",
+        op: "schema",
+        args: DATA_FRAME_ARGS,
+        effect: SignatureEffect::Pure,
+        input_schema_ref: None,
+        output_schema_ref: Some("grapheme.host.result.envelope/v1"),
+    },
+    #[cfg(feature = "pdf")]
+    OpSpec {
+        module: "pdf",
+        op: "generate",
+        args: PDF_GENERATE_ARGS,
+        effect: SignatureEffect::Io,
+        input_schema_ref: None,
+        output_schema_ref: Some("grapheme.host.result.envelope/v1"),
+    },
+    #[cfg(feature = "pdf")]
+    OpSpec {
+        module: "pdf",
+        op: "extract_text",
+        args: PDF_EXTRACT_ARGS,
+        effect: SignatureEffect::Io,
+        input_schema_ref: None,
+        output_schema_ref: Some("grapheme.host.result.envelope/v1"),
+    },
+    #[cfg(feature = "image")]
+    OpSpec {
+        module: "image",
+        op: "resize",
+        args: IMAGE_RESIZE_ARGS,
+        effect: SignatureEffect::Pure,
+        input_schema_ref: None,
+        output_schema_ref: Some("grapheme.host.result.envelope/v1"),
+    },
+    #[cfg(feature = "image")]
+    OpSpec {
+        module: "image",
+        op: "convert",
+        args: IMAGE_CONVERT_ARGS,
+        effect: SignatureEffect::Pure,
+        input_schema_ref: None,
+        output_schema_ref: Some("grapheme.host.result.envelope/v1"),
+    },
+    #[cfg(feature = "image")]
+    OpSpec {
+        module: "image",
+        op: "metadata",
+        args: IMAGE_METADATA_ARGS,
+        effect: SignatureEffect::Io,
+        input_schema_ref: None,
+        output_schema_ref: Some("grapheme.host.result.envelope/v1"),
+    },
+    #[cfg(feature = "plot")]
+    OpSpec {
+        module: "plot",
+        op: "line",
+        args: PLOT_SERIES_ARGS,
+        effect: SignatureEffect::Pure,
+        input_schema_ref: None,
+        output_schema_ref: Some("grapheme.host.result.envelope/v1"),
+    },
+    #[cfg(feature = "plot")]
+    OpSpec {
+        module: "plot",
+        op: "bar",
+        args: PLOT_SERIES_ARGS,
+        effect: SignatureEffect::Pure,
+        input_schema_ref: None,
+        output_schema_ref: Some("grapheme.host.result.envelope/v1"),
+    },
+    #[cfg(feature = "plot")]
+    OpSpec {
+        module: "plot",
+        op: "scatter",
+        args: PLOT_SCATTER_ARGS,
+        effect: SignatureEffect::Pure,
+        input_schema_ref: None,
+        output_schema_ref: Some("grapheme.host.result.envelope/v1"),
+    },
+    #[cfg(feature = "media")]
+    OpSpec {
+        module: "media",
+        op: "probe",
+        args: MEDIA_PROBE_ARGS,
+        effect: SignatureEffect::Io,
+        input_schema_ref: None,
+        output_schema_ref: Some("grapheme.host.result.envelope/v1"),
+    },
+    #[cfg(feature = "media")]
+    OpSpec {
+        module: "media",
+        op: "transcode",
+        args: MEDIA_TRANSCODE_ARGS,
+        effect: SignatureEffect::Io,
+        input_schema_ref: None,
+        output_schema_ref: Some("grapheme.host.result.envelope/v1"),
+    },
 ];
 
 pub fn op_specs() -> &'static [OpSpec] {
@@ -1698,6 +1957,11 @@ pub fn op_stability(module: &str, op: &str) -> SignatureStability {
         ("docs", "native_module_guide")
         | ("docs", "native_module_registry")
         | ("docs", "native_module_example") => SignatureStability::Experimental,
+        ("data", _)
+        | ("pdf", _)
+        | ("image", _)
+        | ("plot", _)
+        | ("media", _) => SignatureStability::Experimental,
         _ => SignatureStability::Stable,
     }
 }
@@ -1749,6 +2013,7 @@ pub fn op_output_type(module: &str, op: &str) -> ArgType {
         ("html", _) => ArgType::Object,
         ("json", "parse") | ("yaml", "to_json") => ArgType::Any,
         ("csv", "to_list") => ArgType::Array,
+        ("data", _) | ("pdf", _) | ("image", _) | ("plot", _) | ("media", _) => ArgType::Object,
         ("runtime", _) | ("policy", _) => ArgType::Object,
         _ => ArgType::Any,
     }

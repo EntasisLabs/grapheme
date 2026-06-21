@@ -5,6 +5,29 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — 0.6.0 extensible platform
+
+Foundation train for the coordinated 0.6.0 release. See `docs/internal/roadmaps/release-0.6.0-extensible-platform.md`.
+
+### Added
+
+- **Opt-in capability modules** (`data`, `pdf`, `image`, `plot`, `media`) behind Cargo feature flags on `grapheme-stdlib`, `grapheme-sdk`, `grapheme-signatures`, `grapheme-runtime`, and `grapheme-compiler`.
+- **Host result envelope** (`{ data, meta, error }`) via `grapheme-stdlib::envelope` — capability scaffolds normalize to this shape.
+- **Dynamic Wasm module discovery** — `grapheme-runtime::discover_wasm_modules`, manifest sidecar spec (`docs/internal/runtime/wasm-module-manifest-v1.md`, `schemas/wasm-module-manifest.schema.json`).
+- **`grapheme modules scan`** — lists discovered Wasm modules from `grapheme.toml` `[modules].scan`, explicit paths, or defaults (`plugins/`, `modules/`).
+- **`grapheme.toml` `[modules].scan`** — project config schema updated in `grapheme.schema.json`.
+
+### Changed
+
+- **`grapheme-cli`** — `default = ["full"]`; ships all capability features.
+- **`grapheme-sdk`** — `default = []`; embedders opt in with `full` or per-module features (`data`, `pdf`, …).
+- **`grapheme-lsp`** — ships with `full` signatures for editor discovery.
+
+### Notes
+
+- Capability ops return **scaffold** responses in this train (`status: "scaffold"`); Polars / printpdf / photon / plotters / ffmpeg implementations land in follow-up PRs within the 0.6.0 release.
+- Signatures mark capability modules as **experimental** until implementations stabilize.
+
 ## [0.5.0] - 2026-06-03
 
 User-facing release tag. Ships stdlib expansion and matching library crates.

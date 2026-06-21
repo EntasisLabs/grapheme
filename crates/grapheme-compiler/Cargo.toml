@@ -7,6 +7,15 @@ license = "Apache-2.0"
 repository = "https://github.com/entasislabs/grapheme"
 homepage = "https://github.com/entasislabs/grapheme"
 
+[features]
+default = []
+full = ["grapheme-signatures/full"]
+data = ["grapheme-signatures/data"]
+pdf = ["grapheme-signatures/pdf"]
+image = ["grapheme-signatures/image"]
+plot = ["grapheme-signatures/plot"]
+media = ["grapheme-signatures/media"]
+
 [dependencies]
 pest = "=2.7.15"
 pest_derive = "=2.7.15"
@@ -14,4 +23,4 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
 grapheme-artifact = { path = "../grapheme-artifact", version = "0.2.0" }
-grapheme-signatures = { path = "../grapheme-signatures", version = "0.4.0" }
+grapheme-signatures = { path = "../grapheme-signatures", version = "0.4.0", default-features = false }

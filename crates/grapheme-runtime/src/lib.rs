@@ -5,6 +5,7 @@
 
 pub mod error;
 pub mod host;
+pub mod module_discovery;
 pub mod module_manager;
 pub mod module_manifest;
 pub mod module_registry;
@@ -16,6 +17,10 @@ pub mod wasix_backend;
 
 pub use error::RuntimeError;
 pub use host::{CapabilityCall, CapabilityHost, HostCallError};
+pub use module_discovery::{
+    discover_wasm_modules, DiscoveredWasmModule, WasmDiscoveryReport, WasmModuleManifest,
+    MANIFEST_SCHEMA,
+};
 pub use module_manager::{
     ActivationResult, CompatibilityMode, LoadModuleRequest, ModuleGeneration, ModuleLifecycleEvent,
     ModuleLifecycleEventKind, ModuleLifecycleState, ModuleLoadError, ModuleManager,

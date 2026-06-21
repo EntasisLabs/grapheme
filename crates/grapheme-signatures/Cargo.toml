@@ -7,4 +7,13 @@ license = "Apache-2.0"
 repository = "https://github.com/entasislabs/grapheme"
 homepage = "https://github.com/entasislabs/grapheme"
 
+[features]
+default = []
+full = ["data", "pdf", "image", "plot", "media"]
+data = []
+pdf = []
+image = []
+plot = []
+media = []
+
 [dependencies]

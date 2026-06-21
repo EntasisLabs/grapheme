@@ -39,6 +39,20 @@
           }
         }
       }
+    },
+    "modules": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scan": {
+          "type": "array",
+          "description": "Directories scanned for *.wasm plus <stem>.module.json sidecar manifests",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     }
   }
 }

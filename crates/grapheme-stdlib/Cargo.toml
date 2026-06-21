@@ -7,6 +7,15 @@ license = "Apache-2.0"
 repository = "https://github.com/entasislabs/grapheme"
 homepage = "https://github.com/entasislabs/grapheme"
 
+[features]
+default = []
+full = ["data", "pdf", "image", "plot", "media"]
+data = []
+pdf = []
+image = []
+plot = []
+media = []
+
 [dependencies]
 serde_json = "1.0"
 csv = "1.3"
@@ -20,4 +29,4 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "any", "sqlite", "
 surrealdb = { version = "3.0.5", default-features = false, features = ["protocol-http", "rustls"] }
 
 [dev-dependencies]
-grapheme-signatures = { path = "../grapheme-signatures", version = "0.4.0" }
+grapheme-signatures = { path = "../grapheme-signatures", version = "0.4.0", features = ["full"] }

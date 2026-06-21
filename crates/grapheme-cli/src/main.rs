@@ -13,13 +13,13 @@
 ///    grapheme plugins build [all|core|io ...]")
 ///    grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules]
 ///                          [--aot-stage stage_a|stage_b] [--strict-stage-b]
-///    grapheme modules [search <query> | ops <query> | info <module> | types <module> | examples <module>]
+///    grapheme modules [search <query> | ops <query> | info <module> | types <module> | examples <module> | scan [paths...]]
 /// ─────────────────────────────────────────────────────────────
 use grapheme_artifact::{ExecutionResult, MirInst};
 use grapheme_compiler::ast::Definition;
 use grapheme_compiler::verifier::{ExecutableKindPolicyMode, LintWarning};
 use grapheme_compiler::{Compiler, CompilerError, CompilerOptions};
-use grapheme_runtime::{PolicyGuard, TracePolicy, TraceProjection};
+use grapheme_runtime::{discover_wasm_modules, PolicyGuard, TracePolicy, TraceProjection};
 use grapheme_sdk::{
     discover_examples, discover_module_manifests, example_by_name, modules_examples_payload,
     modules_info_payload, modules_ops_payload, modules_search_payload, modules_types_payload,
@@ -169,6 +169,8 @@ struct GraphemeProjectToml {
     project: GraphemeProjectSection,
     #[serde(default)]
     examples: Option<GraphemeExamplesSection>,
+    #[serde(default)]
+    modules: Option<GraphemeModulesSection>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -181,6 +183,12 @@ struct GraphemeProjectSection {
 struct GraphemeExamplesSection {
     #[serde(default)]
     namespaces: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct GraphemeModulesSection {
+    #[serde(default)]
+    scan: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -868,8 +876,12 @@ fn emit_modules_cmd(args: &[String]) -> Result<(), CompilerError> {
             }
             emit_modules_examples(&cmd_args[1], mode)
         }
+        "scan" => {
+            let (scan_mode, scan_args) = parse_discovery_args(&cmd_args[1..])?;
+            emit_modules_scan(&scan_args, scan_mode)
+        }
         other => Err(CompilerError::RuntimeError(format!(
-            "unknown modules subcommand '{}'; expected search|ops|info|types|examples",
+            "unknown modules subcommand '{}'; expected search|ops|info|types|examples|scan",
             other
         ))),
     }
@@ -1034,6 +1046,44 @@ fn emit_modules_examples(module: &str, mode: DiscoveryOutputMode) -> Result<(), 
         ))
     })?;
     print_discovery(&payload, mode)
+}
+
+fn emit_modules_scan(extra_paths: &[String], mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
+    let roots = resolve_module_scan_roots(extra_paths);
+    let report = discover_wasm_modules(&roots);
+    print_discovery(&report, mode)
+}
+
+fn resolve_module_scan_roots(extra_paths: &[String]) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    if let Ok(cwd) = env::current_dir() {
+        if let Ok(Some((config_path, config))) = discover_project_config(&cwd) {
+            if let Some(modules) = config.modules {
+                let project_root = config_path.parent().unwrap_or(&cwd);
+                for path in modules.scan {
+                    if !path.trim().is_empty() {
+                        roots.push(project_root.join(path));
+                    }
+                }
+            }
+        }
+    }
+
+    for path in extra_paths {
+        if !path.trim().is_empty() {
+            roots.push(PathBuf::from(path));
+        }
+    }
+
+    if roots.is_empty() {
+        if let Ok(cwd) = env::current_dir() {
+            roots.push(cwd.join("plugins"));
+            roots.push(cwd.join("modules"));
+        }
+    }
+
+    roots
 }
 
 fn emit_telemetry_cmd(args: &[String]) -> Result<(), CompilerError> {
@@ -2584,6 +2634,7 @@ fn print_usage() {
     eprintln!("  grapheme modules info <module> [--yaml|--json]");
     eprintln!("  grapheme modules types <module> [--yaml|--json]");
     eprintln!("  grapheme modules examples <module> [--yaml|--json]");
+    eprintln!("  grapheme modules scan [paths...] [--yaml|--json]");
     eprintln!("  grapheme telemetry [summarize|export] [--out path] [--yaml|--json]");
     eprintln!("  grapheme help");
 }
@@ -2596,6 +2647,7 @@ fn print_modules_usage() {
     eprintln!("  grapheme modules info <module> [--yaml|--json]");
     eprintln!("  grapheme modules types <module> [--yaml|--json]");
     eprintln!("  grapheme modules examples <module> [--yaml|--json]");
+    eprintln!("  grapheme modules scan [paths...] [--yaml|--json]");
     eprintln!("\nnotes:");
     eprintln!("  --yaml is the default for modules discovery output");
 }
