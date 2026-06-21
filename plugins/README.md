@@ -20,6 +20,8 @@ and writes a host result envelope to stdout:
 | `image` | `plugins/image-rs` | `modules/image.module.json` | `metadata`, `resize`, `convert` |
 | `plot` | `plugins/plot-rs` | `modules/plot.module.json` | `line`, `bar`, `scatter` |
 
+**Native capability modules (0.6.0):** `data` (Polars) and `media` (ffmpeg/ffprobe) ship in `grapheme-stdlib` — no Wasm artifact required.
+
 ## Build
 
 ```bash

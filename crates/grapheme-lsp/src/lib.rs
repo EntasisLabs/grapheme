@@ -7,7 +7,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use grapheme_signatures::{find_op_spec, op_specs, ArgType, OpSpec};
+use grapheme_signatures::{
+    find_op_spec, host_envelope_output_fields, op_output_object_fields, op_specs, op_uses_host_envelope,
+    ArgType, OpSpec, HOST_ENVELOPE_SCHEMA,
+};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Mutex;
 use tower_lsp::jsonrpc::Result;
@@ -238,15 +241,41 @@ impl LanguageServer for Backend {
             if let Some((input_type, output_type)) =
                 enclosing_executable_signature(&text, position.line as usize)
             {
-                let fields = resolve_fields_for_type_ref(&text, &uri, &input_type);
+                let ctx = current_field_context_at_position(line, position.character as usize);
+                let path_prefix = ctx.as_ref().map(|c| c.path_prefix.as_slice()).unwrap_or(&[]);
+                let mut fields = inferred_current_fields_at_line(
+                    &text,
+                    &uri,
+                    position.line as usize,
+                    path_prefix,
+                );
+
+                if fields.is_empty() {
+                    fields = resolve_fields_for_type_ref(&text, &uri, &input_type);
+                }
 
                 let mut markdown = format!("**$current**\n\n- input type: `{}`", input_type);
                 if let Some(output_type) = output_type {
                     markdown.push_str(&format!("\n- output type: `{}`", output_type));
                 }
 
+                if let Some((module, op)) =
+                    last_pipeline_op_in_scope(&text, position.line as usize)
+                {
+                    markdown.push_str(&format!("\n- inferred from: `{module}.{op}`"));
+                    if op_uses_host_envelope(&module, &op) {
+                        markdown.push_str(&format!(
+                            "\n- envelope: `{HOST_ENVELOPE_SCHEMA}` (`$current.data.*` for payload fields)"
+                        ));
+                    }
+                }
+
                 if !fields.is_empty() {
-                    markdown.push_str("\n\nKnown fields:\n");
+                    let scope = match path_prefix {
+                        [] => "$current".to_string(),
+                        segments => format!("$current.{}", segments.join(".")),
+                    };
+                    markdown.push_str(&format!("\n\nKnown fields on `{scope}`:\n"));
                     for field in fields {
                         markdown.push_str(&format!("- `{}`\n", field));
                     }
@@ -350,18 +379,37 @@ impl LanguageServer for Backend {
             });
         }
 
-        if let Some(field_prefix) =
-            current_field_prefix_at_position(line, position.character as usize)
+        if let Some(ctx) = current_field_context_at_position(line, position.character as usize)
         {
-            for field in typed_current_fields_at_line(&text, &uri, position.line as usize) {
-                if !field.starts_with(field_prefix) {
+            let fields = inferred_current_fields_at_line(
+                &text,
+                &uri,
+                position.line as usize,
+                &ctx.path_prefix,
+            );
+
+            let struct_fields = if ctx.path_prefix.is_empty() {
+                typed_current_fields_at_line(&text, &uri, position.line as usize)
+            } else {
+                Vec::new()
+            };
+
+            let mut seen = std::collections::BTreeSet::new();
+            for field in fields.into_iter().chain(struct_fields) {
+                if !field.starts_with(&ctx.field_prefix) || !seen.insert(field.clone()) {
                     continue;
                 }
+
+                let detail = current_field_completion_detail(
+                    &text,
+                    position.line as usize,
+                    &ctx.path_prefix,
+                );
 
                 items.push(CompletionItem {
                     label: field.clone(),
                     kind: Some(CompletionItemKind::FIELD),
-                    detail: Some("field on $current".to_string()),
+                    detail,
                     insert_text: Some(field),
                     ..CompletionItem::default()
                 });
@@ -656,9 +704,10 @@ impl LanguageServer for Backend {
             documentation: Some(Documentation::MarkupContent(MarkupContent {
                 kind: MarkupKind::Markdown,
                 value: format!(
-                    "{}\n\nEffect: `{}`",
+                    "{}\n\nEffect: `{}`\n\n{}",
                     signature_summary(spec),
-                    signature_effect_label(spec)
+                    signature_effect_label(spec),
+                    signature_output_fields_markdown(spec)
                 ),
             })),
             parameters: Some(
@@ -1139,6 +1188,24 @@ fn signature_summary(spec: &OpSpec) -> &'static str {
 
 fn signature_return_shape(spec: &OpSpec) -> String {
     if let Some(shape) = spec.output_schema_ref {
+        if shape == HOST_ENVELOPE_SCHEMA {
+            let data_fields = op_output_object_fields(spec.module, spec.op)
+                .map(|fields| {
+                    fields
+                        .iter()
+                        .map(|field| field.name.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default();
+
+            if data_fields.is_empty() {
+                return format!("{shape} {{ data, meta, error }}");
+            }
+
+            return format!("{shape} {{ data: {{ {data_fields} }}, meta, error }}");
+        }
+
         return shape.to_string();
     }
 
@@ -1147,8 +1214,67 @@ fn signature_return_shape(spec: &OpSpec) -> String {
         ("json", "parse") => "JsonValue".to_string(),
         ("csv", "to_list") => "Array<Object<string, string>>".to_string(),
         ("yaml", "to_json") => "JsonValue".to_string(),
-        _ => "JsonValue".to_string(),
+        _ => {
+            if let Some(fields) = op_output_object_fields(spec.module, spec.op) {
+                let joined = fields
+                    .iter()
+                    .map(|field| format!("{}: {}", field.name, signature_arg_type_label(field.ty)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if !joined.is_empty() {
+                    return format!("{{ {joined} }}");
+                }
+            }
+            "JsonValue".to_string()
+        }
     }
+}
+
+fn signature_output_fields_markdown(spec: &OpSpec) -> String {
+    if op_uses_host_envelope(spec.module, spec.op) {
+        let envelope = host_envelope_output_fields()
+            .iter()
+            .map(|field| format!("- `{}`: {}", field.name, signature_arg_type_label(field.ty)))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let data = op_output_object_fields(spec.module, spec.op)
+            .map(|fields| {
+                fields
+                    .iter()
+                    .map(|field| {
+                        format!(
+                            "- `data.{}`: {}{}",
+                            field.name,
+                            signature_arg_type_label(field.ty),
+                            if field.required { "" } else { "?" }
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default();
+
+        return format!("**Envelope fields**\n{envelope}\n\n**`data` payload fields**\n{data}");
+    }
+
+    op_output_object_fields(spec.module, spec.op)
+        .map(|fields| {
+            let lines = fields
+                .iter()
+                .map(|field| {
+                    format!(
+                        "- `{}`: {}{}",
+                        field.name,
+                        signature_arg_type_label(field.ty),
+                        if field.required { "" } else { "?" }
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!("**Output fields**\n{lines}")
+        })
+        .unwrap_or_default()
 }
 
 fn signature_args_label(spec: &OpSpec) -> String {
@@ -1200,7 +1326,13 @@ fn line_len(line: &str) -> u32 {
     line.chars().count() as u32
 }
 
-fn current_field_prefix_at_position(line: &str, character: usize) -> Option<&str> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CurrentFieldContext {
+    path_prefix: Vec<String>,
+    field_prefix: String,
+}
+
+fn current_field_context_at_position(line: &str, character: usize) -> Option<CurrentFieldContext> {
     if line.is_empty() {
         return None;
     }
@@ -1221,13 +1353,182 @@ fn current_field_prefix_at_position(line: &str, character: usize) -> Option<&str
         end += 1;
     }
 
-    let prefix = &line[start..end];
-    let before = &line[..start];
-    if !before.ends_with("$current.") {
+    let field_prefix = line[start..end].to_string();
+    let before_field = &line[..start];
+    if !before_field.contains("$current") {
         return None;
     }
 
-    Some(prefix)
+    let after_current = before_field.rsplit_once("$current")?.1;
+    if after_current.is_empty() {
+        return Some(CurrentFieldContext {
+            path_prefix: Vec::new(),
+            field_prefix,
+        });
+    }
+
+    if !after_current.starts_with('.') {
+        return None;
+    }
+
+    let path_str = after_current
+        .trim_start_matches('.')
+        .trim_end_matches('.');
+    if path_str.is_empty() {
+        return Some(CurrentFieldContext {
+            path_prefix: Vec::new(),
+            field_prefix,
+        });
+    }
+
+    let mut path_prefix = Vec::new();
+    for segment in path_str.split('.') {
+        if segment.is_empty() {
+            continue;
+        }
+        if !is_ident(segment) {
+            return None;
+        }
+        path_prefix.push(segment.to_string());
+    }
+
+    Some(CurrentFieldContext {
+        path_prefix,
+        field_prefix,
+    })
+}
+
+fn parse_transform_call_from_line(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if trimmed.starts_with("set ")
+        || trimmed.starts_with("if ")
+        || trimmed.starts_with("else")
+        || trimmed.starts_with("match ")
+        || trimmed.starts_with("import ")
+        || trimmed.starts_with("struct ")
+        || trimmed.starts_with("query ")
+        || trimmed.starts_with("mutation ")
+        || trimmed.starts_with("iterator ")
+        || trimmed.starts_with("subscription ")
+    {
+        return None;
+    }
+
+    let work = trimmed.strip_prefix("|>").unwrap_or(trimmed).trim();
+    if work.starts_with("if ") {
+        return None;
+    }
+
+    let dot = work.find('.')?;
+    let open = work.find('(')?;
+    if dot >= open {
+        return None;
+    }
+
+    let module = &work[..dot];
+    let op = &work[dot + 1..open];
+    if !is_ident(module) || !is_ident(op) {
+        return None;
+    }
+
+    find_op_spec(module, op)?;
+    Some((module.to_string(), op.to_string()))
+}
+
+fn last_pipeline_op_in_scope(text: &str, line_number: usize) -> Option<(String, String)> {
+    let mut in_executable = false;
+    let mut brace_depth = 0i32;
+    let mut last_op: Option<(String, String)> = None;
+
+    for (idx, line) in text.lines().enumerate() {
+        if idx >= line_number {
+            break;
+        }
+
+        let trimmed = line.trim_start();
+        if brace_depth == 0 && is_executable_block_start(trimmed) {
+            in_executable = true;
+            last_op = None;
+        }
+
+        if in_executable {
+            if let Some(op) = parse_transform_call_from_line(line) {
+                last_op = Some(op);
+            }
+        }
+
+        let opens = line.chars().filter(|c| *c == '{').count() as i32;
+        let closes = line.chars().filter(|c| *c == '}').count() as i32;
+        brace_depth += opens - closes;
+        if brace_depth < 0 {
+            brace_depth = 0;
+        }
+
+        if brace_depth == 0 {
+            in_executable = false;
+        }
+    }
+
+    last_op
+}
+
+fn is_executable_block_start(trimmed: &str) -> bool {
+    executable_head(trimmed).is_some() && trimmed.contains('{')
+}
+
+fn object_field_names(fields: &[grapheme_signatures::ObjectFieldSpec]) -> Vec<String> {
+    fields
+        .iter()
+        .map(|field| field.name.to_string())
+        .collect()
+}
+
+fn inferred_current_fields_at_line(
+    text: &str,
+    _uri: &Url,
+    line_number: usize,
+    path_prefix: &[String],
+) -> Vec<String> {
+    let Some((module, op)) = last_pipeline_op_in_scope(text, line_number) else {
+        return Vec::new();
+    };
+
+    if op_uses_host_envelope(&module, &op) {
+        return match path_prefix {
+            [] => object_field_names(host_envelope_output_fields()),
+            [segment] if segment == "data" => op_output_object_fields(&module, &op)
+                .map(object_field_names)
+                .unwrap_or_default(),
+            [segment] if segment == "meta" => vec!["schema".to_string(), "legacy_flat".to_string()],
+            _ => Vec::new(),
+        };
+    }
+
+    if !path_prefix.is_empty() {
+        return Vec::new();
+    }
+
+    op_output_object_fields(&module, &op)
+        .map(object_field_names)
+        .unwrap_or_default()
+}
+
+fn current_field_completion_detail(
+    text: &str,
+    line_number: usize,
+    path_prefix: &[String],
+) -> Option<String> {
+    let (module, op) = last_pipeline_op_in_scope(text, line_number)?;
+    let scope = match path_prefix {
+        [] if op_uses_host_envelope(&module, &op) => "$current (envelope)".to_string(),
+        [] => "$current".to_string(),
+        segments => format!("$current.{}", segments.join(".")),
+    };
+    Some(format!("field on {scope} from `{module}.{op}`"))
 }
 
 fn namespace_type_prefix_at_position<'a>(
@@ -2164,4 +2465,86 @@ pub async fn run_stdio() {
     let stdout = tokio::io::stdout();
 
     run_server(stdin, stdout).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PDF_PIPELINE: &str = r#"import pdf from "grapheme/pdf"
+import core from "grapheme/core"
+
+query PdfGenerateDemo {
+  set {
+    title: "Grapheme PDF"
+    body: "Hello"
+  }
+  |> pdf.generate(title: $state.title, body: $state.body)
+  |> core.echo(message: $current.data.page_count)
+}
+"#;
+
+    #[test]
+    fn parse_transform_call_from_pipeline_line() {
+        let op = parse_transform_call_from_line("  |> pdf.generate(title: $state.title)");
+        assert_eq!(
+            op,
+            Some(("pdf".to_string(), "generate".to_string()))
+        );
+    }
+
+    #[test]
+    fn last_pipeline_op_uses_prior_step_not_current_line() {
+        let line_number = PDF_PIPELINE
+            .lines()
+            .position(|line| line.contains("core.echo"))
+            .expect("echo line");
+        let last = last_pipeline_op_in_scope(PDF_PIPELINE, line_number);
+        assert_eq!(
+            last,
+            Some(("pdf".to_string(), "generate".to_string()))
+        );
+    }
+
+    #[test]
+    fn inferred_envelope_fields_on_current_root() {
+        let line_number = PDF_PIPELINE
+            .lines()
+            .position(|line| line.contains("core.echo"))
+            .expect("echo line");
+        let fields = inferred_current_fields_at_line(
+            PDF_PIPELINE,
+            &Url::parse("file:///tmp/x.gr").unwrap(),
+            line_number,
+            &[],
+        );
+        assert!(fields.contains(&"data".to_string()));
+        assert!(fields.contains(&"meta".to_string()));
+        assert!(fields.contains(&"error".to_string()));
+    }
+
+    #[test]
+    fn inferred_data_payload_fields_after_envelope_op() {
+        let line_number = PDF_PIPELINE
+            .lines()
+            .position(|line| line.contains("core.echo"))
+            .expect("echo line");
+        let fields = inferred_current_fields_at_line(
+            PDF_PIPELINE,
+            &Url::parse("file:///tmp/x.gr").unwrap(),
+            line_number,
+            &[String::from("data")],
+        );
+        assert!(fields.contains(&"page_count".to_string()));
+        assert!(fields.contains(&"bytes_base64".to_string()));
+    }
+
+    #[test]
+    fn current_field_context_parses_nested_data_path() {
+        let line = "|> core.echo(message: $current.data.page_count)";
+        let cursor = line.find("$current.data.").unwrap() + "$current.data.".len();
+        let ctx = current_field_context_at_position(line, cursor).expect("context");
+        assert_eq!(ctx.path_prefix, vec!["data".to_string()]);
+        assert_eq!(ctx.field_prefix, "page_count");
+    }
 }

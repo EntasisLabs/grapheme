@@ -54,6 +54,8 @@ impl SignatureStability {
     }
 }
 
+pub const HOST_ENVELOPE_SCHEMA: &str = "grapheme.host.result.envelope/v1";
+
 #[derive(Debug, Clone, Copy)]
 pub struct OpSpec {
     pub module: &'static str,
@@ -1994,6 +1996,16 @@ pub fn op_stability_label(module: &str, op: &str) -> &'static str {
     op_stability(module, op).as_str()
 }
 
+pub fn op_uses_host_envelope(module: &str, op: &str) -> bool {
+    find_op_spec(module, op)
+        .and_then(|spec| spec.output_schema_ref)
+        .is_some_and(|schema| schema == HOST_ENVELOPE_SCHEMA)
+}
+
+pub fn host_envelope_output_fields() -> &'static [ObjectFieldSpec] {
+    HOST_ENVELOPE_OUTPUT_FIELDS
+}
+
 pub fn op_output_type(module: &str, op: &str) -> ArgType {
     match (module, op) {
         ("core", "tap")
@@ -2793,6 +2805,348 @@ const RUNTIME_POLICY_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
     },
 ];
 
+const HOST_ENVELOPE_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec {
+        name: "data",
+        ty: ArgType::Object,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "meta",
+        ty: ArgType::Object,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "error",
+        ty: ArgType::String,
+        required: false,
+    },
+];
+
+const DATA_READ_CSV_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec {
+        name: "ok",
+        ty: ArgType::Boolean,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "op",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "frame",
+        ty: ArgType::Object,
+        required: true,
+    },
+];
+
+const DATA_FILTER_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec {
+        name: "ok",
+        ty: ArgType::Boolean,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "op",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "frame",
+        ty: ArgType::Object,
+        required: true,
+    },
+];
+
+const DATA_GROUP_BY_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec {
+        name: "ok",
+        ty: ArgType::Boolean,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "op",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "group",
+        ty: ArgType::Object,
+        required: true,
+    },
+];
+
+const DATA_AGGREGATE_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec {
+        name: "ok",
+        ty: ArgType::Boolean,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "op",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "result",
+        ty: ArgType::Object,
+        required: true,
+    },
+];
+
+const DATA_SCHEMA_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec {
+        name: "ok",
+        ty: ArgType::Boolean,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "op",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "schema",
+        ty: ArgType::Object,
+        required: true,
+    },
+];
+
+const DATA_TO_JSON_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec {
+        name: "ok",
+        ty: ArgType::Boolean,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "op",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "rows",
+        ty: ArgType::Array,
+        required: true,
+    },
+];
+
+const PDF_GENERATE_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec {
+        name: "ok",
+        ty: ArgType::Boolean,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "op",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "title",
+        ty: ArgType::String,
+        required: false,
+    },
+    ObjectFieldSpec {
+        name: "body",
+        ty: ArgType::String,
+        required: false,
+    },
+    ObjectFieldSpec {
+        name: "page_count",
+        ty: ArgType::Number,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "format",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "bytes_base64",
+        ty: ArgType::String,
+        required: true,
+    },
+];
+
+const PDF_EXTRACT_TEXT_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec {
+        name: "ok",
+        ty: ArgType::Boolean,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "op",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "path",
+        ty: ArgType::String,
+        required: false,
+    },
+    ObjectFieldSpec {
+        name: "text",
+        ty: ArgType::String,
+        required: true,
+    },
+];
+
+const IMAGE_METADATA_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec {
+        name: "ok",
+        ty: ArgType::Boolean,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "op",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "width",
+        ty: ArgType::Number,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "height",
+        ty: ArgType::Number,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "color_type",
+        ty: ArgType::String,
+        required: true,
+    },
+];
+
+const IMAGE_BYTES_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec {
+        name: "ok",
+        ty: ArgType::Boolean,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "op",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "width",
+        ty: ArgType::Number,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "height",
+        ty: ArgType::Number,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "format",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "bytes_base64",
+        ty: ArgType::String,
+        required: true,
+    },
+];
+
+const PLOT_CHART_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec {
+        name: "ok",
+        ty: ArgType::Boolean,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "op",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "format",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "content",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "bytes_base64",
+        ty: ArgType::String,
+        required: true,
+    },
+];
+
+const MEDIA_PROBE_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec {
+        name: "ok",
+        ty: ArgType::Boolean,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "op",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "path",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "stream_count",
+        ty: ArgType::Number,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "format_name",
+        ty: ArgType::String,
+        required: false,
+    },
+    ObjectFieldSpec {
+        name: "duration",
+        ty: ArgType::String,
+        required: false,
+    },
+    ObjectFieldSpec {
+        name: "probe",
+        ty: ArgType::Object,
+        required: true,
+    },
+];
+
+const MEDIA_TRANSCODE_OUTPUT_FIELDS: &[ObjectFieldSpec] = &[
+    ObjectFieldSpec {
+        name: "ok",
+        ty: ArgType::Boolean,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "op",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "input",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "output",
+        ty: ArgType::String,
+        required: true,
+    },
+    ObjectFieldSpec {
+        name: "summary",
+        ty: ArgType::Object,
+        required: true,
+    },
+];
+
 pub fn op_output_object_fields(module: &str, op: &str) -> Option<&'static [ObjectFieldSpec]> {
     match (module, op) {
         ("core", "echo") => Some(CORE_MESSAGE_OUTPUT_FIELDS),
@@ -2869,6 +3223,25 @@ pub fn op_output_object_fields(module: &str, op: &str) -> Option<&'static [Objec
         ("docs", "native_module_example") => Some(DOCS_EXAMPLE_OUTPUT_FIELDS),
 
         ("runtime", _) | ("policy", _) => Some(RUNTIME_POLICY_OUTPUT_FIELDS),
+
+        ("data", "read_csv") => Some(DATA_READ_CSV_OUTPUT_FIELDS),
+        ("data", "filter") => Some(DATA_FILTER_OUTPUT_FIELDS),
+        ("data", "group_by") => Some(DATA_GROUP_BY_OUTPUT_FIELDS),
+        ("data", "aggregate") => Some(DATA_AGGREGATE_OUTPUT_FIELDS),
+        ("data", "schema") => Some(DATA_SCHEMA_OUTPUT_FIELDS),
+        ("data", "to_json") => Some(DATA_TO_JSON_OUTPUT_FIELDS),
+
+        ("pdf", "generate") => Some(PDF_GENERATE_OUTPUT_FIELDS),
+        ("pdf", "extract_text") => Some(PDF_EXTRACT_TEXT_OUTPUT_FIELDS),
+
+        ("image", "metadata") => Some(IMAGE_METADATA_OUTPUT_FIELDS),
+        ("image", "resize") | ("image", "convert") => Some(IMAGE_BYTES_OUTPUT_FIELDS),
+
+        ("plot", "line") | ("plot", "bar") | ("plot", "scatter") => Some(PLOT_CHART_OUTPUT_FIELDS),
+
+        ("media", "probe") => Some(MEDIA_PROBE_OUTPUT_FIELDS),
+        ("media", "transcode") => Some(MEDIA_TRANSCODE_OUTPUT_FIELDS),
+
         _ => None,
     }
 }

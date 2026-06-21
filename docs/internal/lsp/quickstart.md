@@ -14,6 +14,7 @@ This guide covers local development and validation for `crates/grapheme-lsp`.
 - find references for symbols across open `.gr` documents
 - rename symbol support for top-level executable names and usages
 - signature help for transform calls while typing args
+- `$current` field completion inferred from the prior pipeline op (including envelope `data` / `meta` / `error` and capability payload fields)
 
 ## Transform Hover and Completion Hints
 
@@ -29,6 +30,16 @@ Completion supports:
 - op suggestions with return-shape detail
 - context filtering by typed module prefix
 - snippet insertion with named args for transform calls
+
+## `$current` Envelope Hints (0.6.0)
+
+After a capability op that returns `grapheme.host.result.envelope/v1` (for example `pdf.generate`, `data.read_csv`, `image.metadata`):
+
+- `$current.` suggests `data`, `meta`, `error`
+- `$current.data.` suggests op-specific payload fields (`page_count`, `frame`, `width`, …)
+- hover on `$current` shows the inferred source op and known fields
+
+Signature help for envelope ops also lists envelope fields and nested `data.*` output fields.
 
 ## References, Rename, and Signature Help
 
