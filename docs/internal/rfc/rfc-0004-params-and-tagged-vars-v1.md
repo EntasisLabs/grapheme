@@ -3,14 +3,21 @@
 Status: draft
 Authors: language + runtime + lsp
 Created: 2026-07-28
+Updated: 2026-07-28
 Target release window: after typed-records verifier baseline
+
+Revision notes:
+
+1. Part B activation model changed from frame-lifetime `bind` to C#-style scoped `using` with multi-bind and nesting.
+2. Part C added: signature-embedded context (`uses`) and sugar so semantics live at boundaries (Rust-lifetime style), reducing LLM/human cognitive load without Python-like looseness.
 
 ## Summary
 
 Introduce two complementary binding mechanisms that move Grapheme closer to Lua-class composability without embedding a general-purpose scripting VM:
 
 1. **Executable parameters v1** — finish the existing GraphQL-style `variable_defs` surface so `query` / `mutation` / `iterator` / `subscription` act as typed callables with named arguments.
-2. **Tagged variables v1** — explicit ambient bindings declared at a high scope, visible only to an allow-listed set of executables, activated through **C#-style `using` scopes** that support multiple bindings, nesting, and deterministic drop-on-exit.
+2. **Tagged variables v1** — ambient context schemas activated through **scoped `using`**, with visibility driven primarily by **signature `uses` clauses** (not giant central allow-lists).
+3. **Ergonomic embedding (Part C)** — syntactic sugar that keeps the same IR/governance model while putting semantic load at declaration sites, where LLMs and humans already look.
 
 These are intentionally separate:
 
@@ -18,7 +25,7 @@ These are intentionally separate:
 |---|---|
 | Parameters (`$ticket_id`) | Explicit inputs at the call edge — function API |
 | `$state` / `$current` | Pipeline value flowing step → step |
-| Tagged vars + `using` | Cross-cutting context (auth, trace, budget) with scoped lifetime, without stuffing `$state` |
+| Tags + `uses` + `using` | Cross-cutting context: declared on signatures, provided at scopes |
 
 ## Motivation
 
@@ -43,7 +50,8 @@ These are intentionally separate:
 - Authors can write reusable callables with named parameters.
 - Authors can declare ambient context with explicit visibility and **scoped** lifetime.
 - Authors can activate **multiple tags together** and nest scopes (C# `using` analogue).
-- LLM authoring stays explicit (allow-lists, named bindings, visible scope braces) rather than inferred borrow checking.
+- **Semantic cognitive load lives in signatures** (`uses auth`), not in repeated body ceremony.
+- LLM authoring stays structured and checkable — sugar lowers verbosity, not rigor.
 - Governance model stays intact: compile-time ACL + runtime scope stack, no soft `eval`.
 
 ## Goals
@@ -51,11 +59,12 @@ These are intentionally separate:
 1. Lower executable parameters from AST → HIR → MIR → runtime frame locals.
 2. Bind call-site named args into callee locals with deterministic missing/default/type rules.
 3. Expose params in template resolution as `$name` / `$args.name` without breaking `$state`.
-4. Add tagged variable declarations with executable allow-lists.
+4. Add tagged variable schemas; derive access from signature `uses` (Part C), with optional explicit allow-lists as escape.
 5. Activate tags via `using` scopes that support **one or many bindings**, nesting, and drop-on-exit.
-6. Enforce tag visibility by **current frame executable membership** (not ancestor leakage).
+6. Enforce tag visibility by **current frame `uses` membership** (not ancestor leakage).
 7. Keep tag values off the `$state` data plane by default (no silent escape).
-8. Preserve untyped / signature-only programs (gradual adoption).
+8. Provide sugar that preserves IR semantics while cutting authoring noise (Part C).
+9. Preserve untyped / signature-only programs (gradual adoption).
 
 ## Non-Goals
 
@@ -91,34 +100,40 @@ query Run {
 }
 ```
 
-### Add (tags + scoped `using`)
+### Add (tags + `uses` + scoped `using`) — preferred authoring shape
 
 ```grapheme
-tag auth for [Entrypoint, FetchUser, Authorize, Audit] {
+tag auth {
   $token: String
   $request_id: String
 }
 
-tag trace for [Entrypoint, FetchUser, Authorize, Audit, FormatHtml] {
+tag trace {
   $correlation_id: String
 }
 
-tag budget for [Authorize, ExpensiveModel] {
+tag budget {
   $max_usd: Float
 }
 
+iterator FetchUser uses auth, trace on Request -> User { ... }
+iterator Authorize uses auth, budget on User -> Decision { ... }
+iterator Audit uses auth, trace on Decision -> Decision { ... }
+
 query Entrypoint {
-  using auth { token: $env.token, request_id: "r-1" },
-        trace { correlation_id: "c-9" } {
+  using auth(token: $env.token, request_id: "r-1"),
+        trace(correlation_id: "c-9") {
     call FetchUser
-    |> using budget { max_usd: 0.25 } {
+    |> using budget(max_usd: 0.25) {
          call Authorize
        }
     |> call Audit
   }
-  |> call FormatHtml   // auth/trace scopes ended; $token not visible here
+  |> call FormatHtml
 }
 ```
+
+Verbose explicit `tag auth for [A, B, C]` remain valid as an override form; Part C makes signature `uses` the default source of truth.
 
 ## Part A — Executable Parameters v1
 
@@ -275,13 +290,13 @@ CLI sketch: `--arg priority=high` (repeatable) or `--args-json '{}'`.
 A **tag** is a named ambient environment schema:
 
 1. Declares one or more typed bindings.
-2. Declares an allow-list of executable names that may observe those bindings.
+2. Is readable by executables that **declare `uses <tag>`** (Part C) — or, in the verbose form, appear in an explicit `for […]` allow-list.
 3. Is activated only inside an explicit **`using` scope** (C# `using` analogue).
 4. Supports **multiple tag activations in one `using`**.
 5. Supports **nested `using`** scopes.
 6. Drops deterministically on scope exit (not merely on function return).
 
-This is **not** Rust lifetime inference. It is an explicit ACL + scope stack.
+This is **not** full Rust lifetime inference. It is an explicit ACL + scope stack, with the ACL **embedded in signatures** the way Rust embeds lifetime parameters.
 
 `using` scopes **tag environments only**. `$state` still threads through the scope body and out to the continuation unchanged in shape (unless body steps mutate it).
 
@@ -298,37 +313,55 @@ v1 activation surface is therefore **`using`**, not free-floating `bind`.
 
 ### B.3 Surface syntax (proposed)
 
-Top-level declaration (schema only):
+Top-level declaration (schema; allow-list optional):
 
 ```grapheme
-tag auth for [Entrypoint, FetchUser, Authorize, Audit] {
+// Preferred: schema only — consumers declare `uses auth`
+tag auth {
   $token: String
   $request_id: String
 }
+
+// Verbose override still allowed:
+tag legacy_secrets for [Rotate, AuditOnly] {
+  $api_key: String
+}
 ```
 
-Scoped activation (single or multiple bindings):
+Signature requirement (normative with Part C):
 
 ```grapheme
-using auth { token: $env.token, request_id: "r-1" } {
+iterator Authorize uses auth, budget on Request -> Decision { ... }
+```
+
+Scoped activation (single or multiple bindings). Compact call-like field sugar is preferred:
+
+```grapheme
+using auth(token: $env.token, request_id: "r-1") {
   call FetchUser
   |> call Authorize
 }
 
-using auth { token: $env.token, request_id: "r-1" },
-      trace { correlation_id: "c-9" },
-      budget { max_usd: 1.5 } {
+using auth(token: $env.token, request_id: "r-1"),
+      trace(correlation_id: "c-9"),
+      budget(max_usd: 1.5) {
   call FetchUser
   |> call Authorize
 }
+```
+
+Object form remains accepted (same IR):
+
+```grapheme
+using auth { token: $env.token, request_id: "r-1" } { ... }
 ```
 
 Nested scopes:
 
 ```grapheme
-using auth { token: $env.token, request_id: "r-1" } {
+using auth(token: $env.token, request_id: "r-1") {
   call FetchUser
-  |> using budget { max_usd: 0.25 } {
+  |> using budget(max_usd: 0.25) {
        call ExpensiveModel
      }
   |> call Authorize   // budget ended; auth still active
@@ -339,18 +372,18 @@ As a pipeline step (scope is still a block, not an open-ended suffix):
 
 ```grapheme
 call Prepare
-|> using auth { token: $env.token, request_id: "r-1" },
-         trace { correlation_id: "c-9" } {
+|> using auth(token: $env.token, request_id: "r-1"),
+         trace(correlation_id: "c-9") {
      call FetchUser
      |> call Authorize
    }
 |> call FormatHtml
 ```
 
-References inside allowed executables:
+References inside an executable that `uses auth`:
 
 ```grapheme
-iterator Authorize on Request -> Decision {
+iterator Authorize uses auth on Request -> Decision {
   http.fetch(
     url: "https://example.test/authz",
     headers: { authorization: "Bearer {$token}" }
@@ -362,13 +395,15 @@ Grammar sketch:
 
 ```pest
 tag_def = {
-    "tag" ~ ident ~ "for" ~ "[" ~ ident ~ ("," ~ ident)* ~ "]" ~ "{"
+    "tag" ~ ident ~ ("for" ~ "[" ~ ident ~ ("," ~ ident)* ~ "]")? ~ "{"
     ~ variable_def+
     ~ "}"
 }
 
+uses_clause = { "uses" ~ ident ~ ("," ~ ident)* }
+
 using_binding = {
-    ident ~ object_value
+    ident ~ (arg_list | object_value)
 }
 
 using_step = {
@@ -381,15 +416,8 @@ using_step = {
 }
 ```
 
-`tag_def` becomes a `Definition`. `using_step` becomes a `PipelineStep` (peer of `set` / `call` / `match`).
-
-Semantic sugar (optional, same IR):
-
-```grapheme
-using (auth = { token: $env.token }, trace = { correlation_id: "c-9" }) { ... }
-```
-
-v1 normative form is the keyword+object form above.
+`uses_clause` attaches to executable defs beside `variable_defs` / `executable_signature`.
+`tag_def` becomes a `Definition`. `using_step` becomes a `PipelineStep`.
 
 ### B.4 Visibility and lifetime rules
 
@@ -398,18 +426,18 @@ v1 normative form is the keyword+object form above.
 A tagged binding `$token` from tag `auth` is readable in the current frame **iff**:
 
 1. An activation of `auth` is on the **scope stack**, and
-2. Current executable name ∈ `auth.allow_list`.
+2. Current executable **`uses auth`** (or is named in an explicit `tag auth for […]` override list).
 
-Being under an allowed ancestor is **not** enough for a disallowed callee:
+Being under an allowed ancestor is **not** enough for a callee that does not `uses auth`:
 
 ```text
 Entrypoint
   using auth, trace {
-    FetchUser        // listed: sees $token / $correlation_id
-    FormatHtml       // if not listed for auth: cannot see $token
-    Authorize        // listed: sees them again
+    FetchUser        // uses auth, trace → sees both
+    FormatHtml       // uses nothing → cannot see $token
+    Authorize        // uses auth, budget → sees $token if budget also active
   }
-  FormatHtml         // auth/trace scopes popped
+  FormatHtml         // scopes popped
 ```
 
 **Lifetime (v1):**
@@ -530,11 +558,12 @@ Artifact carries `tag_defs` beside functions.
 Verifier:
 
 1. Tag names unique.
-2. Allow-list executables must exist.
-3. Binding names unique within a tag; recommend globally unique tagged names in v1 for bare `$token` (or require `$auth.token` — open question).
-4. Every `$token`-style read resolves to param, reserved root, or exactly one tag binding declaration.
-5. Static region check: reads of tag bindings must occur in executables that can be invoked from within an activating `using` body **and** are allow-listed (conservative; runtime remains source of truth for dynamic call graphs).
-6. Owner executable may read tag values inside the `using` body only if listed in `for […]` (proposed default: list itself explicitly).
+2. Every `uses` name refers to a declared tag.
+3. Explicit `for […]` names (if present) refer to existing executables.
+4. Binding names unique within a tag; recommend globally unique tagged names in v1 for bare `$token` (or require `$auth.token` — open question).
+5. Every `$token`-style read resolves to param, reserved root, or exactly one tag binding declaration.
+6. Body reads of a tag binding require `uses <tag>` on that executable.
+7. Static call-graph check: `call F` requires all of `F.uses` to be active in the enclosing `using` stack (conservative; runtime remains source of truth for dynamic edges).
 
 ### B.7 Runtime changes
 
@@ -569,7 +598,7 @@ Lookup for `$token`:
 
 1. Frame locals (params)
 2. Reserved templates (`$state` / `$item` / `$loop`)
-3. From **top of `using_stack` downward**, find first activation containing `token` whose tag allow-list includes **current** function name
+3. From **top of `using_stack` downward**, find first activation containing `token` whose tag is permitted for the **current** function (`uses` or explicit `for`)
 4. Else unresolved
 
 Trace:
@@ -590,22 +619,174 @@ Trace:
 8. Trace shows enter/exit boundaries for each scope.
 9. No-tag programs unchanged.
 
+## Part C — Embedding Semantic Cognitive Load (sugar without Python)
+
+### C.1 Design principle
+
+Rust does not make lifetimes cheap by hiding them. It makes them cheap by putting them **where eyes already go**: signatures and region boundaries. Bodies stay boring.
+
+Grapheme should do the same for ambient context:
+
+| Put semantics here | Not here |
+|---|---|
+| `uses auth, budget` on the callable | Repeating allow-lists at every tag def |
+| `using auth(...) { ... }` at the provider edge | Threading tokens through `$state` fields |
+| Param lists on the callable | Ad-hoc locals stuffed into `set` |
+| Verifier errors naming the missing `uses`/`using` | Runtime mystery nulls |
+
+Sugar is allowed when it is **total and local** — it desugars to the same HIR/MIR as the verbose form. Sugar is rejected when it requires global inference across the program (that is the Python/soft-script trap).
+
+### C.2 The verbosity problem with Part B alone
+
+Without Part C, authors maintain three noisy surfaces:
+
+1. Central `tag auth for [FetchUser, Authorize, Audit, …]` lists that rot.
+2. Call-site `using` blocks even when the outer scope already provides the tag.
+3. Long object literals and repeated tag field names.
+
+LLMs especially pay for (1): every edit churns a distant list.
+
+### C.3 Signature-embedded context: `uses`
+
+**Normative authoring model:**
+
+```grapheme
+tag auth { $token: String, $request_id: String }
+
+iterator Authorize($dry_run: Bool = false)
+  uses auth, budget
+  on Request -> Decision {
+  // body just uses $token / $max_usd / $dry_run
+}
+```
+
+Rules:
+
+1. `uses` is part of the executable’s public contract (shown in LSP signature help / reflection).
+2. Effective allow-list for tag `auth` =  
+   `union(explicit for […] if present, all executables that declare uses auth)`.
+3. If a body references `$token` but the executable does not `uses auth`, compile error:  
+   `Authorize reads $token from tag auth but does not declare 'uses auth'`.
+4. If `call Authorize` occurs where `auth` or `budget` is not active, compile error (static call graph) / structured runtime error otherwise:  
+   `call Authorize missing active tags: budget`.
+5. Callees do **not** need a nested `using` when the caller’s active scope already satisfies `uses`.
+
+This is the Rust lifetime analogue:
+
+- `uses auth` ≈ taking a lifetime/`Context` param
+- `using auth(...)` ≈ creating the region that provides it
+- no need to annotate every internal expression
+
+### C.4 Provider-edge sugar
+
+Keep one provider construct; make it short.
+
+**Compact activation (preferred sugar):**
+
+```grapheme
+using auth(token: $env.token, request_id: "r-1"),
+      budget(max_usd: 0.25) {
+  call Authorize
+}
+```
+
+Desugars to object-form `using` + `UsingEnter`/`UsingExit` (Part B).
+
+**Pipeline-scoped helper (optional sugar):**
+
+```grapheme
+call Prepare
+|> with auth(token: $env.token) {
+     call Authorize
+   }
+```
+
+`with` is a pure alias for `using` (pick one keyword in implementation; RFC treats them as synonyms, prefer `using` in docs).
+
+**Satisfied-by-ambient calls (no sugar needed, just omit):**
+
+```grapheme
+using auth(token: $env.token, request_id: "r-1"), budget(max_usd: 1.0) {
+  call FetchUser      // uses auth
+  |> call Authorize   // uses auth, budget — both already active
+}
+```
+
+### C.5 Bundle sugar: context groups
+
+When the same multi-bind repeats, allow a **tag bundle** (schema-level sugar):
+
+```grapheme
+bundle session = auth, trace
+
+query Entrypoint {
+  using session(
+    auth: { token: $env.token, request_id: "r-1" },
+    trace: { correlation_id: "c-9" }
+  ) {
+    call FetchUser
+    |> call Audit
+  }
+}
+```
+
+Desugars to multi-bind `using auth(...), trace(...)`.
+Bundles never grant capabilities; they only group provider edges.
+
+v1 can ship without bundles if time-constrained; `uses` + compact `using` are the load-bearing pieces.
+
+### C.6 What we deliberately do not sugar
+
+1. **No implicit tag activation** from reading `$env` or host secrets.
+2. **No global ambient “god context”** for a whole file without a scope.
+3. **No body-level invent-a-local** that outlives a step (`let` remains separate/deferred).
+4. **No inferring `uses` from body reads without a signature declaration** — that hides the contract from callers/LLMs. Auto-*fix* suggestions in LSP are fine; silent inference is not.
+5. **No Python-like dynamic scope** where callees see caller locals automatically.
+
+### C.7 Cognitive load checklist (LLM + human)
+
+A patch should answer these from **signatures and `using` headers alone**:
+
+1. What does this callable take? → params + `on In -> Out`
+2. What ambient context must be live? → `uses …`
+3. Where is that context provided/dropped? → nearest `using` braces
+4. What flows as data? → `$state` only
+
+If a reader must scan distant `for […]` lists or body archaeology to answer (2)/(3), the sugar has failed.
+
+### C.8 Compiler / LSP implications
+
+1. HIR stores `uses: Vec<String>` on `HirExecutable`.
+2. Derived allow-list computed once per program for runtime lookup.
+3. Signature help renders:  
+   `Authorize($dry_run: Bool) uses auth, budget on Request -> Decision`
+4. Quick-fix: “add `uses auth`” when body reads `$token`.
+5. Call-site diagnostic: “wrap in `using budget(...)` or move call into active scope”.
+6. Reflection/metadata exposes `uses` for agents (aligned with grapheme-reflection surfaces).
+
+### C.9 Acceptance for Part C
+
+1. Preferred examples in docs use `uses` + compact `using`, not giant `for` lists.
+2. `uses`-only programs typecheck without any `tag … for […]`.
+3. Missing active tag at `call` is a clear verifier diagnostic.
+4. Compact `using auth(k: v)` desugars identically to object form.
+5. No silent `uses` inference from body text in the compiler.
+
 ## Combined Mental Model
 
 ```mermaid
 flowchart TD
-  A[Caller frame] -->|call Step priority: high| B[Callee frame locals]
-  A -->|using auth, trace| C[Push using scope]
-  C --> D[Body pipeline]
-  D -->|nested using budget| E[Push inner scope]
-  E --> F[Inner body]
-  F --> G[Pop inner scope]
-  G --> H[Outer body continues]
-  H --> I[Pop outer scope]
-  B --> J["$priority from locals"]
-  D --> K["$state threads through"]
-  D --> L[Authorize allow-listed reads $token]
-  I --> M[After exit: tagged names gone]
+  S["Signature: Authorize uses auth, budget"] --> V[Verifier]
+  A[Caller] -->|using auth, budget| C[Push using scope]
+  C --> D["call Authorize — requirements already satisfied"]
+  D --> B[Callee locals + uses auth]
+  B --> L["$token from active tag"]
+  C --> E[nested using tighter budget]
+  E --> F[Pop inner]
+  C --> I[Pop outer]
+  I --> M[Tagged names gone]
+  B --> K["$state still data plane"]
+  V -->|missing uses / missing using| X[Clear diagnostic]
 ```
 
 ## Sequencing
@@ -624,41 +805,42 @@ flowchart TD
 5. CLI/SDK entrypoint arg binding.
 6. Docs + LSP hover for params.
 
-### Phase 2 — Tagged vars + `using` v1
+### Phase 2 — Tags + `uses` + `using` v1
 
-1. Grammar `tag` / `using` (multi-bind + nested blocks).
-2. HIR tag defs + MIR `UsingEnter` / `UsingExit`.
-3. Runtime scope stack + allow-list lookup.
-4. Verifier allow-list, region, multi-bind, anti-escape rules.
-5. Trace enter/exit + redaction; drop on failure/`$return`.
-6. Docs + LSP: “who can see this tag?” / scope highlighting.
+1. Grammar `tag` (schema), `uses` clause, compact/multi/nested `using`.
+2. HIR `uses` + tag defs; MIR `UsingEnter` / `UsingExit`.
+3. Derived allow-list from `uses` (+ optional `for`).
+4. Runtime scope stack + permission via `uses`.
+5. Verifier: missing `uses`, missing active tags at call, multi-bind, anti-escape.
+6. Trace enter/exit + redaction; drop on failure/`$return`.
+7. LSP signature help shows `uses`; quick-fixes for missing clause/scope.
 
-### Phase 3 — Hardening
+### Phase 3 — Hardening / optional sugar
 
-1. Conformance fixtures for multi-bind, nest/pop order, defaults, missing args, deny lists.
+1. Conformance fixtures for multi-bind, nest/pop, `uses` diagnostics, deny lists.
 2. Policy-profile checks for redacted param/tag values in traces.
-3. Decide follow-ons: shadow/rebind, `$auth.token` qualification, `@dispose`, HOFs, lexical `let`.
+3. Optional: `bundle session = auth, trace`.
+4. Decide follow-ons: shadow/rebind, `$auth.token` qualification, `@dispose`, HOFs, lexical `let`.
 
 ## Testing Strategy
 
-1. **Parser/AST**: param lists on iterators; `tag` / multi-bind `using` / nested `using`.
-2. **HIR/MIR golden**: params preserved; matching `UsingEnter`/`UsingExit` pairs; artifact backward compatible defaults.
+1. **Parser/AST**: param lists; `uses`; `tag` schema; compact/multi/nested `using`.
+2. **HIR/MIR golden**: params + `uses` preserved; matching `UsingEnter`/`UsingExit`; compact==object desugar.
 3. **Verifier**:
-   - unknown call arg
-   - missing required param
-   - tag allow-list unknown executable
+   - unknown call arg / missing required param
+   - body read without `uses`
+   - call without active required tag
    - duplicate tag in one `using` header
-   - tagged read outside allow-list / outside activating region
    - illegal promotion into `set`
 4. **Runtime**:
    - multi-bind activate both
    - nested pop order
-   - allowed call reads value; disallowed does not
+   - `uses` permits read; absence denies
    - after scope exit, bindings gone
    - failure / `$return` still drops scopes
    - params do not leak into `$state`
 5. **SDK/CLI**: entrypoint `--arg` / `entrypoint_args` wiring.
-6. **LSP** (soft gate): signature help shows params; scope/tag visibility hints later.
+6. **LSP** (soft gate): signature help includes `uses`; quick-fix suggestions (not silent inference).
 
 ## Observability
 
@@ -687,9 +869,9 @@ flowchart TD
 
 1. **Param reference style:** is `$priority` enough, or require `$args.priority` for disambiguation?
 2. **Tagged reference style:** bare `$token` (v1, globally unique names) vs qualified `$auth.token`?
-3. **May the owning executable read tags inside its own `using` body without being in `for […]`?** Default proposed: no (must list itself).
+3. **Does a `using` body in executable `E` require `E uses auth` to read `$token`?** Proposed: **yes** — signatures stay honest even at the provider edge.
 4. **Unresolved template policy:** null (legacy) vs hard error in typed programs?
-5. **Should `fragment` support params in v1** or wait until fragment invocation rules settle?
+5. **Should `fragment` support params/`uses` in v1** or wait until fragment invocation rules settle?
 6. **CLI UX:** repeatable `--arg k=v` vs single `--args-json`?
 7. **Inner re-activation of same tag:** forbid in v1 (proposed) or allow nested shadow?
 8. **Promotion:** is `@promote` required, or is a dedicated `promote auth.request_id -> state.request_id` step clearer?
@@ -697,15 +879,19 @@ flowchart TD
 10. **`using` as expression-step only vs also statement-prefix?** Proposed: both, as long as body braces are required (no open-ended `using` that leaks to function end).
 11. **Dispose order on multi-bind exit:** reverse header order (C# style) vs declaration order? Proposed: reverse header order.
 12. **Should v1 include a non-block `bind` sugar** that means “using for remainder of current pipeline”? Proposed: **no** — braces required.
+13. **Keyword `using` vs `with`:** one keyword only; proposed docs/`using`, reject synonym churn in v1.
+14. **Ship `bundle` in v1 or Phase 3?** Proposed: Phase 3 optional.
+15. **Explicit `for […]` when `uses` exist:** union (proposed) vs error-on-redundant vs `for` replaces derived set?
 
 ## Acceptance Criteria (RFC-level)
 
 1. Spec distinguishes params, `$state`, and tagged `using` scopes with non-overlapping jobs.
-2. Part A and Part B each have phased implementation checklists grounded in current AST/HIR/MIR/runtime types.
-3. Strict allow-list visibility + **scoped** lifetime (`UsingEnter`/`UsingExit`) for tags is normative.
+2. Parts A–C each have phased implementation checklists grounded in current AST/HIR/MIR/runtime types.
+3. Signature-embedded `uses` is the default ACL; scoped lifetime via `UsingEnter`/`UsingExit` is normative.
 4. Multi-bind and nested `using` behavior is specified, including drop-on-failure.
-5. Backward compatibility for programs that use neither feature is explicit.
-6. Open questions are listed with proposed defaults so implementation can start on Phase 1 without blocking on Part B syntax bikesheds.
+5. Sugar rules are explicit: total local desugar only; no silent `uses` inference.
+6. Backward compatibility for programs that use none of these features is explicit.
+7. Open questions are listed with proposed defaults so Phase 1 can start without blocking on Part B/C bikesheds.
 
 ## Appendix — Current Code Anchors
 
