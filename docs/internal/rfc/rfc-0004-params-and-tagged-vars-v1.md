@@ -10,7 +10,7 @@ Target release window: after typed-records verifier baseline
 Introduce two complementary binding mechanisms that move Grapheme closer to Lua-class composability without embedding a general-purpose scripting VM:
 
 1. **Executable parameters v1** — finish the existing GraphQL-style `variable_defs` surface so `query` / `mutation` / `iterator` / `subscription` act as typed callables with named arguments.
-2. **Tagged variables v1** — explicit ambient bindings declared at a high scope, visible only to an allow-listed set of executables, with lifetime managed by the call stack.
+2. **Tagged variables v1** — explicit ambient bindings declared at a high scope, visible only to an allow-listed set of executables, activated through **C#-style `using` scopes** that support multiple bindings, nesting, and deterministic drop-on-exit.
 
 These are intentionally separate:
 
@@ -18,7 +18,7 @@ These are intentionally separate:
 |---|---|
 | Parameters (`$ticket_id`) | Explicit inputs at the call edge — function API |
 | `$state` / `$current` | Pipeline value flowing step → step |
-| Tagged vars (`tag auth …`) | Cross-cutting context (auth, trace, budget) without stuffing `$state` |
+| Tagged vars + `using` | Cross-cutting context (auth, trace, budget) with scoped lifetime, without stuffing `$state` |
 
 ## Motivation
 
@@ -41,9 +41,10 @@ These are intentionally separate:
 ### Desired outcome
 
 - Authors can write reusable callables with named parameters.
-- Authors can declare ambient context with explicit visibility and stack-scoped lifetime.
-- LLM authoring stays explicit (allow-lists, named bindings) rather than inferred borrow checking.
-- Governance model stays intact: compile-time ACL + runtime frame presence, no soft `eval`.
+- Authors can declare ambient context with explicit visibility and **scoped** lifetime.
+- Authors can activate **multiple tags together** and nest scopes (C# `using` analogue).
+- LLM authoring stays explicit (allow-lists, named bindings, visible scope braces) rather than inferred borrow checking.
+- Governance model stays intact: compile-time ACL + runtime scope stack, no soft `eval`.
 
 ## Goals
 
@@ -51,19 +52,21 @@ These are intentionally separate:
 2. Bind call-site named args into callee locals with deterministic missing/default/type rules.
 3. Expose params in template resolution as `$name` / `$args.name` without breaking `$state`.
 4. Add tagged variable declarations with executable allow-lists.
-5. Enforce tag visibility by **current frame executable membership** (not ancestor leakage).
-6. Keep tag values off the `$state` data plane by default (no silent escape).
-7. Preserve untyped / signature-only programs (gradual adoption).
+5. Activate tags via `using` scopes that support **one or many bindings**, nesting, and drop-on-exit.
+6. Enforce tag visibility by **current frame executable membership** (not ancestor leakage).
+7. Keep tag values off the `$state` data plane by default (no silent escape).
+8. Preserve untyped / signature-only programs (gradual adoption).
 
 ## Non-Goals
 
-1. Full lexical `let` blocks / nested block scopes (deferred; tags + params cover the high-value cases).
+1. General lexical `let` for arbitrary pipeline locals (deferred; `using` is only for declared tags).
 2. Rust-style lifetime inference, borrows, or exclusive mutable alias analysis.
 3. First-class function values / closures / higher-order `map` callables (follow-on).
 4. General expression AST for `until` / arithmetic (orthogonal; see control-flow deferred items).
 5. Embedding Lua / Rhai / JS or any guest scripting VM.
-6. Mutable tagged slots with complex rebind semantics in v1 (read-only after `bind`).
-7. Cross-execution persistence of tags (tags die with the run’s call stack).
+6. Mutable tagged slots / mid-scope rebind in v1 (read-only after `using` enter).
+7. Cross-execution persistence of tags (tags die with scope exit / run end).
+8. IDisposable-style host resource finalizers in v1 (`using` scopes values; optional `@dispose` hook is follow-on).
 
 ## Relationship to Existing Surfaces
 
@@ -88,18 +91,32 @@ query Run {
 }
 ```
 
-### Add (tags)
+### Add (tags + scoped `using`)
 
 ```grapheme
-tag auth for [FetchUser, Authorize, Audit] {
+tag auth for [Entrypoint, FetchUser, Authorize, Audit] {
   $token: String
   $request_id: String
 }
 
+tag trace for [Entrypoint, FetchUser, Authorize, Audit, FormatHtml] {
+  $correlation_id: String
+}
+
+tag budget for [Authorize, ExpensiveModel] {
+  $max_usd: Float
+}
+
 query Entrypoint {
-  bind auth { token: $env.token, request_id: "r-1" }
-  |> call FetchUser
-  |> call FormatHtml   // compile error: FormatHtml not in tag auth
+  using auth { token: $env.token, request_id: "r-1" },
+        trace { correlation_id: "c-9" } {
+    call FetchUser
+    |> using budget { max_usd: 0.25 } {
+         call Authorize
+       }
+    |> call Audit
+  }
+  |> call FormatHtml   // auth/trace scopes ended; $token not visible here
 }
 ```
 
@@ -251,35 +268,83 @@ CLI sketch: `--arg priority=high` (repeatable) or `--args-json '{}'`.
 5. Params do not appear in `$state` unless author explicitly `set`/`merge` them.
 6. Existing no-param programs keep identical behavior.
 
-## Part B — Tagged Variables v1
+## Part B — Tagged Variables v1 (scoped `using`)
 
 ### B.1 Concept
 
-A **tag** is a named ambient environment:
+A **tag** is a named ambient environment schema:
 
 1. Declares one or more typed bindings.
 2. Declares an allow-list of executable names that may observe those bindings.
-3. Is activated by an explicit `bind` step.
-4. Remains live while at least one stack frame whose executable is in the allow-list exists under the activating frame — see visibility rule below.
-5. Is destroyed when the activating frame returns (stack-scoped lifetime).
+3. Is activated only inside an explicit **`using` scope** (C# `using` analogue).
+4. Supports **multiple tag activations in one `using`**.
+5. Supports **nested `using`** scopes.
+6. Drops deterministically on scope exit (not merely on function return).
 
-This is **not** Rust lifetime inference. It is an explicit ACL + stack region.
+This is **not** Rust lifetime inference. It is an explicit ACL + scope stack.
 
-### B.2 Surface syntax (proposed)
+`using` scopes **tag environments only**. `$state` still threads through the scope body and out to the continuation unchanged in shape (unless body steps mutate it).
 
-Top-level declaration:
+### B.2 Why `using` instead of bare `bind`
+
+A frame-lifetime `bind` is too coarse for real workflows:
+
+1. Authors often need auth+trace together for a region, then neither afterward.
+2. Nested regions need tighter budgets/secrets without ending the outer scope.
+3. Multiple ambient contexts should activate/deactivate as one unit.
+4. Visible braces are LLM- and audit-friendly (“what is live here?”).
+
+v1 activation surface is therefore **`using`**, not free-floating `bind`.
+
+### B.3 Surface syntax (proposed)
+
+Top-level declaration (schema only):
 
 ```grapheme
-tag auth for [FetchUser, Authorize, Audit] {
+tag auth for [Entrypoint, FetchUser, Authorize, Audit] {
   $token: String
   $request_id: String
 }
 ```
 
-Activation step inside a pipeline:
+Scoped activation (single or multiple bindings):
 
 ```grapheme
-bind auth { token: $env.token, request_id: "r-1" }
+using auth { token: $env.token, request_id: "r-1" } {
+  call FetchUser
+  |> call Authorize
+}
+
+using auth { token: $env.token, request_id: "r-1" },
+      trace { correlation_id: "c-9" },
+      budget { max_usd: 1.5 } {
+  call FetchUser
+  |> call Authorize
+}
+```
+
+Nested scopes:
+
+```grapheme
+using auth { token: $env.token, request_id: "r-1" } {
+  call FetchUser
+  |> using budget { max_usd: 0.25 } {
+       call ExpensiveModel
+     }
+  |> call Authorize   // budget ended; auth still active
+}
+```
+
+As a pipeline step (scope is still a block, not an open-ended suffix):
+
+```grapheme
+call Prepare
+|> using auth { token: $env.token, request_id: "r-1" },
+         trace { correlation_id: "c-9" } {
+     call FetchUser
+     |> call Authorize
+   }
+|> call FormatHtml
 ```
 
 References inside allowed executables:
@@ -302,49 +367,83 @@ tag_def = {
     ~ "}"
 }
 
-bind_step = {
-    "bind" ~ ident ~ object_value
+using_binding = {
+    ident ~ object_value
+}
+
+using_step = {
+    "using"
+    ~ using_binding
+    ~ ("," ~ using_binding)*
+    ~ "{"
+    ~ pipeline+
+    ~ "}"
 }
 ```
 
-`tag_def` becomes a `Definition`. `bind_step` becomes a pipeline step (peer of `set` / `call`).
+`tag_def` becomes a `Definition`. `using_step` becomes a `PipelineStep` (peer of `set` / `call` / `match`).
 
-### B.3 Visibility and lifetime rules
+Semantic sugar (optional, same IR):
+
+```grapheme
+using (auth = { token: $env.token }, trace = { correlation_id: "c-9" }) { ... }
+```
+
+v1 normative form is the keyword+object form above.
+
+### B.4 Visibility and lifetime rules
 
 **Visibility (v1, strict):**
 
 A tagged binding `$token` from tag `auth` is readable in the current frame **iff**:
 
-1. Tag `auth` is active on the stack, and
+1. An activation of `auth` is on the **scope stack**, and
 2. Current executable name ∈ `auth.allow_list`.
 
-Ancestor activation alone is **not** enough for a disallowed callee. Example:
+Being under an allowed ancestor is **not** enough for a disallowed callee:
 
 ```text
-Entrypoint (bind auth) → FetchUser (allowed: sees $token)
-                       → FormatHtml (not allowed: unresolved / compile error)
-                       → Authorize (allowed: sees $token again)
+Entrypoint
+  using auth, trace {
+    FetchUser        // listed: sees $token / $correlation_id
+    FormatHtml       // if not listed for auth: cannot see $token
+    Authorize        // listed: sees them again
+  }
+  FormatHtml         // auth/trace scopes popped
 ```
-
-Rationale: keeps access auditable and LLM-simple; prevents accidental ambient leakage through helpers.
 
 **Lifetime (v1):**
 
-1. `bind auth { … }` creates an activation record on the current frame.
-2. Activation is visible to subsequent steps and nested calls while that frame remains.
-3. When the binding frame returns, the activation is popped and bindings are dropped.
-4. Re-`bind` of the same tag in a nested allowed frame shadows for the nested region (optional; default **forbid rebind** in v1 for simplicity).
+1. Entering `using` pushes one **scope frame** containing N tag activations (atomic with respect to body entry).
+2. Body steps and nested calls observe those activations subject to allow-lists.
+3. Leaving the `using` block pops that scope frame and drops all of its activations together.
+4. Nested `using` pushes another scope frame; inner exit pops only the inner frame.
+5. Function return pops any scopes still open in that call frame (safety net for early `$return` / failure paths).
+6. Same tag activated again in an inner `using`: **forbid in v1** (no shadow/rebind). Revisit after fixtures exist.
+
+**Failure / control-flow:**
+
+1. If a body step fails fatally, runtime still pops the scope (drop is best-effort/deterministic before propagating failure).
+2. `match` / `if` / `call` targets that `$return` out of the owning executable pop open scopes for that frame.
+3. Jumping into a `using` body without entering it is impossible — scopes are structured.
 
 **Mutability (v1):**
 
-- Bindings are read-only after `bind`.
-- No `rebind` / in-place mutation in v1.
+- Bindings are read-only after scope enter.
+- No mid-scope mutation API in v1.
 
-### B.4 Escape / governance rules
+**Multi-bind atomicity:**
+
+- Either all bindings in a `using` header validate and activate, or none do (fail before body).
+- Duplicate tag names in one header → compile error.
+- Unknown field for a tag → compile error.
+
+### B.5 Escape / governance rules
 
 1. Verifier rejects reading tagged names outside allow-listed executables.
-2. Verifier rejects copying tagged bindings into `set` / `apply` / `merge` / struct init **by default**.
-3. Escape hatch (optional, explicit):
+2. Verifier rejects reading tagged names in code regions that are not statically nested in a `using` that activates that tag (best-effort static); runtime still enforces presence.
+3. Verifier rejects copying tagged bindings into `set` / `apply` / `merge` / struct init **by default**.
+4. Escape hatch (optional, explicit), only inside an active scope:
 
    ```grapheme
    set { request_id: $request_id } @promote(tag: auth, fields: [request_id])
@@ -352,9 +451,10 @@ Rationale: keeps access auditable and LLM-simple; prevents accidental ambient le
 
    Without `@promote`, promotion is a compile error. This preserves “tags are not `$state`.”
 
-4. Capability policy remains orthogonal: tags do not grant host capabilities; they only transport values.
+5. Capability policy remains orthogonal: tags do not grant host capabilities; they only transport values.
+6. Host dispose hooks (true C# `IDisposable`) are **out of v1**; a future `@dispose(op: secrets.forget)` on a tag binding may appear later.
 
-### B.5 Compiler / IR changes
+### B.6 Compiler / IR changes
 
 #### AST
 
@@ -365,11 +465,18 @@ pub struct TagDef {
     pub variables: Vec<VariableDef>,
 }
 
-pub struct BindStep {
+pub struct UsingBinding {
     pub tag: String,
     pub fields: Vec<(String, Value)>,
 }
+
+pub struct UsingStep {
+    pub bindings: Vec<UsingBinding>, // 1..N, atomic
+    pub pipelines: Vec<Pipeline>,    // scoped body
+}
 ```
+
+`PipelineStep` gains `Using(UsingStep)`.
 
 #### HIR
 
@@ -380,25 +487,43 @@ pub struct HirTagDef {
     pub bindings: Vec<HirParam>, // reuse param shape
 }
 
+pub struct HirUsingStep {
+    pub scope_id: u32,
+    pub bindings: Vec<(String /* tag */, JsonValue /* fields */)>,
+    pub body: HirPipeline,
+}
+
 pub struct HirProgram {
     // existing…
     pub tag_defs: Vec<HirTagDef>,
 }
 ```
 
-`bind` lowers to a step with `module: Some("runtime".into())`, `op: "bind_tag"`, args `{ "tag": "auth", "fields": { … } }` **or** a dedicated `HirStep` kind if we prefer not to overload capability dispatch.
-
-Prefer a **dedicated MIR instruction** so bind cannot be confused with host ops:
+Prefer dedicated MIR ops (not host capability calls):
 
 ```rust
 pub enum MirInst {
     // existing Call / BranchCall / MatchCall…
-    BindTag {
-        tag: String,
-        fields: JsonValue,
+    UsingEnter {
+        scope_id: u32,
+        activations: Vec<MirTagActivation>,
+    },
+    UsingExit {
+        scope_id: u32,
     },
 }
+
+pub struct MirTagActivation {
+    pub tag: String,
+    pub fields: JsonValue,
+}
 ```
+
+Lowering:
+
+1. `using a {…}, b {…} { body }` → `UsingEnter` + lowered body instructions + `UsingExit`.
+2. Nested `using` → nested enter/exit pairs with distinct `scope_id`s.
+3. Verifier/MIR emitter guarantee matching enter/exit on all exits from the body (including early return lowering).
 
 Artifact carries `tag_defs` beside functions.
 
@@ -406,63 +531,81 @@ Verifier:
 
 1. Tag names unique.
 2. Allow-list executables must exist.
-3. Binding names unique across a tag; recommend globally unique tagged names in v1 to simplify `$token` resolution (open question if tags require `$auth.token` qualification).
-4. Every `$token`-style read resolves to either param, reserved root, or exactly one active tag binding declaration; ambiguous multi-tag same name → error.
-5. Reads only legal inside allow-listed executable bodies (and inside the binder executable if we allow — default **binder may write via bind but not read unless listed**).
+3. Binding names unique within a tag; recommend globally unique tagged names in v1 for bare `$token` (or require `$auth.token` — open question).
+4. Every `$token`-style read resolves to param, reserved root, or exactly one tag binding declaration.
+5. Static region check: reads of tag bindings must occur in executables that can be invoked from within an activating `using` body **and** are allow-listed (conservative; runtime remains source of truth for dynamic call graphs).
+6. Owner executable may read tag values inside the `using` body only if listed in `for […]` (proposed default: list itself explicitly).
 
-### B.6 Runtime changes
+### B.7 Runtime changes
 
-Extend frame / engine state:
+Extend engine state with a **scope stack** (orthogonal to call stack, but always cleared on call-frame return):
 
 ```rust
 struct TagActivation {
     tag: String,
     values: Map<String, JsonValue>,
-    binder_depth: usize,
+}
+
+struct UsingScope {
+    scope_id: u32,
+    activations: Vec<TagActivation>,
 }
 
 struct CallFrame {
     function_name: String,
     locals: Map<String, JsonValue>,
-    // activations created by this frame
-    tag_activations: Vec<TagActivation>,
+    using_stack: Vec<UsingScope>,
 }
 ```
+
+Ops:
+
+1. `UsingEnter` — validate fields, push `UsingScope`.
+2. Execute body with `$state` threading as today.
+3. `UsingExit` — pop matching `scope_id` (assert top), emit drop trace.
+4. On call-frame return / fatal failure — pop all remaining `using_stack` entries outermost-last or innermost-first (pick innermost-first to mirror C# dispose order).
 
 Lookup for `$token`:
 
 1. Frame locals (params)
-2. Reserved templates
-3. From top of stack downward, find first activation containing `token` whose allow-list includes **current** function name
+2. Reserved templates (`$state` / `$item` / `$loop`)
+3. From **top of `using_stack` downward**, find first activation containing `token` whose tag allow-list includes **current** function name
 4. Else unresolved
-
-On function return: drop that frame’s activations.
 
 Trace:
 
-- Record `tag_bind` / `tag_drop` events with tag name + field names (values redacted by policy).
+- `using_enter` with `scope_id`, tag names, field names (values redacted)
+- `using_exit` / `using_drop` with `scope_id`
+- Nested scopes appear as nested enter/exit pairs
 
-### B.7 Acceptance for Part B
+### B.8 Acceptance for Part B
 
-1. `tag` + `bind` parse and appear in artifact metadata.
-2. Allowed executable can read `$token`; disallowed cannot (compile-time for static refs).
-3. After binder returns, subsequent siblings do not see the tag.
-4. Promotion into `$state` without `@promote` fails verification.
-5. Trace shows bind/drop boundaries.
-6. No-tag programs unchanged.
+1. `tag` + `using` parse and appear in artifact metadata.
+2. Multi-bind `using a {…}, b {…}` activates both atomically.
+3. Nested `using` pops only the inner scope at inner exit.
+4. Allowed executable inside scope can read `$token`; disallowed cannot.
+5. Steps after scope exit cannot read those bindings.
+6. Early failure / `$return` still drops open scopes for the frame.
+7. Promotion into `$state` without `@promote` fails verification.
+8. Trace shows enter/exit boundaries for each scope.
+9. No-tag programs unchanged.
 
 ## Combined Mental Model
 
 ```mermaid
 flowchart TD
   A[Caller frame] -->|call Step priority: high| B[Callee frame locals]
-  A -->|bind auth| C[Tag activation on caller]
-  B --> D["$priority from locals"]
-  B --> E["$state pipeline value"]
-  F[Authorize in allow-list] --> G["$token from active tag"]
-  H[FormatHtml not listed] --> I[Compile/runtime deny]
-  C --> F
-  C --> H
+  A -->|using auth, trace| C[Push using scope]
+  C --> D[Body pipeline]
+  D -->|nested using budget| E[Push inner scope]
+  E --> F[Inner body]
+  F --> G[Pop inner scope]
+  G --> H[Outer body continues]
+  H --> I[Pop outer scope]
+  B --> J["$priority from locals"]
+  D --> K["$state threads through"]
+  D --> L[Authorize allow-listed reads $token]
+  I --> M[After exit: tagged names gone]
 ```
 
 ## Sequencing
@@ -481,44 +624,47 @@ flowchart TD
 5. CLI/SDK entrypoint arg binding.
 6. Docs + LSP hover for params.
 
-### Phase 2 — Tagged vars v1
+### Phase 2 — Tagged vars + `using` v1
 
-1. Grammar `tag` / `bind`.
-2. HIR tag defs + MIR `BindTag`.
-3. Runtime activations + lookup ACL.
-4. Verifier allow-list + anti-escape rules.
-5. Trace events + redaction.
-6. Docs + LSP: “who can see this tag?”
+1. Grammar `tag` / `using` (multi-bind + nested blocks).
+2. HIR tag defs + MIR `UsingEnter` / `UsingExit`.
+3. Runtime scope stack + allow-list lookup.
+4. Verifier allow-list, region, multi-bind, anti-escape rules.
+5. Trace enter/exit + redaction; drop on failure/`$return`.
+6. Docs + LSP: “who can see this tag?” / scope highlighting.
 
 ### Phase 3 — Hardening
 
-1. Conformance fixtures for shadowing, defaults, missing args, deny lists.
+1. Conformance fixtures for multi-bind, nest/pop order, defaults, missing args, deny lists.
 2. Policy-profile checks for redacted param/tag values in traces.
-3. Decide follow-ons: `rebind`, `$auth.token` qualification, HOFs, lexical `let`.
+3. Decide follow-ons: shadow/rebind, `$auth.token` qualification, `@dispose`, HOFs, lexical `let`.
 
 ## Testing Strategy
 
-1. **Parser/AST**: param lists on iterators; tag/bind syntax.
-2. **HIR/MIR golden**: params preserved; `BindTag` emitted; artifact backward compatible defaults.
+1. **Parser/AST**: param lists on iterators; `tag` / multi-bind `using` / nested `using`.
+2. **HIR/MIR golden**: params preserved; matching `UsingEnter`/`UsingExit` pairs; artifact backward compatible defaults.
 3. **Verifier**:
    - unknown call arg
    - missing required param
    - tag allow-list unknown executable
-   - tagged read outside allow-list
+   - duplicate tag in one `using` header
+   - tagged read outside allow-list / outside activating region
    - illegal promotion into `set`
 4. **Runtime**:
-   - bind → allowed call reads value
-   - disallowed call does not see value
-   - drop on return
+   - multi-bind activate both
+   - nested pop order
+   - allowed call reads value; disallowed does not
+   - after scope exit, bindings gone
+   - failure / `$return` still drops scopes
    - params do not leak into `$state`
 5. **SDK/CLI**: entrypoint `--arg` / `entrypoint_args` wiring.
-6. **LSP** (soft gate): signature help shows params; unused tag binding warnings later.
+6. **LSP** (soft gate): signature help shows params; scope/tag visibility hints later.
 
 ## Observability
 
-1. Pipeline / step context gains optional `params_bound: [names…]` and `tags_active: [tag…]`.
+1. Pipeline / step context gains optional `params_bound: [names…]`, `tags_active: [tag…]`, `using_scope_id`.
 2. Values governed by existing `TracePolicy` redaction.
-3. Deterministic event order: `tag_bind` before subsequent steps; `tag_drop` on frame exit.
+3. Deterministic event order: `using_enter` → body steps → `using_exit` (nested pairs nest in the trace).
 
 ## Security Considerations
 
@@ -535,27 +681,31 @@ flowchart TD
    - `docs/internal/language/tagged-vars-v1.md` (normative contract extract)
 3. Update `docs/internal/language-contract.md` with binding precedence.
 4. Update `docs/internal/runtime/runtime-state-flow.md` with frame locals + tag activations.
-5. Tutorial touch: one realworld example using params; one using `tag auth`.
+5. Tutorial touch: one realworld example using params; one using multi-bind `using auth, trace`.
 
 ## Open Questions
 
 1. **Param reference style:** is `$priority` enough, or require `$args.priority` for disambiguation?
 2. **Tagged reference style:** bare `$token` (v1, globally unique names) vs qualified `$auth.token`?
-3. **May the binder executable read the tag without being in `for […]`?** Default proposed: no (must list itself).
+3. **May the owning executable read tags inside its own `using` body without being in `for […]`?** Default proposed: no (must list itself).
 4. **Unresolved template policy:** null (legacy) vs hard error in typed programs?
 5. **Should `fragment` support params in v1** or wait until fragment invocation rules settle?
 6. **CLI UX:** repeatable `--arg k=v` vs single `--args-json`?
-7. **Rebind/shadow:** forbid in v1 (proposed) or allow nested shadow?
+7. **Inner re-activation of same tag:** forbid in v1 (proposed) or allow nested shadow?
 8. **Promotion:** is `@promote` required, or is a dedicated `promote auth.request_id -> state.request_id` step clearer?
 9. **Interaction with `@loop each`:** does `$item` shadow params of the same name? Proposed: yes, `$item` wins inside each-body templates; params remain addressable via `$args.name`.
+10. **`using` as expression-step only vs also statement-prefix?** Proposed: both, as long as body braces are required (no open-ended `using` that leaks to function end).
+11. **Dispose order on multi-bind exit:** reverse header order (C# style) vs declaration order? Proposed: reverse header order.
+12. **Should v1 include a non-block `bind` sugar** that means “using for remainder of current pipeline”? Proposed: **no** — braces required.
 
 ## Acceptance Criteria (RFC-level)
 
-1. Spec distinguishes params, `$state`, and tags with non-overlapping jobs.
+1. Spec distinguishes params, `$state`, and tagged `using` scopes with non-overlapping jobs.
 2. Part A and Part B each have phased implementation checklists grounded in current AST/HIR/MIR/runtime types.
-3. Strict allow-list visibility + stack lifetime for tags is normative.
-4. Backward compatibility for programs that use neither feature is explicit.
-5. Open questions are listed with proposed defaults so implementation can start on Phase 1 without blocking on Part B syntax bikesheds.
+3. Strict allow-list visibility + **scoped** lifetime (`UsingEnter`/`UsingExit`) for tags is normative.
+4. Multi-bind and nested `using` behavior is specified, including drop-on-failure.
+5. Backward compatibility for programs that use neither feature is explicit.
+6. Open questions are listed with proposed defaults so implementation can start on Phase 1 without blocking on Part B syntax bikesheds.
 
 ## Appendix — Current Code Anchors
 
