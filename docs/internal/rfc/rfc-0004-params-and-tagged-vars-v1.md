@@ -10,6 +10,7 @@ Revision notes:
 
 1. Part B activation model changed from frame-lifetime `bind` to C#-style scoped `using` with multi-bind and nesting.
 2. Part C added: signature-embedded context (`uses`) and sugar so semantics live at boundaries (Rust-lifetime style), reducing LLM/human cognitive load without Python-like looseness.
+3. Part D added: named context handles (`using const|mutable $name: tag(...)`) for program-global and block scopes — still explicit, not anonymous god-context.
 
 ## Summary
 
@@ -18,6 +19,7 @@ Introduce two complementary binding mechanisms that move Grapheme closer to Lua-
 1. **Executable parameters v1** — finish the existing GraphQL-style `variable_defs` surface so `query` / `mutation` / `iterator` / `subscription` act as typed callables with named arguments.
 2. **Tagged variables v1** — ambient context schemas activated through **scoped `using`**, with visibility driven primarily by **signature `uses` clauses** (not giant central allow-lists).
 3. **Ergonomic embedding (Part C)** — syntactic sugar that keeps the same IR/governance model while putting semantic load at declaration sites, where LLMs and humans already look.
+4. **Named context handles (Part D)** — `using const|mutable $name: tag(...)` binds a handle at program or block scope; callables `uses $name` instead of relying on anonymous ambient tags.
 
 These are intentionally separate:
 
@@ -25,7 +27,8 @@ These are intentionally separate:
 |---|---|
 | Parameters (`$ticket_id`) | Explicit inputs at the call edge — function API |
 | `$state` / `$current` | Pipeline value flowing step → step |
-| Tags + `uses` + `using` | Cross-cutting context: declared on signatures, provided at scopes |
+| Tags + `uses` + `using` | Cross-cutting context schemas/scopes |
+| Named handles `$session` | Addressable context instances (global or block), `const` or `mutable` |
 
 ## Motivation
 
@@ -738,7 +741,7 @@ v1 can ship without bundles if time-constrained; `uses` + compact `using` are th
 ### C.6 What we deliberately do not sugar
 
 1. **No implicit tag activation** from reading `$env` or host secrets.
-2. **No global ambient “god context”** for a whole file without a scope.
+2. **No anonymous global god-context** that every executable can read without `uses` (Part D allows *named* program-scoped handles — still declared and ACL’d).
 3. **No body-level invent-a-local** that outlives a step (`let` remains separate/deferred).
 4. **No inferring `uses` from body reads without a signature declaration** — that hides the contract from callers/LLMs. Auto-*fix* suggestions in LSP are fine; silent inference is not.
 5. **No Python-like dynamic scope** where callees see caller locals automatically.
@@ -772,21 +775,244 @@ If a reader must scan distant `for […]` lists or body archaeology to answer (2
 4. Compact `using auth(k: v)` desugars identically to object form.
 5. No silent `uses` inference from body text in the compiler.
 
+## Part D — Named Context Handles (`const` / `mutable`, program or block)
+
+### D.1 The idea
+
+Block `using auth(...) { ... }` is great for local regions. Workflows also need **long-lived context** for a whole program/run — without making every field a free-floating global.
+
+Bind a **named handle** to a tag instance:
+
+```grapheme
+tag auth {
+  $token: String
+  $request_id: String
+}
+
+tag budget {
+  $max_usd: Float
+}
+
+// Program-scoped (global to this artifact / execution)
+using const $session: auth(token: $env.token, request_id: "r-1")
+using mutable $quota: budget(max_usd: 1.0)
+
+iterator Authorize uses $session, $quota on Request -> Decision {
+  http.fetch(
+    headers: { authorization: "Bearer {$session.token}" }
+  )
+}
+
+query Entrypoint {
+  call Authorize
+}
+```
+
+Reading the top of the file tells you what ambient instances exist, their tag types, and whether they can change — same cognitive slot as Rust `static` / scoped `let` with an explicit type.
+
+### D.2 Syntax (proposed)
+
+```text
+using const   $<name>: <tag>(<fields…>)     // program scope (no braces)
+using mutable $<name>: <tag>(<fields…>)
+
+using const   $<name>: <tag>(<fields…>) { <pipeline> }   // block scope
+using mutable $<name>: <tag>(<fields…>) { <pipeline> }
+
+// Multi-bind still allowed; each arm may be anonymous (Part B) or named:
+using const $session: auth(...),
+      mutable $quota: budget(...),
+      trace(...) {   // anonymous arm still ok
+  ...
+}
+```
+
+Notes on the user’s sketch (`using mutable $myVar: auth()`):
+
+1. **Colon-as-type** is the right instinct — `$myVar` is a value of tag-type `auth`.
+2. Prefer **initializer args in the constructor**: `auth(token: …)` not a bare `auth()` unless all fields have defaults.
+3. `const` / `mutable` qualifies the **handle**, not the tag schema.
+4. Keyword stays `using` so block and global forms are one concept.
+
+Rejected / deferred spellings:
+
+| Spelling | Why not (for now) |
+|---|---|
+| `global auth = …` | Introduces a second concept; loses scope unity with block `using` |
+| `using $myVar = auth()` without const/mutable | Mutability becomes implicit; worse for LLMs |
+| Bare `using auth(...)` at program scope with no name | Anonymous god-context — Part C forbids this |
+
+### D.3 Semantics
+
+**Handle** = named activation of exactly one tag instance.
+
+| Form | Lifetime | Access |
+|---|---|---|
+| Program `using const\|mutable $x: tag(...)` | Entire execution (artifact run); init before entrypoint | Only executables that `uses $x` |
+| Block `using … $x: tag(...) { body }` | Enter/exit of that block (Part B scope stack) | `uses $x` + dynamic scope presence |
+
+**`const` handle:**
+
+1. Fields frozen after initialization.
+2. No `rebind` / field writes.
+3. Default for secrets, request ids, identity.
+
+**`mutable` handle:**
+
+1. Fields may be updated through an explicit op (v1 surface below).
+2. Updates are traced; still not `$state`.
+3. Only executables that `uses $quota` may update `$quota` (and optionally require `uses mutable $quota` — open question; proposed: mutability is on the binding, `uses $quota` is enough).
+
+**Reference style (proposed default):**
+
+1. Prefer **qualified** access via the handle: `$session.token`, `$quota.max_usd`.
+2. Bare `$token` is allowed only when it is unambiguous (single active handle providing that field) — or forbidden in Part D programs to reduce ambiguity (open question; proposed: allow bare as sugar when unique).
+
+**`uses` clause gains handle targets:**
+
+```grapheme
+iterator Authorize uses $session, $quota on Request -> Decision { ... }
+// still valid:
+iterator Legacy uses auth on Request -> Decision { ... }  // any active auth instance / anonymous auth scope
+```
+
+Rules:
+
+1. `uses $session` requires an in-scope handle named `session` whose tag is compatible.
+2. `uses auth` means “some active activation of tag auth” (anonymous Part B scope **or** a named handle of that tag).
+3. Program-scoped handles are in scope for all executables in the artifact (subject to `uses`).
+4. Block-scoped handles are in scope only inside that block’s dynamic region.
+
+### D.4 Mutation surface (mutable only)
+
+v1 minimal:
+
+```grapheme
+rebind $quota(max_usd: 0.25)
+```
+
+or field patch:
+
+```grapheme
+update $quota { max_usd: 0.25 }
+```
+
+Proposed pick: **`rebind $quota(...)`** — mirrors constructor syntax; whole-field replacement for listed keys; omitted keys unchanged.
+
+Semantics:
+
+1. Only legal if `$quota` is `mutable`.
+2. Compile error on `rebind $session(...)` if `$session` is `const`.
+3. Emits trace event `context_rebind` with handle name + field names (values redacted by policy).
+4. Does not alter `$state`.
+
+### D.5 How this scopes “to a global level” without Python
+
+Program-scoped handles are **execution globals**, not language-globals with free reads:
+
+1. Declared once at the top (visible contract).
+2. Still require `uses $session` on consumers.
+3. Still off the `$state` data plane.
+4. `const` by default recommendation in style guide; `mutable` is the loud word.
+
+Mental model:
+
+```text
+tag auth { ... }                      // schema (type)
+using const $session: auth(...)       // instance (value) for this run
+iterator X uses $session ...          // capability to observe/use it
+```
+
+That is closer to Rust `static` / `'static` context passing than to Python module-level mutable ambient state.
+
+### D.6 Desugar / IR
+
+Program-scoped handles lower to a synthetic root scope around the entrypoint:
+
+```text
+UsingEnter { handle: "$session", tag: auth, mutability: const, fields }
+UsingEnter { handle: "$quota", tag: budget, mutability: mutable, fields }
+  <entrypoint body>
+UsingExit { handle: "$quota" }
+UsingExit { handle: "$session" }
+```
+
+Or a dedicated preamble list on `MirProgram`:
+
+```rust
+pub struct MirContextHandle {
+    pub name: String,            // "session"
+    pub tag: String,             // "auth"
+    pub mutability: MirMutability, // Const | Mutable
+    pub fields: JsonValue,
+    pub scope: MirContextScope,  // Program | Block(scope_id)
+}
+```
+
+Block named forms attach `handle` to the existing `UsingEnter` activation record.
+
+Lookup becomes:
+
+1. Params / reserved templates
+2. Named handles in scope (`$session.token` direct; bare `$token` via unique provider)
+3. Anonymous tag activations (Part B) if permitted by `uses auth`
+
+### D.7 Interaction with Parts A–C
+
+| Feature | Interaction |
+|---|---|
+| Params | Different namespace; `$session` handle ≠ param `$session` (compile error on collision in same executable) |
+| `$state` | Unchanged data plane; promotion still needs `@promote` |
+| Anonymous `using auth(...)` | Still valid for short regions |
+| `uses auth` | Satisfied by anonymous auth **or** any named `$: auth` handle active |
+| `uses $session` | Requires that specific handle |
+| Bundles (C.5) | May expand to multiple named handles later (`using const $s: session(...)`) |
+
+### D.8 Authoring guidance (LLM-optimized)
+
+Prefer:
+
+```grapheme
+using const $session: auth(token: $env.token, request_id: "r-1")
+using mutable $quota: budget(max_usd: 1.0)
+
+iterator Authorize uses $session, $quota on Request -> Decision {
+  ...
+  rebind $quota(max_usd: 0.2)
+}
+```
+
+Over:
+
+- stuffing tokens into `$state`
+- repeating anonymous `using auth` at every call site
+- central `for [twenty, names]` lists
+
+### D.9 Acceptance for Part D
+
+1. Program-scoped `using const $session: auth(...)` initializes before entrypoint and drops after run.
+2. `uses $session` required to read `$session.*`.
+3. `rebind` allowed only on `mutable` handles.
+4. Block-scoped named handles pop on block exit.
+5. No anonymous program-scoped `using auth(...)` without a handle name.
+6. Trace distinguishes program preamble binds from block enter/exit.
+
 ## Combined Mental Model
 
 ```mermaid
 flowchart TD
-  S["Signature: Authorize uses auth, budget"] --> V[Verifier]
-  A[Caller] -->|using auth, budget| C[Push using scope]
-  C --> D["call Authorize — requirements already satisfied"]
-  D --> B[Callee locals + uses auth]
-  B --> L["$token from active tag"]
-  C --> E[nested using tighter budget]
-  E --> F[Pop inner]
-  C --> I[Pop outer]
-  I --> M[Tagged names gone]
+  P["Program: using const $session: auth(...)"] --> R[Run preamble scope]
+  P2["using mutable $quota: budget(...)"] --> R
+  S["Authorize uses $session, $quota"] --> V[Verifier]
+  R --> D["call Authorize"]
+  D --> B[Callee frame]
+  B --> L["$session.token / $quota.max_usd"]
+  B --> U["rebind $quota(...) if mutable"]
+  R --> E[optional nested block using]
+  E --> F[Pop block]
+  R --> End[Run end pops program handles]
   B --> K["$state still data plane"]
-  V -->|missing uses / missing using| X[Clear diagnostic]
+  V -->|missing uses / wrong mutability| X[Clear diagnostic]
 ```
 
 ## Sequencing
@@ -863,7 +1089,7 @@ flowchart TD
    - `docs/internal/language/tagged-vars-v1.md` (normative contract extract)
 3. Update `docs/internal/language-contract.md` with binding precedence.
 4. Update `docs/internal/runtime/runtime-state-flow.md` with frame locals + tag activations.
-5. Tutorial touch: one realworld example using params; one using multi-bind `using auth, trace`.
+5. Tutorial touch: one realworld example with params + `uses` + compact multi-bind `using`.
 
 ## Open Questions
 
