@@ -18,7 +18,8 @@ This section tracks forward-looking language, runtime, and platform plans.
 
 ## Related Language Planning Docs
 
-1. docs/language/control-flow-v1.md
-2. docs/language/control-flow-v1-implementation.md
-3. docs/language/typed-records-v1.md
-4. docs/language/turing-roadmap.md
+1. docs/internal/language/control-flow-v1.md
+2. docs/internal/language/control-flow-v1-implementation.md
+3. docs/internal/language/typed-records-v1.md
+4. docs/internal/language/turing-roadmap.md
+5. docs/internal/rfc/rfc-0004-params-and-tagged-vars-v1.md
