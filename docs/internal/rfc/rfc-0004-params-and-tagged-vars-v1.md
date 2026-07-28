@@ -11,24 +11,27 @@ Revision notes:
 1. Part B activation model changed from frame-lifetime `bind` to C#-style scoped `using` with multi-bind and nesting.
 2. Part C added: signature-embedded context (`uses`) and sugar so semantics live at boundaries (Rust-lifetime style), reducing LLM/human cognitive load without Python-like looseness.
 3. Part D added: named context handles (`using const|mutable $name: tag(...)`) for program-global and block scopes — still explicit, not anonymous god-context.
+4. Part E added: **tags as typed parameters** — the fundamental call-edge contract; `uses` becomes sugar over tag-typed params + ambient fill. This closes the loop.
 
 ## Summary
 
-Introduce two complementary binding mechanisms that move Grapheme closer to Lua-class composability without embedding a general-purpose scripting VM:
+Introduce a closed binding stack that moves Grapheme closer to Lua-class composability without embedding a general-purpose scripting VM:
 
 1. **Executable parameters v1** — finish the existing GraphQL-style `variable_defs` surface so `query` / `mutation` / `iterator` / `subscription` act as typed callables with named arguments.
 2. **Tagged variables v1** — ambient context schemas activated through **scoped `using`**, with visibility driven primarily by **signature `uses` clauses** (not giant central allow-lists).
 3. **Ergonomic embedding (Part C)** — syntactic sugar that keeps the same IR/governance model while putting semantic load at declaration sites, where LLMs and humans already look.
-4. **Named context handles (Part D)** — `using const|mutable $name: tag(...)` binds a handle at program or block scope; callables `uses $name` instead of relying on anonymous ambient tags.
+4. **Named context handles (Part D)** — `using const|mutable $name: tag(...)` binds a handle at program or block scope.
+5. **Tag-typed parameters (Part E)** — `$session: auth` / `$quota: mutable budget` as real parameters; pass handles or construct at the call site. **This is the fundamental model** the rest sugars into.
 
-These are intentionally separate:
+Unified jobs:
 
 | Mechanism | Job |
 |---|---|
-| Parameters (`$ticket_id`) | Explicit inputs at the call edge — function API |
+| Parameters (`$ticket_id`, `$session: auth`) | Call-edge API — scalars **and** tag handles |
 | `$state` / `$current` | Pipeline value flowing step → step |
-| Tags + `uses` + `using` | Cross-cutting context schemas/scopes |
-| Named handles `$session` | Addressable context instances (global or block), `const` or `mutable` |
+| `tag` schemas | Types for context handles |
+| `using` / named handles | Provide/activate instances (program or block) |
+| `uses …` | Sugar: tag-typed params filled from ambient |
 
 ## Motivation
 
@@ -53,7 +56,8 @@ These are intentionally separate:
 - Authors can write reusable callables with named parameters.
 - Authors can declare ambient context with explicit visibility and **scoped** lifetime.
 - Authors can activate **multiple tags together** and nest scopes (C# `using` analogue).
-- **Semantic cognitive load lives in signatures** (`uses auth`), not in repeated body ceremony.
+- **Semantic cognitive load lives in signatures** (params + tag types + `uses` sugar), not in repeated body ceremony.
+- Tag contexts are **values you can pass**, not only ambient ghosts.
 - LLM authoring stays structured and checkable — sugar lowers verbosity, not rigor.
 - Governance model stays intact: compile-time ACL + runtime scope stack, no soft `eval`.
 
@@ -64,10 +68,13 @@ These are intentionally separate:
 3. Expose params in template resolution as `$name` / `$args.name` without breaking `$state`.
 4. Add tagged variable schemas; derive access from signature `uses` (Part C), with optional explicit allow-lists as escape.
 5. Activate tags via `using` scopes that support **one or many bindings**, nesting, and drop-on-exit.
-6. Enforce tag visibility by **current frame `uses` membership** (not ancestor leakage).
+6. Enforce tag visibility by **current frame membership** (`uses` / tag-typed params — not ancestor leakage).
 7. Keep tag values off the `$state` data plane by default (no silent escape).
 8. Provide sugar that preserves IR semantics while cutting authoring noise (Part C).
-9. Preserve untyped / signature-only programs (gradual adoption).
+9. Support named program/block context handles with `const` / `mutable` (Part D).
+10. Support **tag types in parameter position** and pass/construct handles at call sites (Part E).
+11. Define `uses` as sugar over tag-typed params + ambient fill (closed loop).
+12. Preserve untyped / signature-only programs (gradual adoption).
 
 ## Non-Goals
 
@@ -76,9 +83,10 @@ These are intentionally separate:
 3. First-class function values / closures / higher-order `map` callables (follow-on).
 4. General expression AST for `until` / arithmetic (orthogonal; see control-flow deferred items).
 5. Embedding Lua / Rhai / JS or any guest scripting VM.
-6. Mutable tagged slots / mid-scope rebind in v1 (read-only after `using` enter).
+6. Unrestricted mutation of `const` handles (mutable/`rebind` only where declared).
 7. Cross-execution persistence of tags (tags die with scope exit / run end).
 8. IDisposable-style host resource finalizers in v1 (`using` scopes values; optional `@dispose` hook is follow-on).
+9. Treating tag handles as JSON blobs inside `$state` (handles remain a distinct runtime kind).
 
 ## Relationship to Existing Surfaces
 
@@ -103,7 +111,7 @@ query Run {
 }
 ```
 
-### Add (tags + `uses` + scoped `using`) — preferred authoring shape
+### Closed loop — preferred authoring shape
 
 ```grapheme
 tag auth {
@@ -111,32 +119,36 @@ tag auth {
   $request_id: String
 }
 
-tag trace {
-  $correlation_id: String
-}
-
 tag budget {
   $max_usd: Float
 }
 
-iterator FetchUser uses auth, trace on Request -> User { ... }
-iterator Authorize uses auth, budget on User -> Decision { ... }
-iterator Audit uses auth, trace on Decision -> Decision { ... }
+// Fundamental: tags as typed parameters
+iterator Authorize(
+  $session: auth,
+  $quota: mutable budget,
+  $dry_run: Bool = false
+) on Request -> Decision {
+  http.fetch(headers: { authorization: "Bearer {$session.token}" })
+  |> rebind $quota(max_usd: 0.2)
+}
+
+// Sugar: `uses` ≡ tag-typed params filled from ambient (Part E)
+iterator Audit uses $session on Decision -> Decision { ... }
 
 query Entrypoint {
-  using auth(token: $env.token, request_id: "r-1"),
-        trace(correlation_id: "c-9") {
-    call FetchUser
-    |> using budget(max_usd: 0.25) {
-         call Authorize
-       }
-    |> call Audit
-  }
-  |> call FormatHtml
+  using const $session: auth(token: $env.token, request_id: "r-1")
+  using mutable $quota: budget(max_usd: 1.0)
+
+  // explicit pass
+  call Authorize(session: $session, quota: $quota)
+  // or construct at call site:
+  // call Authorize(session: auth(token: "...", request_id: "r-2"), quota: $quota)
+  |> call Audit
 }
 ```
 
-Verbose explicit `tag auth for [A, B, C]` remain valid as an override form; Part C makes signature `uses` the default source of truth.
+Verbose explicit `tag auth for [A, B, C]` remain valid as an override form; Parts C–E make signatures the source of truth.
 
 ## Part A — Executable Parameters v1
 
@@ -957,15 +969,15 @@ Lookup becomes:
 2. Named handles in scope (`$session.token` direct; bare `$token` via unique provider)
 3. Anonymous tag activations (Part B) if permitted by `uses auth`
 
-### D.7 Interaction with Parts A–C
+### D.7 Interaction with Parts A–C / E
 
 | Feature | Interaction |
 |---|---|
-| Params | Different namespace; `$session` handle ≠ param `$session` (compile error on collision in same executable) |
+| Scalar params | Same param list; tag-typed params are a param kind (Part E) |
+| Tag-typed params | Passing `$session` into `$session: auth` **is** the closed loop — not a name collision |
 | `$state` | Unchanged data plane; promotion still needs `@promote` |
-| Anonymous `using auth(...)` | Still valid for short regions |
-| `uses auth` | Satisfied by anonymous auth **or** any named `$: auth` handle active |
-| `uses $session` | Requires that specific handle |
+| Anonymous `using auth(...)` | Still valid for short regions; can ambient-fill `uses auth` / `$x: auth` |
+| `uses $session` | Sugar for a tag-typed param with ambient fill (Part E) |
 | Bundles (C.5) | May expand to multiple named handles later (`using const $s: session(...)`) |
 
 ### D.8 Authoring guidance (LLM-optimized)
@@ -991,28 +1003,197 @@ Over:
 ### D.9 Acceptance for Part D
 
 1. Program-scoped `using const $session: auth(...)` initializes before entrypoint and drops after run.
-2. `uses $session` required to read `$session.*`.
+2. Consumers access via `uses $session` and/or tag-typed params (Part E).
 3. `rebind` allowed only on `mutable` handles.
 4. Block-scoped named handles pop on block exit.
 5. No anonymous program-scoped `using auth(...)` without a handle name.
 6. Trace distinguishes program preamble binds from block enter/exit.
 
+## Part E — Tags as Typed Parameters (closing the loop)
+
+### E.1 Thesis
+
+Everything above converges on one fundamental call-edge idea:
+
+> **A tag is a type. A handle is a value of that type. Executables take those values as parameters.**
+
+Ambient `using` / `uses` are ergonomic ways to *provide* and *elide* those parameters — not a second parallel system.
+
+This matches the Rust instinct: contexts show up in the signature (`$session: auth`), providers construct them (`auth(...)` / `using const $session: auth(...)`), and call sites pass them (`session: $session`).
+
+### E.2 Surface syntax
+
+Extend Part A `variable_defs` so `type_ref` may name a **tag** (and optional mutability):
+
+```grapheme
+iterator Authorize(
+  $session: auth,
+  $quota: mutable budget,
+  $dry_run: Bool = false
+) on Request -> Decision {
+  http.fetch(headers: { authorization: "Bearer {$session.token}" })
+  |> rebind $quota(max_usd: 0.2)
+}
+
+query Entrypoint {
+  using const $session: auth(token: $env.token, request_id: "r-1")
+  using mutable $quota: budget(max_usd: 1.0)
+
+  call Authorize(session: $session, quota: $quota, dry_run: false)
+}
+```
+
+Call-site value forms for a tag-typed arg:
+
+1. **Handle reference:** `session: $session`
+2. **Inline construct:** `session: auth(token: "...", request_id: "r-2")`
+3. **Ambient fill (sugar):** omit the arg when a compatible ambient handle exists (see E.4)
+
+Grammar sketch:
+
+```pest
+mutability = { "const" | "mutable" }
+
+// existing type_ref gains tag names via qualified_ident / ident already;
+// mutability prefix is new in variable_def / type position:
+variable_def = {
+    "$" ~ ident ~ ":" ~ mutability? ~ type_ref ~ ("=" ~ value)?
+}
+```
+
+Defaults:
+
+1. Omitting mutability on a tag-typed param means **`const`**.
+2. `mutable budget` requires the passed handle to be mutable (or an inline construct, which is born mutable only if annotated — proposed: inline constructs are `const` unless written `mutable budget(...)`).
+3. Scalar types ignore `mutable`/`const` prefixes (error if applied to `String`/`Int`/…).
+
+### E.3 Semantics
+
+For each tag-typed parameter `$session: auth`:
+
+1. Callee frame binds a **local handle** named `session` with tag `auth`.
+2. Body access is `$session.token` (qualified); bare `$token` only if unique sugar permits.
+3. `rebind $session(...)` legal iff param (and incoming handle) are `mutable`.
+4. Handle identity: passing `$session` passes the **same activation** (by reference / shared identity for mutability), not a deep JSON copy.
+5. Inline `auth(...)` at the call site creates an ephemeral activation whose lifetime is the callee frame (dropped on return), unless bound into an outer `using` (not in v1 — ephemeral only).
+6. Still distinct from `$state`; `@promote` required to copy fields into state.
+
+Verifier:
+
+1. Arg tag type must match param tag type.
+2. Passing a `const` handle into `mutable` param → error.
+3. Passing `mutable` into `const` param → ok (callee cannot rebind through const view) — proposed: **view is const**, shared identity cannot be rebound via this alias.
+4. Unknown field access on handle → error from tag schema.
+5. Tag name must refer to a `tag` def, not a `struct` (or allow both later; v1: tags only in this position unless we unify — open question).
+
+### E.4 `uses` as sugar over tag-typed params
+
+Normative desugar (closes Parts C–E):
+
+```grapheme
+iterator Audit uses $session on Decision -> Decision { ... }
+```
+
+desugars to:
+
+```grapheme
+iterator Audit($session: auth) on Decision -> Decision { ... }
+// with ambient-fill calling convention for $session
+```
+
+and
+
+```grapheme
+iterator Legacy uses auth on Decision -> Decision { ... }
+```
+
+desugars to:
+
+```grapheme
+iterator Legacy($auth: auth) on Decision -> Decision { ... }
+// ambient-fill by tag type: any active auth handle / anonymous auth scope
+```
+
+**Ambient-fill calling convention:**
+
+When a call omits a tag-typed argument:
+
+1. If there is an ambient named handle with the **same name** and compatible tag/mutability → fill it.
+2. Else if the param was introduced by `uses auth` (type-only) and exactly one active `auth` activation exists → fill it.
+3. Else → compile error at static call sites / structured runtime error otherwise.
+
+Explicit args always win over ambient fill.
+
+So authors can choose the loudness knob:
+
+| Style | Example | When |
+|---|---|---|
+| Explicit DI | `Authorize($session: auth, …)` + `call Authorize(session: $session)` | Libraries, reusable nodes, clarity |
+| Ambient sugar | `uses $session` + outer `using const $session: …` | App workflows, low ceremony |
+| Inline | `call F(session: auth(...))` | One-off ephemeral context |
+
+All three share one IR: callee locals holding handles.
+
+### E.5 Relationship to scalar params and `on In -> Out`
+
+```grapheme
+iterator Authorize(
+  $session: auth,              // context handle (Part E)
+  $dry_run: Bool = false,      // scalar param (Part A)
+) on Request -> Decision       // pipeline $state contract
+```
+
+Three lanes, one signature — the LLM checklist from Part C becomes complete:
+
+1. Context → tag-typed params / `uses`
+2. Knobs → scalar params
+3. Data → `on In -> Out` / `$state`
+
+### E.6 IR / runtime
+
+Extend `HirParam` / `MirParam`:
+
+```rust
+pub enum MirParamKind {
+    Value, // existing scalars / JSON-shaped values
+    TagHandle {
+        tag: String,
+        mutability: MirMutability,
+        ambient_fill: MirAmbientFill, // None | ByName | ByTag
+    },
+}
+```
+
+Call lowering:
+
+1. Evaluate each tag arg to a `HandleId` (existing activation or ephemeral `UsingEnter` tied to callee frame).
+2. Bind into callee `locals` as a handle, not as `JsonValue` (runtime distinct kind; may serialize for trace as redacted field map).
+3. On callee return, drop ephemeral activations created for inline constructs; do **not** drop caller-owned program/block handles.
+
+### E.7 Acceptance for Part E
+
+1. `$session: auth` parses as a tag-typed param and appears in HIR/MIR.
+2. `call F(session: $session)` and `call F(session: auth(...))` both work.
+3. `uses $session` / `uses auth` desugar to tag-typed params + ambient fill.
+4. Mutability mismatch (`const` → `mutable` param) fails verification.
+5. `rebind` through a `const` param alias fails verification.
+6. Tag handles do not appear as ordinary `$state` fields unless `@promote`d.
+7. Signature help shows tag types alongside scalars.
+
 ## Combined Mental Model
 
 ```mermaid
 flowchart TD
-  P["Program: using const $session: auth(...)"] --> R[Run preamble scope]
-  P2["using mutable $quota: budget(...)"] --> R
-  S["Authorize uses $session, $quota"] --> V[Verifier]
-  R --> D["call Authorize"]
-  D --> B[Callee frame]
-  B --> L["$session.token / $quota.max_usd"]
-  B --> U["rebind $quota(...) if mutable"]
-  R --> E[optional nested block using]
-  E --> F[Pop block]
-  R --> End[Run end pops program handles]
-  B --> K["$state still data plane"]
-  V -->|missing uses / wrong mutability| X[Clear diagnostic]
+  T["tag auth / tag budget"] --> Ty[Tag types]
+  Ty --> H["using const $session: auth(...)"]
+  Ty --> P["Authorize($session: auth, $quota: mutable budget)"]
+  H --> Call["call Authorize(session: $session, quota: $quota)"]
+  Call --> Frame[Callee locals = handles]
+  Frame --> Read["$session.token"]
+  Frame --> Mut["rebind $quota(...)"]
+  U["uses $session sugar"] --> P
+  P --> V[Verifier]
+  Frame --> State["$state data plane separate"]
 ```
 
 ## Sequencing
@@ -1022,7 +1203,7 @@ flowchart TD
 1. Land this RFC.
 2. Add language-contract subsections + examples fixtures skeletons (compile-fail + run-ok).
 
-### Phase 1 — Params v1
+### Phase 1 — Scalar params v1
 
 1. HIR/MIR `params` plumbing (stop dropping AST variables).
 2. Grammar: iterator/node `variable_defs`.
@@ -1031,22 +1212,32 @@ flowchart TD
 5. CLI/SDK entrypoint arg binding.
 6. Docs + LSP hover for params.
 
-### Phase 2 — Tags + `uses` + `using` v1
+### Phase 2 — Tag schemas + block `using` + named handles
 
-1. Grammar `tag` (schema), `uses` clause, compact/multi/nested `using`.
-2. HIR `uses` + tag defs; MIR `UsingEnter` / `UsingExit`.
-3. Derived allow-list from `uses` (+ optional `for`).
-4. Runtime scope stack + permission via `uses`.
-5. Verifier: missing `uses`, missing active tags at call, multi-bind, anti-escape.
-6. Trace enter/exit + redaction; drop on failure/`$return`.
-7. LSP signature help shows `uses`; quick-fixes for missing clause/scope.
+1. Grammar `tag`, compact/multi/nested `using`, `using const|mutable $name: tag(...)`.
+2. MIR `UsingEnter` / `UsingExit` + program preamble handles.
+3. Runtime scope stack; qualified `$name.field`; `rebind` for mutable.
+4. Trace enter/exit/rebind + redaction.
 
-### Phase 3 — Hardening / optional sugar
+### Phase 3 — Tag-typed parameters (close the loop)
 
-1. Conformance fixtures for multi-bind, nest/pop, `uses` diagnostics, deny lists.
-2. Policy-profile checks for redacted param/tag values in traces.
+1. Param types may be tags (`$session: auth`, `$quota: mutable budget`).
+2. Call-site pass handle / inline construct.
+3. Handle identity + const views over shared activations.
+4. LSP signature help shows tag-typed params.
+
+### Phase 4 — `uses` sugar + ambient fill
+
+1. Desugar `uses $session` / `uses auth` → tag-typed params + ambient-fill convention.
+2. Verifier diagnostics for missing ambient / mutability mismatch.
+3. Docs: three loudness styles (explicit DI / ambient / inline).
+
+### Phase 5 — Hardening / optional sugar
+
+1. Conformance fixtures across A–E.
+2. Policy-profile checks for redacted handle fields in traces.
 3. Optional: `bundle session = auth, trace`.
-4. Decide follow-ons: shadow/rebind, `$auth.token` qualification, `@dispose`, HOFs, lexical `let`.
+4. Decide follow-ons: `@dispose`, HOFs, lexical `let`, bare-field sugar policy.
 
 ## Testing Strategy
 
@@ -1106,18 +1297,23 @@ flowchart TD
 11. **Dispose order on multi-bind exit:** reverse header order (C# style) vs declaration order? Proposed: reverse header order.
 12. **Should v1 include a non-block `bind` sugar** that means “using for remainder of current pipeline”? Proposed: **no** — braces required.
 13. **Keyword `using` vs `with`:** one keyword only; proposed docs/`using`, reject synonym churn in v1.
-14. **Ship `bundle` in v1 or Phase 3?** Proposed: Phase 3 optional.
+14. **Ship `bundle` with named handles or later?** Proposed: after Part D.
 15. **Explicit `for […]` when `uses` exist:** union (proposed) vs error-on-redundant vs `for` replaces derived set?
+16. **Bare `$token` when `$session.token` exists:** allow if unique (proposed) vs require qualified in Part D programs?
+17. **Must `uses` say `mutable $quota` to rebind, or is binding mutability enough?** Proposed: binding mutability enough; `uses $quota` permits read+rebind.
+18. **Program-handle init timing:** before any executable vs first entrypoint only? Proposed: before entrypoint; available to all executables in the artifact.
+19. **Multiple handles of same tag** (`$session` + `$service_auth` both `auth`): allowed (proposed); `uses auth` means any; `uses $session` means that instance.
 
 ## Acceptance Criteria (RFC-level)
 
-1. Spec distinguishes params, `$state`, and tagged `using` scopes with non-overlapping jobs.
-2. Parts A–C each have phased implementation checklists grounded in current AST/HIR/MIR/runtime types.
-3. Signature-embedded `uses` is the default ACL; scoped lifetime via `UsingEnter`/`UsingExit` is normative.
+1. Spec distinguishes params, `$state`, anonymous `using` scopes, and named handles with non-overlapping jobs.
+2. Parts A–D each have phased implementation checklists grounded in current AST/HIR/MIR/runtime types.
+3. Signature-embedded `uses` (tag or `$handle`) is the default ACL; scoped lifetime via `UsingEnter`/`UsingExit` is normative.
 4. Multi-bind and nested `using` behavior is specified, including drop-on-failure.
-5. Sugar rules are explicit: total local desugar only; no silent `uses` inference.
-6. Backward compatibility for programs that use none of these features is explicit.
-7. Open questions are listed with proposed defaults so Phase 1 can start without blocking on Part B/C bikesheds.
+5. Program-scoped `using const|mutable $name: tag(...)` is specified without allowing anonymous god-context.
+6. Sugar rules are explicit: total local desugar only; no silent `uses` inference.
+7. Backward compatibility for programs that use none of these features is explicit.
+8. Open questions are listed with proposed defaults so Phase 1 can start without blocking on later bikesheds.
 
 ## Appendix — Current Code Anchors
 
