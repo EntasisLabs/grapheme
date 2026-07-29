@@ -28,6 +28,11 @@ pub fn lower_from_hir(hir: &HirProgram) -> MirProgram {
                         continue;
                     }
 
+                    if let Some(using_inst) = lower_using_step(step) {
+                        instructions.push(using_inst);
+                        continue;
+                    }
+
                     instructions.push(MirInst::Call {
                         module: step.module.clone(),
                         op: step.op.clone(),
@@ -304,6 +309,52 @@ fn branch_target_from_value(value: &JsonValue) -> Option<String> {
     }
 
     Some(symbol.to_string())
+}
+
+fn lower_using_step(step: &crate::hir::HirStep) -> Option<MirInst> {
+    let module = step.module.as_deref()?;
+    if !module.eq_ignore_ascii_case("runtime") {
+        return None;
+    }
+
+    let args = step.args.as_object()?;
+    match step.op.as_str() {
+        "using_enter" => {
+            let scope_id = args.get("scope_id")?.as_u64()? as u32;
+            let activations = args
+                .get("activations")?
+                .as_array()?
+                .iter()
+                .filter_map(|value| {
+                    let object = value.as_object()?;
+                    Some(grapheme_artifact::mir::MirTagActivation {
+                        tag: object.get("tag")?.as_str()?.to_string(),
+                        handle: object
+                            .get("handle")
+                            .and_then(|v| v.as_str())
+                            .map(|v| v.to_string()),
+                        mutability: object
+                            .get("mutability")
+                            .and_then(|v| v.as_str())
+                            .map(|v| v.to_string()),
+                        fields: object
+                            .get("fields")
+                            .cloned()
+                            .unwrap_or(JsonValue::Object(Default::default())),
+                    })
+                })
+                .collect::<Vec<_>>();
+            Some(MirInst::UsingEnter {
+                scope_id,
+                activations,
+            })
+        }
+        "using_exit" => {
+            let scope_id = args.get("scope_id")?.as_u64()? as u32;
+            Some(MirInst::UsingExit { scope_id })
+        }
+        _ => None,
+    }
 }
 
 fn lower_kind(kind: &HirExecutableKind) -> MirFunctionKind {

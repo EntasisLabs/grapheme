@@ -1345,6 +1345,13 @@ fn verify_step_types(
         return Ok(());
     };
 
+    // Runtime control ops introduced by RFC-0004 lowering (not capability catalog ops).
+    if module_raw.eq_ignore_ascii_case("runtime")
+        && matches!(step.op.as_str(), "using_enter" | "using_exit")
+    {
+        return Ok(());
+    }
+
     let module = module_raw.to_lowercase();
     let maybe_spec = find_op_spec(&module, &step.op);
 

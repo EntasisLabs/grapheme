@@ -99,9 +99,15 @@ enum StageBContainerExecution {
     Unavailable(String),
 }
 
+struct UsingScope {
+    scope_id: u32,
+    activations: Vec<(String, Option<String>, Map<String, JsonValue>)>,
+}
+
 struct LoopFrame<'a> {
     function: &'a MirFunction,
     locals: Map<String, JsonValue>,
+    using_stack: Vec<UsingScope>,
     max_iterations: usize,
     merge_mode: MirLoopMergeMode,
     input_snapshot: JsonValue,
@@ -145,6 +151,7 @@ impl<'a> LoopFrame<'a> {
         Self {
             function,
             locals,
+            using_stack: Vec::new(),
             max_iterations,
             merge_mode: function
                 .loop_config
@@ -849,6 +856,60 @@ impl RuntimeEngine {
                     }
 
                     match inst {
+                        MirInst::UsingEnter {
+                            scope_id,
+                            activations,
+                        } => {
+                            let mut bound = Vec::new();
+                            for activation in activations {
+                                let fields = match &activation.fields {
+                                    JsonValue::Object(map) => map.clone(),
+                                    _ => Map::new(),
+                                };
+                                // Bind bare tag fields and optional handle object for `$session.token`.
+                                if let Some(handle) = &activation.handle {
+                                    loop_frame
+                                        .locals
+                                        .insert(handle.clone(), JsonValue::Object(fields.clone()));
+                                }
+                                for (key, value) in &fields {
+                                    loop_frame.locals.insert(key.clone(), value.clone());
+                                }
+                                bound.push((
+                                    activation.tag.clone(),
+                                    activation.handle.clone(),
+                                    fields,
+                                ));
+                            }
+                            loop_frame.using_stack.push(UsingScope {
+                                scope_id: *scope_id,
+                                activations: bound,
+                            });
+                            continue;
+                        }
+                        MirInst::UsingExit { scope_id } => {
+                            let Some(top) = loop_frame.using_stack.pop() else {
+                                return Err(GraphemeError::RuntimeError(format!(
+                                    "using_exit for scope {} with empty using stack",
+                                    scope_id
+                                )));
+                            };
+                            if top.scope_id != *scope_id {
+                                return Err(GraphemeError::RuntimeError(format!(
+                                    "using_exit scope mismatch: expected {}, found {}",
+                                    scope_id, top.scope_id
+                                )));
+                            }
+                            for (_tag, handle, fields) in top.activations {
+                                if let Some(handle) = handle {
+                                    loop_frame.locals.remove(&handle);
+                                }
+                                for key in fields.keys() {
+                                    loop_frame.locals.remove(key);
+                                }
+                            }
+                            continue;
+                        }
                         MirInst::Call {
                             module,
                             op,

@@ -197,10 +197,46 @@ pub struct StructInitStep {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum UsingMutability {
+    Const,
+    Mutable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsingBinding {
+    pub mutability: Option<UsingMutability>,
+    pub handle: Option<String>,
+    pub tag: String,
+    pub fields: Vec<(String, Value)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsingStep {
+    pub bindings: Vec<UsingBinding>,
+    pub pipelines: Vec<Pipeline>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TagDef {
+    pub name: String,
+    pub allow_list: Vec<String>,
+    pub variables: Vec<VariableDef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsingDecl {
+    pub mutability: UsingMutability,
+    pub handle: String,
+    pub tag: String,
+    pub fields: Vec<(String, Value)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PipelineStep {
     Field(FieldCall),
     Call(CallStep),
     StructInit(StructInitStep),
+    Using(UsingStep),
 }
 
 /// A |>-chained sequence of executable steps.
@@ -286,6 +322,8 @@ pub enum Definition {
     Struct(StructDef),
     Enum(EnumDef),
     StateMachine(StateMachineDef),
+    Tag(TagDef),
+    Using(UsingDecl),
     Schema(SchemaDef),
     ModuleProposal(ModuleProposal),
 }

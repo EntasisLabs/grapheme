@@ -129,6 +129,23 @@ pub enum MirInst {
         default_target: MirMatchTarget,
         max_depth: Option<u32>,
     },
+    UsingEnter {
+        scope_id: u32,
+        activations: Vec<MirTagActivation>,
+    },
+    UsingExit {
+        scope_id: u32,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirTagActivation {
+    pub tag: String,
+    #[serde(default)]
+    pub handle: Option<String>,
+    #[serde(default)]
+    pub mutability: Option<String>,
+    pub fields: JsonValue,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

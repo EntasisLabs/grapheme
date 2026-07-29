@@ -134,6 +134,8 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
             | Definition::Struct(_)
             | Definition::Enum(_)
             | Definition::StateMachine(_)
+            | Definition::Tag(_)
+            | Definition::Using(_)
             | Definition::Schema(_)
             | Definition::ModuleProposal(_) => None,
         })
@@ -344,6 +346,8 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
             | Definition::Struct(_)
             | Definition::Enum(_)
             | Definition::StateMachine(_)
+            | Definition::Tag(_)
+            | Definition::Using(_)
             | Definition::Schema(_)
             | Definition::ModuleProposal(_) => {}
         }
@@ -403,20 +407,20 @@ fn lower_pipelines(
                 fragment_defs,
             )?;
 
-            Ok(HirPipeline {
-                steps: expanded_steps
-                    .iter()
-                    .map(|step| {
-                        lower_step(
-                            step,
-                            executable_name,
-                            executable_names,
-                            recursive_max_depth,
-                            default_core_module,
-                        )
-                    })
-                    .collect(),
-            })
+            let mut steps = Vec::new();
+            let mut next_scope_id = 1u32;
+            for step in &expanded_steps {
+                steps.extend(lower_step(
+                    step,
+                    executable_name,
+                    executable_names,
+                    recursive_max_depth,
+                    default_core_module,
+                    &mut next_scope_id,
+                )?);
+            }
+
+            Ok(HirPipeline { steps })
         })
         .collect()
 }
@@ -489,7 +493,8 @@ fn lower_step(
     executable_names: &HashSet<String>,
     recursive_max_depth: Option<u32>,
     default_core_module: bool,
-) -> HirStep {
+    next_scope_id: &mut u32,
+) -> Result<Vec<HirStep>, GraphemeError> {
     match step {
         PipelineStep::Field(field) => {
             if field.module.is_none() && executable_names.contains(&field.name) {
@@ -500,14 +505,14 @@ fn lower_step(
                     &field.name,
                     recursive_max_depth,
                 );
-                return HirStep {
+                return Ok(vec![HirStep {
                     op: field.name.clone(),
                     module: Some("call".to_string()),
                     arg_count: field.args.len(),
                     args,
                     has_selection: field.selection.is_some(),
                     capability: Capability::from_module_op("call", &field.name),
-                };
+                }]);
             }
 
             let resolved_module = if field.module.is_some() {
@@ -523,14 +528,14 @@ fn lower_step(
                 None => Capability::from_bare_op(&field.name),
             };
 
-            HirStep {
+            Ok(vec![HirStep {
                 op: field.name.clone(),
                 module: resolved_module,
                 arg_count: field.args.len(),
                 args: lower_args(&field.args),
                 has_selection: field.selection.is_some(),
                 capability,
-            }
+            }])
         }
         PipelineStep::Call(call) => {
             let mut args = lower_args(&call.args);
@@ -540,27 +545,92 @@ fn lower_step(
                 &call.target,
                 recursive_max_depth,
             );
-            HirStep {
+            Ok(vec![HirStep {
                 op: call.target.clone(),
                 module: Some("call".to_string()),
                 arg_count: call.args.len(),
                 args,
                 has_selection: call.selection.is_some(),
                 capability: Capability::from_module_op("call", &call.target),
-            }
+            }])
         }
         PipelineStep::StructInit(init) => {
             let fields_value = value_to_json(&Value::Object(init.fields.clone()));
             let mut args = Map::new();
             args.insert("fields".to_string(), fields_value);
-            HirStep {
+            Ok(vec![HirStep {
                 op: "set_fields".to_string(),
                 module: Some("core".to_string()),
                 arg_count: 1,
                 args: JsonValue::Object(args),
                 has_selection: false,
                 capability: Capability::from_module_op("core", "set_fields"),
+            }])
+        }
+        PipelineStep::Using(using_step) => {
+            let scope_id = *next_scope_id;
+            *next_scope_id += 1;
+
+            let mut activations = Vec::new();
+            for binding in &using_step.bindings {
+                let mut fields = Map::new();
+                for (key, value) in &binding.fields {
+                    fields.insert(key.clone(), value_to_json(value));
+                }
+                let mut activation = Map::new();
+                activation.insert("tag".to_string(), JsonValue::String(binding.tag.clone()));
+                if let Some(handle) = &binding.handle {
+                    activation.insert("handle".to_string(), JsonValue::String(handle.clone()));
+                }
+                if let Some(mutability) = &binding.mutability {
+                    let label = match mutability {
+                        crate::ast::UsingMutability::Const => "const",
+                        crate::ast::UsingMutability::Mutable => "mutable",
+                    };
+                    activation.insert("mutability".to_string(), JsonValue::String(label.to_string()));
+                }
+                activation.insert("fields".to_string(), JsonValue::Object(fields));
+                activations.push(JsonValue::Object(activation));
             }
+
+            let mut enter_args = Map::new();
+            enter_args.insert("scope_id".to_string(), JsonValue::from(scope_id));
+            enter_args.insert("activations".to_string(), JsonValue::Array(activations));
+
+            let mut steps = vec![HirStep {
+                op: "using_enter".to_string(),
+                module: Some("runtime".to_string()),
+                arg_count: 2,
+                args: JsonValue::Object(enter_args),
+                has_selection: false,
+                capability: Capability::from_module_op("runtime", "using_enter"),
+            }];
+
+            for pipeline in &using_step.pipelines {
+                for body_step in &pipeline.steps {
+                    steps.extend(lower_step(
+                        body_step,
+                        executable_name,
+                        executable_names,
+                        recursive_max_depth,
+                        default_core_module,
+                        next_scope_id,
+                    )?);
+                }
+            }
+
+            let mut exit_args = Map::new();
+            exit_args.insert("scope_id".to_string(), JsonValue::from(scope_id));
+            steps.push(HirStep {
+                op: "using_exit".to_string(),
+                module: Some("runtime".to_string()),
+                arg_count: 1,
+                args: JsonValue::Object(exit_args),
+                has_selection: false,
+                capability: Capability::from_module_op("runtime", "using_exit"),
+            });
+
+            Ok(steps)
         }
     }
 }

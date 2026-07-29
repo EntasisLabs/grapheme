@@ -1343,6 +1343,45 @@ iterator Worker on Any @core_default {
     }
 
     #[test]
+    fn supports_tag_def_and_using_scope_lowering() {
+        let source = r#"
+tag auth {
+	$token: String
+}
+
+query Run {
+	using auth(token: "abc") {
+		core.echo(message: "tok={$token}")
+	}
+}
+"#;
+
+        let compilation = compile(source).expect("tag/using should compile");
+        let run = compilation
+            .mir
+            .functions
+            .iter()
+            .find(|f| f.name == "Run")
+            .expect("Run present");
+        let ops = run
+            .blocks
+            .first()
+            .map(|b| {
+                b.instructions
+                    .iter()
+                    .map(|inst| match inst {
+                        grapheme_artifact::MirInst::UsingEnter { .. } => "enter",
+                        grapheme_artifact::MirInst::UsingExit { .. } => "exit",
+                        grapheme_artifact::MirInst::Call { op, .. } => op.as_str(),
+                        _ => "other",
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        assert_eq!(ops, vec!["enter", "echo", "exit"]);
+    }
+
+    #[test]
     fn supports_executable_params_on_query_and_iterator() {
         let source = r#"
 query Run($label: String = "default") {
