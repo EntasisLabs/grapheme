@@ -1,7 +1,8 @@
 [package]
 name = "grapheme-lsp"
 version = "0.6.1"
-edition = "2021"
+edition = "2024"
+rust-version = "1.92"
 description = "Language Server Protocol implementation for Grapheme"
 license = "Apache-2.0"
 repository = "https://github.com/entasislabs/grapheme"
