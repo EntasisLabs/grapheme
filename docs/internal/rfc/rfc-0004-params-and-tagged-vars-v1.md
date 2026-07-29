@@ -1429,6 +1429,8 @@ flowchart TD
 21. **Inline construct mutability:** default `const` (proposed) vs inherit from param slot?
 22. **Const view over mutable handle:** forbids rebind via that alias but reflects peer rebinds (proposed) vs snapshot at pass?
 23. **Entrypoint tag params from CLI/SDK:** support in v1 or source-level `using` only? Proposed: source-level `using` only in v1.
+24. **Generics syntax:** `Foo[T]` (proposed lean) vs `Foo<T>` vs other — defer to RFC-0005.
+25. **Tag traits vs structural field bounds** for `S: Authed` — defer; keep Part E nominal concrete tags.
 
 ## Acceptance Criteria (RFC-level)
 
@@ -1438,8 +1440,9 @@ flowchart TD
 4. Multi-bind and nested `using` behavior is specified, including drop-on-failure.
 5. Program-scoped `using const|mutable $name: tag(...)` is specified without allowing anonymous god-context.
 6. Sugar rules are explicit: total local desugar only; no silent contract inference beyond documented ambient fill.
-7. Backward compatibility for programs that use none of these features is explicit.
-8. Open questions are listed with proposed defaults so Phase 1 can start without blocking on later bikesheds.
+7. Part F documents generics as a forward door unlocked by A–E, not as v1 scope.
+8. Backward compatibility for programs that use none of these features is explicit.
+9. Open questions are listed with proposed defaults so Phase 1 can start without blocking on later bikesheds.
 
 ## Appendix — Current Code Anchors
 
