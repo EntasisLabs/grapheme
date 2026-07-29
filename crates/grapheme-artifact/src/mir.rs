@@ -23,7 +23,7 @@ pub struct MirParam {
 pub struct MirFunction {
     pub name: String,
     pub kind: MirFunctionKind,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub params: Vec<MirParam>,
     #[serde(default)]
     pub retry_config: Option<MirRetryConfig>,
