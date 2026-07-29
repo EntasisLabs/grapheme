@@ -11,7 +11,8 @@ Revision notes:
 1. Part B activation model changed from frame-lifetime `bind` to C#-style scoped `using` with multi-bind and nesting.
 2. Part C added: signature-embedded context (`uses`) and sugar so semantics live at boundaries (Rust-lifetime style), reducing LLM/human cognitive load without Python-like looseness.
 3. Part D added: named context handles (`using const|mutable $name: tag(...)`) for program-global and block scopes — still explicit, not anonymous god-context.
-4. Part E added: **tags as typed parameters** — the fundamental call-edge contract; `uses` becomes sugar over tag-typed params + ambient fill. This closes the loop.
+4. Part E added: **tags as typed parameters** — the fundamental call-edge contract; `uses` becomes sugar over tag-typed params + ambient fill.
+5. Part F added: **generics as a forward door** — A–E do not ship generics, but they create the signature/type slots generics need (without committing v1 scope).
 
 ## Summary
 
@@ -170,6 +171,7 @@ Notes:
 2. Add the same optional `variable_defs` to `iterator_def` / `node_def` (and optionally `fragment_def` once fragment call semantics stabilize).
 3. Param names are `$`-prefixed at declaration (existing `VariableDef`) and referenced as `$priority` in bodies.
 4. Call sites use bare keys: `call Step(priority: "high")` — matching existing `named_arg` grammar.
+5. Part A lands **scalar / JSON value** params first; Part E extends the same lists so `Type` may be a **tag** (`$session: auth`, `$quota: mutable budget`).
 
 Compatibility:
 
@@ -1180,6 +1182,120 @@ Call lowering:
 6. Tag handles do not appear as ordinary `$state` fields unless `@promote`d.
 7. Signature help shows tag types alongside scalars.
 
+## Part F — Forward Door: Generics (not v1)
+
+### F.1 Honest status
+
+Parts A–E **do not introduce generics**. They close the *binding* loop (provide → type → pass → use).
+
+They **do** create the substrate generics want:
+
+1. Types appear in signature positions (params, `on In -> Out`, tag schemas).
+2. Mutability qualifiers already exist (`const` / `mutable`).
+3. Constraints already exist in embryonic form (`uses auth`, tag-typed params).
+4. Handles are typed values distinct from `$state` JSON blobs.
+
+So: wrong to say “the loop includes generics,” right to say “the loop makes a Grapheme-shaped generics design possible without bolting on Java noise.”
+
+### F.2 What generics would mean here
+
+Three layers, in likely order:
+
+#### F.2.1 Parametric executables over data (`$state`)
+
+```grapheme
+iterator IncField[T]($field: String) on T -> T {
+  // operate structurally / via known field ops
+}
+```
+
+This is the highest-value, lowest-ceremony generic: reusable iterators over different struct shapes, still pipeline-first.
+
+#### F.2.2 Parametric tags / structs
+
+```grapheme
+tag Page[T] {
+  $items: [T]
+  $cursor: String
+}
+
+struct Result[T] {
+  ok: Bool
+  value: T
+}
+```
+
+Lets tag handles and state types carry payload type parameters — natural once Part E exists.
+
+#### F.2.3 Constrained context parameters (the interesting one)
+
+Because Part E treats tags as parameter types, generics can abstract over *families* of context:
+
+```grapheme
+tag trait Authed {
+  $token: String
+}
+
+tag UserSession: Authed {
+  $token: String
+  $user_id: String
+}
+
+tag ServiceSession: Authed {
+  $token: String
+  $service: String
+}
+
+iterator Authorize[S: Authed]($session: S) on Request -> Decision {
+  http.fetch(headers: { authorization: "Bearer {$session.token}" })
+}
+```
+
+That is the Rust analogue of trait bounds — not “generic soup,” but **bounds in the same cognitive slot as `uses` / tag params**.
+
+### F.3 How A–E unlock this without becoming Java
+
+| Already in A–E | Generics reuse |
+|---|---|
+| `$session: auth` | `$session: S` with `S: Authed` |
+| `uses auth` sugar | `uses S` / bound implied by param |
+| `mutable budget` | `mutable S` / bound + mutability |
+| `on Request -> Decision` | `on T -> U` |
+| Named handles | `using const $session: UserSession(...)` still provides concrete `S` |
+
+Cognitive rule stays the same: **read the signature**. Generics add brackets/bounds there, not body magic.
+
+### F.4 What still has to be invented (why it’s a door, not done)
+
+1. Syntax for type parameters: `Foo[T]`, `Foo<T>`, or `Foo(T)` — pick one (lean `[T]` to avoid JS/Java angle-bracket noise in pipelines).
+2. Bound language: tag traits / required fields / `S: auth`-style nominal bounds.
+3. Inference rules: when can `call Authorize(session: $session)` infer `S = UserSession`? (Hopefully always at monomorphic call sites.)
+4. MIR story: monomorphization (likely) vs runtime type reps (probably not — fights Wasm/artifact determinism).
+5. Ambient fill + generics: ByTag fill must stay unambiguous under bounds.
+6. Interaction with structural `$state` typing from typed-records v1.
+
+### F.5 Non-goals for this RFC
+
+1. Ship generics in the A–E implementation phases.
+2. Higher-kinded types, variance algebra, or lifetime-polymorphism beyond handle scopes.
+3. Generic capability modules / Wasm plugins in this doc.
+
+### F.6 Recommendation
+
+Treat generics as **RFC-0005+**, scaffolded by this one:
+
+1. Land concrete tag types + tag-typed params (E).
+2. Add parametric `on T -> T` executables next (smallest win).
+3. Only then tag traits / constrained `$session: S`.
+
+If a choice in A–E would paint generics into a corner, prefer the more signature-explicit option (qualified `$session.token`, nominal tag types, monomorphic artifacts).
+
+### F.7 Acceptance for Part F (doc-only)
+
+1. This RFC states clearly that generics are enabled-by, not included-in, A–E.
+2. A plausible generics shape is sketched that reuses tag-typed params / bounds.
+3. Sequencing points generics at a follow-on RFC after monomorphic tag params exist.
+
 ## Combined Mental Model
 
 ```mermaid
@@ -1239,25 +1355,31 @@ flowchart TD
 3. Optional: `bundle session = auth, trace`.
 4. Decide follow-ons: `@dispose`, HOFs, lexical `let`, bare-field sugar policy.
 
+### Later — Generics (RFC-0005+, see Part F)
+
+1. Parametric executables `on T -> T`.
+2. Parametric tags/structs.
+3. Tag traits / constrained `$session: S`.
+4. Prefer monomorphization for artifact determinism.
+
 ## Testing Strategy
 
-1. **Parser/AST**: param lists; `uses`; `tag` schema; compact/multi/nested `using`.
-2. **HIR/MIR golden**: params + `uses` preserved; matching `UsingEnter`/`UsingExit`; compact==object desugar.
+1. **Parser/AST**: scalar + tag-typed params; `uses`; `tag` schema; compact/multi/nested/named `using`.
+2. **HIR/MIR golden**: params kinds preserved; `uses` desugar; matching `UsingEnter`/`UsingExit`; compact==object desugar.
 3. **Verifier**:
    - unknown call arg / missing required param
-   - body read without `uses`
-   - call without active required tag
+   - tag/mutability mismatch on handle pass
+   - ambient fill success/failure cases
+   - `const` alias cannot `rebind`
    - duplicate tag in one `using` header
    - illegal promotion into `set`
 4. **Runtime**:
-   - multi-bind activate both
-   - nested pop order
-   - `uses` permits read; absence denies
-   - after scope exit, bindings gone
-   - failure / `$return` still drops scopes
-   - params do not leak into `$state`
-5. **SDK/CLI**: entrypoint `--arg` / `entrypoint_args` wiring.
-6. **LSP** (soft gate): signature help includes `uses`; quick-fix suggestions (not silent inference).
+   - pass-by-handle identity for mutable rebind visibility
+   - ephemeral inline `auth(...)` dropped on callee return
+   - multi-bind / nest / program preamble lifetimes
+   - params/handles do not leak into `$state`
+5. **SDK/CLI**: entrypoint `--arg` for scalars; handle init remains source-level `using` in v1.
+6. **LSP** (soft gate): signature help shows tag types; quick-fix `uses` ↔ tag param (not silent inference).
 
 ## Observability
 
@@ -1299,19 +1421,23 @@ flowchart TD
 13. **Keyword `using` vs `with`:** one keyword only; proposed docs/`using`, reject synonym churn in v1.
 14. **Ship `bundle` with named handles or later?** Proposed: after Part D.
 15. **Explicit `for […]` when `uses` exist:** union (proposed) vs error-on-redundant vs `for` replaces derived set?
-16. **Bare `$token` when `$session.token` exists:** allow if unique (proposed) vs require qualified in Part D programs?
-17. **Must `uses` say `mutable $quota` to rebind, or is binding mutability enough?** Proposed: binding mutability enough; `uses $quota` permits read+rebind.
+16. **Bare `$token` when `$session.token` exists:** allow if unique (proposed) vs require qualified in Part D/E programs?
+17. **Must `uses` say `mutable $quota` to rebind, or is binding mutability enough?** Proposed: binding/param mutability enough.
 18. **Program-handle init timing:** before any executable vs first entrypoint only? Proposed: before entrypoint; available to all executables in the artifact.
-19. **Multiple handles of same tag** (`$session` + `$service_auth` both `auth`): allowed (proposed); `uses auth` means any; `uses $session` means that instance.
+19. **Multiple handles of same tag** (`$session` + `$service_auth` both `auth`): allowed (proposed); `uses auth` / ByTag fill needs exactly one or else error.
+20. **Can `struct` types appear in the same param slot as tags?** Proposed v1: no — tags for handles, structs for `$state` / value params only.
+21. **Inline construct mutability:** default `const` (proposed) vs inherit from param slot?
+22. **Const view over mutable handle:** forbids rebind via that alias but reflects peer rebinds (proposed) vs snapshot at pass?
+23. **Entrypoint tag params from CLI/SDK:** support in v1 or source-level `using` only? Proposed: source-level `using` only in v1.
 
 ## Acceptance Criteria (RFC-level)
 
-1. Spec distinguishes params, `$state`, anonymous `using` scopes, and named handles with non-overlapping jobs.
-2. Parts A–D each have phased implementation checklists grounded in current AST/HIR/MIR/runtime types.
-3. Signature-embedded `uses` (tag or `$handle`) is the default ACL; scoped lifetime via `UsingEnter`/`UsingExit` is normative.
+1. Spec distinguishes scalar params, tag-typed params, `$state`, `using` scopes, and named handles — with Part E as the unifying call-edge model.
+2. Parts A–E each have phased implementation checklists grounded in current AST/HIR/MIR/runtime types.
+3. `uses` is defined as sugar over tag-typed params + ambient fill.
 4. Multi-bind and nested `using` behavior is specified, including drop-on-failure.
 5. Program-scoped `using const|mutable $name: tag(...)` is specified without allowing anonymous god-context.
-6. Sugar rules are explicit: total local desugar only; no silent `uses` inference.
+6. Sugar rules are explicit: total local desugar only; no silent contract inference beyond documented ambient fill.
 7. Backward compatibility for programs that use none of these features is explicit.
 8. Open questions are listed with proposed defaults so Phase 1 can start without blocking on later bikesheds.
 
