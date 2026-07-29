@@ -308,14 +308,14 @@ mutation_def = {
 
 // Iterators: reusable named executable pipelines (like functions)
 iterator_def = {
-    "iterator" ~ ident ~ executable_signature ~ directive* ~ "{"
+    "iterator" ~ ident ~ variable_defs? ~ executable_signature ~ directive* ~ "{"
     ~ pipeline+
     ~ "}"
 }
 
 // Node alias: semantic equivalent of iterator
 node_def = {
-    "node" ~ ident ~ executable_signature ~ directive* ~ "{"
+    "node" ~ ident ~ variable_defs? ~ executable_signature ~ directive* ~ "{"
     ~ pipeline+
     ~ "}"
 }

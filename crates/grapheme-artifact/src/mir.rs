@@ -10,9 +10,21 @@ pub struct MirProgram {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirParam {
+    pub name: String,
+    #[serde(default)]
+    pub type_name: Option<String>,
+    #[serde(default)]
+    pub default: Option<JsonValue>,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MirFunction {
     pub name: String,
     pub kind: MirFunctionKind,
+    #[serde(default)]
+    pub params: Vec<MirParam>,
     #[serde(default)]
     pub retry_config: Option<MirRetryConfig>,
     #[serde(default)]

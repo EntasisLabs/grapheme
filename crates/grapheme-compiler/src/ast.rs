@@ -249,6 +249,7 @@ pub struct MutationDef {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IteratorDef {
     pub name: String,
+    pub variables: Vec<VariableDef>,
     pub signature: ExecutableSignature,
     pub directives: Vec<Directive>,
     pub pipelines: Vec<Pipeline>,

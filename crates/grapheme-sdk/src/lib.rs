@@ -161,6 +161,12 @@ impl GraphemeEngineBuilder {
         self
     }
 
+    /// Bind named entrypoint parameters for executables with `$param` lists.
+    pub fn with_entrypoint_args(mut self, entrypoint_args: JsonValue) -> Self {
+        self.runtime_options.entrypoint_args = Some(entrypoint_args);
+        self
+    }
+
     /// Bind a module id to a Wasm path for runtime resolution.
     pub fn with_module_path(mut self, module: &str, path: impl Into<PathBuf>) -> Self {
         self.module_bindings

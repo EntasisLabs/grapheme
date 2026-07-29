@@ -128,13 +128,22 @@ stateDiagram-v2
     }
 ```
 
+## 4.1) Executable Parameters (RFC-0004 Phase 1)
+
+Executable params (`query Foo($x: String)`, `iterator Step($label: String)`) lower to `MirFunction.params` and bind into **call-frame locals** (not `$state`).
+
+1. Call-site args on `call Target(label: …)` resolve in the caller template scope, then bind into callee locals.
+2. Templates resolve `$label` / `$args.label` from locals before `$state` / `$current` / `$item` / `$loop`.
+3. Entrypoint bindings use `RuntimeOptions.entrypoint_args` / SDK `with_entrypoint_args` / CLI `--args-json`.
+4. Params are dropped when the call frame returns and do not auto-merge into `state.current`.
+
 ## 5) Why Looping Feels Bad Today
 
 Based on current runtime/state code, the main pressure points are:
 
 1. Single global `current` for all scopes
 - Nested calls and loop iterations all write to one `state.current`.
-- There is no per-call-frame local state snapshot.
+- Frame locals exist for executable params (RFC-0004), but `$state.current` remains shared across nested calls.
 
 2. Loop termination is tied to final top-level object shape
 - `until` checks only `state.current[field] == eq` at end of each iteration.

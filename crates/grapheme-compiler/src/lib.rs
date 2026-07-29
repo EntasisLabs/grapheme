@@ -1343,6 +1343,84 @@ iterator Worker on Any @core_default {
     }
 
     #[test]
+    fn supports_executable_params_on_query_and_iterator() {
+        let source = r#"
+query Run($label: String = "default") {
+	call Greet(label: $label)
+}
+
+iterator Greet($label: String) on Any {
+	core.echo(message: "hi {$label}")
+}
+"#;
+
+        let compilation = compile(source).expect("params should compile");
+        let greet = compilation
+            .mir
+            .functions
+            .iter()
+            .find(|f| f.name == "Greet")
+            .expect("Greet present");
+        assert_eq!(greet.params.len(), 1);
+        assert_eq!(greet.params[0].name, "label");
+        assert!(greet.params[0].required);
+
+        let run = compilation
+            .mir
+            .functions
+            .iter()
+            .find(|f| f.name == "Run")
+            .expect("Run present");
+        assert_eq!(run.params.len(), 1);
+        assert_eq!(run.params[0].name, "label");
+        assert!(!run.params[0].required);
+        assert_eq!(
+            run.params[0].default.as_ref(),
+            Some(&serde_json::json!("default"))
+        );
+
+        let call = run
+            .blocks
+            .first()
+            .and_then(|b| b.instructions.first())
+            .expect("call instruction");
+        match call {
+            grapheme_artifact::MirInst::Call { args, op, .. } => {
+                assert_eq!(op, "Greet");
+                assert_eq!(args.get("label"), Some(&serde_json::json!({ "$var": "label" })));
+            }
+            _ => panic!("expected call"),
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_and_missing_call_params() {
+        let unknown = r#"
+query Run {
+	call Greet(priority: "high")
+}
+
+iterator Greet($label: String) on Any {
+	core.echo(message: $label)
+}
+"#;
+        let err = compile(unknown).expect_err("unknown call arg should fail");
+        assert!(err.to_string().contains("unknown call arg 'priority'"));
+
+        let missing = r#"
+query Run {
+	call Greet
+}
+
+iterator Greet($label: String) on Any {
+	core.echo(message: $label)
+}
+"#;
+        let err = compile(missing).expect_err("missing required arg should fail");
+        assert!(err.to_string().contains("missing required arg 'label'"));
+    }
+
+    #[test]
     fn supports_struct_and_typed_executable_signatures() {
         let source = r#"
 struct FibState {

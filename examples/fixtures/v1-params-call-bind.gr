@@ -1,0 +1,9 @@
+import core from "grapheme/core"
+
+query ParamsCallBind($label: String = "world") {
+  call Greet(label: $label)
+}
+
+iterator Greet($label: String) on Any {
+  core.echo(message: "hello {$label}")
+}

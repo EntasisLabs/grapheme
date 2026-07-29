@@ -23,6 +23,7 @@ impl ParseState {
 
         self.synthetic_iterators.push(IteratorDef {
             name: name.clone(),
+            variables: vec![],
             signature: ExecutableSignature {
                 input: TypeRef::Scalar(ScalarKind::Any, false),
                 output: Some(TypeRef::Scalar(ScalarKind::Any, false)),
@@ -496,12 +497,13 @@ fn parse_mutation(pair: Pair<Rule>, state: &mut ParseState) -> Result<MutationDe
 fn parse_iterator(pair: Pair<Rule>, state: &mut ParseState) -> Result<IteratorDef, GraphemeError> {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
-    let (_, signature, directives, pipelines) = parse_operation_body(inner, state)?;
+    let (variables, signature, directives, pipelines) = parse_operation_body(inner, state)?;
     let signature = signature.ok_or_else(|| {
         GraphemeError::ParseError(format!("iterator '{}' is missing required signature", name))
     })?;
     Ok(IteratorDef {
         name,
+        variables,
         signature,
         directives,
         pipelines,

@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use crate::ast::ImportKind;
 use crate::ast::{
     Definition, Directive, FragmentDef, OpKind, Pipeline, PipelineStep, Program, StructDef,
-    TypeRef, Value,
+    TypeRef, Value, VariableDef,
 };
 use crate::error::GraphemeError;
 
@@ -61,9 +61,18 @@ pub struct HirImport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HirParam {
+    pub name: String,
+    pub type_ref: TypeRef,
+    pub default: Option<JsonValue>,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HirExecutable {
     pub kind: HirExecutableKind,
     pub name: String,
+    pub params: Vec<HirParam>,
     pub input_type: Option<TypeRef>,
     pub output_type: Option<TypeRef>,
     pub loop_directive_count: usize,
@@ -189,6 +198,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
             Definition::Glyph(g) => executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Query,
                 name: g.name.clone(),
+                params: Vec::new(),
                 input_type: None,
                 output_type: None,
                 loop_directive_count: 0,
@@ -215,6 +225,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
                 executable_defs.push(HirExecutable {
                     kind: HirExecutableKind::Query,
                     name: q.name.clone(),
+                    params: lower_params(&q.variables),
                     input_type: q.signature.as_ref().map(|sig| sig.input.clone()),
                     output_type: q.signature.as_ref().and_then(|sig| sig.output.clone()),
                     loop_directive_count: loop_directive_count(&directives),
@@ -244,6 +255,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
                 executable_defs.push(HirExecutable {
                     kind: HirExecutableKind::Mutation,
                     name: m.name.clone(),
+                    params: lower_params(&m.variables),
                     input_type: m.signature.as_ref().map(|sig| sig.input.clone()),
                     output_type: m.signature.as_ref().and_then(|sig| sig.output.clone()),
                     loop_directive_count: loop_directive_count(&directives),
@@ -273,6 +285,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
                 executable_defs.push(HirExecutable {
                     kind: HirExecutableKind::Subscription,
                     name: s.name.clone(),
+                    params: lower_params(&s.variables),
                     input_type: s.signature.as_ref().map(|sig| sig.input.clone()),
                     output_type: s.signature.as_ref().and_then(|sig| sig.output.clone()),
                     loop_directive_count: loop_directive_count(&directives),
@@ -302,6 +315,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
                 executable_defs.push(HirExecutable {
                     kind: HirExecutableKind::Fragment,
                     name: f.name.clone(),
+                    params: lower_params(&f.variables),
                     input_type: Some(f.signature.input.clone()),
                     output_type: f.signature.output.clone(),
                     loop_directive_count: loop_directive_count(&directives),
@@ -549,6 +563,19 @@ fn lower_step(
             }
         }
     }
+}
+
+
+fn lower_params(variables: &[VariableDef]) -> Vec<HirParam> {
+    variables
+        .iter()
+        .map(|variable| HirParam {
+            name: variable.name.clone(),
+            type_ref: variable.type_ref.clone(),
+            default: variable.default.as_ref().map(value_to_json),
+            required: variable.default.is_none(),
+        })
+        .collect()
 }
 
 fn lower_args(args: &[(String, Value)]) -> JsonValue {

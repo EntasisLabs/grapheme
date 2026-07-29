@@ -1,12 +1,13 @@
 use grapheme_artifact::mir::MirCompareOp;
 use grapheme_artifact::{
     MirBlock, MirFunction, MirFunctionKind, MirInst, MirIntentConfig, MirLoopConfig,
-    MirLoopMergeMode, MirLoopUntil, MirMatchCase, MirMatchTarget, MirProgram, MirRetryConfig,
-    MirTerminator, MirTimeoutConfig,
+    MirLoopMergeMode, MirLoopUntil, MirMatchCase, MirMatchTarget, MirParam, MirProgram,
+    MirRetryConfig, MirTerminator, MirTimeoutConfig,
 };
 use serde_json::Value as JsonValue;
 
-use crate::hir::{HirExecutableKind, HirProgram};
+use crate::ast::{ScalarKind, TypeRef};
+use crate::hir::{HirExecutableKind, HirParam, HirProgram};
 
 pub fn lower_from_hir(hir: &HirProgram) -> MirProgram {
     let functions = hir
@@ -47,6 +48,7 @@ pub fn lower_from_hir(hir: &HirProgram) -> MirProgram {
             MirFunction {
                 name: def.name.clone(),
                 kind: lower_kind(&def.kind),
+                params: lower_params(&def.params),
                 retry_config: lower_retry_config(def.retry_args.as_ref()),
                 timeout_config: lower_timeout_config(def.timeout_args.as_ref()),
                 intent_config: lower_intent_config(def.intent_args.as_ref()),
@@ -310,5 +312,52 @@ fn lower_kind(kind: &HirExecutableKind) -> MirFunctionKind {
         HirExecutableKind::Mutation => MirFunctionKind::Mutation,
         HirExecutableKind::Subscription => MirFunctionKind::Subscription,
         HirExecutableKind::Fragment => MirFunctionKind::Fragment,
+    }
+}
+
+fn lower_params(params: &[HirParam]) -> Vec<MirParam> {
+    params
+        .iter()
+        .map(|param| MirParam {
+            name: param.name.clone(),
+            type_name: Some(type_ref_label(&param.type_ref)),
+            default: param.default.clone(),
+            required: param.required,
+        })
+        .collect()
+}
+
+fn type_ref_label(type_ref: &TypeRef) -> String {
+    match type_ref {
+        TypeRef::Named(name, non_null) => {
+            if *non_null {
+                format!("{name}!")
+            } else {
+                name.clone()
+            }
+        }
+        TypeRef::List(inner, non_null) => {
+            let label = format!("[{}]", type_ref_label(inner));
+            if *non_null {
+                format!("{label}!")
+            } else {
+                label
+            }
+        }
+        TypeRef::Scalar(kind, non_null) => {
+            let name = match kind {
+                ScalarKind::String => "String",
+                ScalarKind::Int => "Int",
+                ScalarKind::Float => "Float",
+                ScalarKind::Bool => "Bool",
+                ScalarKind::Any => "Any",
+                ScalarKind::Json => "Json",
+            };
+            if *non_null {
+                format!("{name}!")
+            } else {
+                name.to_string()
+            }
+        }
     }
 }
