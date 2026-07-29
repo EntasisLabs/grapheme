@@ -18,11 +18,12 @@ Write workflows in `.gr`, compile them into verified MIR artifacts, and run them
 
 ### Prerequisites
 
-- Rust stable + Cargo
+- Rust **1.92+** stable + Cargo (edition 2024; see `rust-toolchain.toml`)
 - `wasm32-wasip1` target
 - Node.js + npm (for extension packaging/local extension work)
 
 ```bash
+rustup show
 rustup target add wasm32-wasip1
 ```
 
