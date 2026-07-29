@@ -60,6 +60,8 @@ Benefits:
 - Reduces temporary field churn in state.
 - Improves readability of intermediate calculations.
 
+Related (preferred near-term path): RFC-0004 proposes finishing executable parameters and introducing tagged ambient variables before general lexical `let`. See `docs/internal/rfc/rfc-0004-params-and-tagged-vars-v1.md`.
+
 ### 3) Compact Conditional Syntax (sugar over flow.branch)
 
 Add readable if/else sugar lowered to current branch instruction.
