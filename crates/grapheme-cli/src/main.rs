@@ -59,6 +59,7 @@ struct RunOptions {
     output_mode: RunOutputMode,
     native_modules: bool,
     initial_state_current: Option<JsonValue>,
+    entrypoint_args: Option<JsonValue>,
     aot_stage: Option<AotStageSelection>,
     strict_stage_b_container_execution: bool,
     allow_stage_b_fallback: bool,
@@ -1913,6 +1914,7 @@ fn run_program(file_path: &str, run_options: RunOptions) -> Result<(), CompilerE
     let trace_policy = trace_policy_from_run_options(&run_options);
     let strict_stage_b_container_execution = resolve_stage_b_strict_mode(&run_options);
     let initial_state_current = run_options.initial_state_current.clone();
+    let entrypoint_args = run_options.entrypoint_args.clone();
 
     let required_modules = collect_called_modules(&compiled.artifact);
     let mut module_bindings = resolve_module_bindings_for_run(&run_options, &required_modules)?;
@@ -1954,6 +1956,9 @@ fn run_program(file_path: &str, run_options: RunOptions) -> Result<(), CompilerE
 
     if let Some(initial_current) = initial_state_current {
         engine_builder = engine_builder.with_initial_state_current(initial_current);
+    }
+    if let Some(args) = entrypoint_args {
+        engine_builder = engine_builder.with_entrypoint_args(args);
     }
 
     let (is_set, max_steps) = parse_optional_usize_env("GRAPHEME_RUNTIME_MAX_STEPS")
@@ -2098,6 +2103,7 @@ fn default_run_options() -> RunOptions {
         output_mode: RunOutputMode::Plain,
         native_modules: false,
         initial_state_current: None,
+        entrypoint_args: None,
         aot_stage: None,
         strict_stage_b_container_execution: false,
         allow_stage_b_fallback: false,
@@ -2462,6 +2468,26 @@ fn parse_run_args(args: &[String]) -> Result<(String, RunOptions), CompilerError
                 })?;
                 run_options.initial_state_current =
                     Some(parse_json_value_flag("--state-file", &raw)?);
+                i += 2;
+            }
+            "--args-json" => {
+                if i + 1 >= args.len() {
+                    return Err(CompilerError::RuntimeError(
+                        "--args-json requires a JSON object value".to_string(),
+                    ));
+                }
+                if run_options.entrypoint_args.is_some() {
+                    return Err(CompilerError::RuntimeError(
+                        "entrypoint args already set; use --args-json once".to_string(),
+                    ));
+                }
+                let value = parse_json_value_flag("--args-json", &args[i + 1])?;
+                if !value.is_object() {
+                    return Err(CompilerError::RuntimeError(
+                        "--args-json must be a JSON object".to_string(),
+                    ));
+                }
+                run_options.entrypoint_args = Some(value);
                 i += 2;
             }
             "--aot-stage" => {
@@ -2945,6 +2971,7 @@ fn print_usage() {
     eprintln!("  grapheme examples init [--out dir]");
     eprintln!("  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules]");
     eprintln!("               [--state-json '<json>' | --state-file path.json]");
+    eprintln!("               [--args-json '<json-object>']");
     eprintln!("               [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--strict-stage-b] [--allow-stage-b-fallback] [--stream-steps]");
     eprintln!("               [--trace-profile lean|debug] [--trace-steps N]");
     eprintln!("               [--trace-projection minimal|full] [--trace-max-string-bytes N]");
@@ -3181,6 +3208,7 @@ showcase = "examples/legacy/showcase"
             output_mode: RunOutputMode::Plain,
             native_modules: false,
             initial_state_current: None,
+            entrypoint_args: None,
             aot_stage: Some(AotStageSelection::StageB),
             strict_stage_b_container_execution: false,
             allow_stage_b_fallback: false,
@@ -3202,6 +3230,7 @@ showcase = "examples/legacy/showcase"
             output_mode: RunOutputMode::Plain,
             native_modules: false,
             initial_state_current: None,
+            entrypoint_args: None,
             aot_stage: Some(AotStageSelection::StageB),
             strict_stage_b_container_execution: false,
             allow_stage_b_fallback: true,

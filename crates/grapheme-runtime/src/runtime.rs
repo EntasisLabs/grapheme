@@ -2,7 +2,7 @@ use grapheme_artifact::mir::{MirCompareOp, MirMatchTarget};
 use grapheme_artifact::{
     validate_aot_host_interface_boundary, AotEnvelope, AotStage, ArtifactEnvelope, Capability,
     CapabilityPolicy, ExecutionOutcome, ExecutionResult, MirFunction, MirInst, MirLoopMergeMode,
-    TraceSummary,
+    MirParam, TraceSummary,
 };
 use grapheme_signatures::module_ops;
 use serde_json::{json, Map, Value as JsonValue};
@@ -52,6 +52,8 @@ pub struct RuntimeOptions {
     pub max_call_depth: Option<usize>,
     /// Optional initial value assigned to `state.current` before first step.
     pub initial_state_current: Option<JsonValue>,
+    /// Optional entrypoint parameter bindings (`{ "priority": "high" }`).
+    pub entrypoint_args: Option<JsonValue>,
 }
 
 impl Default for RuntimeOptions {
@@ -68,6 +70,7 @@ impl Default for RuntimeOptions {
             max_steps: Some(100_000),
             max_call_depth: Some(DEFAULT_MAX_CALL_DEPTH),
             initial_state_current: None,
+            entrypoint_args: None,
         }
     }
 }
@@ -96,8 +99,15 @@ enum StageBContainerExecution {
     Unavailable(String),
 }
 
+struct UsingScope {
+    scope_id: u32,
+    activations: Vec<(String, Option<String>, Map<String, JsonValue>)>,
+}
+
 struct LoopFrame<'a> {
     function: &'a MirFunction,
+    locals: Map<String, JsonValue>,
+    using_stack: Vec<UsingScope>,
     max_iterations: usize,
     merge_mode: MirLoopMergeMode,
     input_snapshot: JsonValue,
@@ -110,10 +120,11 @@ struct TemplateScope<'a> {
     state: &'a JsonValue,
     item: Option<&'a JsonValue>,
     loop_meta: Option<JsonValue>,
+    locals: &'a Map<String, JsonValue>,
 }
 
 impl<'a> LoopFrame<'a> {
-    fn new(function: &'a MirFunction, state: &AgentState) -> Self {
+    fn new(function: &'a MirFunction, state: &AgentState, locals: Map<String, JsonValue>) -> Self {
         let input_snapshot = state.current.clone();
         let each_inputs = function
             .loop_config
@@ -139,6 +150,8 @@ impl<'a> LoopFrame<'a> {
 
         Self {
             function,
+            locals,
+            using_stack: Vec::new(),
             max_iterations,
             merge_mode: function
                 .loop_config
@@ -188,6 +201,7 @@ impl<'a> LoopFrame<'a> {
             state: state_scope,
             item: item_scope,
             loop_meta,
+            locals: &self.locals,
         }
     }
 
@@ -387,6 +401,14 @@ impl RuntimeEngine {
         let mut remaining_steps = self.options.max_steps;
         let max_call_depth = self.options.max_call_depth.unwrap_or(usize::MAX);
 
+        let entrypoint_locals = build_locals(
+            &functions[entrypoint_index].params,
+            self.options
+                .entrypoint_args
+                .as_ref()
+                .unwrap_or(&JsonValue::Object(Map::new())),
+            &functions[entrypoint_index].name,
+        )?;
         if let Some(result) = self.execute_function(
             functions,
             &function_index,
@@ -398,6 +420,7 @@ impl RuntimeEngine {
             &mut remaining_steps,
             0,
             max_call_depth,
+            entrypoint_locals,
         )? {
             state.set_runtime_events(module_lifecycle_events_to_json(
                 self.options.module_manager.lifecycle_events(),
@@ -675,6 +698,7 @@ impl RuntimeEngine {
         remaining_steps: &mut Option<usize>,
         call_depth: usize,
         max_call_depth: usize,
+        locals: Map<String, JsonValue>,
     ) -> Result<Option<ExecutionResult>, GraphemeError> {
         let function = &functions[function_idx];
         let intent_goal = function
@@ -707,6 +731,7 @@ impl RuntimeEngine {
                 remaining_steps,
                 call_depth,
                 max_call_depth,
+                locals.clone(),
             )?;
 
             if let Some(result_value) = result {
@@ -742,6 +767,7 @@ impl RuntimeEngine {
                             &retry_cfg.on_fail,
                             "runtime.retry",
                             base_context,
+                            &JsonValue::Object(Map::new()),
                         );
                     }
                 }
@@ -767,6 +793,7 @@ impl RuntimeEngine {
         remaining_steps: &mut Option<usize>,
         call_depth: usize,
         max_call_depth: usize,
+        locals: Map<String, JsonValue>,
     ) -> Result<Option<ExecutionResult>, GraphemeError> {
         let function = &functions[function_idx];
         let function_name = function.name.clone();
@@ -778,7 +805,7 @@ impl RuntimeEngine {
             .intent_config
             .as_ref()
             .and_then(|cfg| cfg.risk.clone());
-        let mut loop_frame = LoopFrame::new(function, state);
+        let mut loop_frame = LoopFrame::new(function, state, locals);
         let timeout_started = Instant::now();
 
         for iteration in 0..loop_frame.max_iterations {
@@ -811,6 +838,7 @@ impl RuntimeEngine {
                                 &timeout_cfg.on_timeout,
                                 "runtime.timeout",
                                 base_context,
+                                &JsonValue::Object(Map::new()),
                             );
                         }
                     }
@@ -828,6 +856,60 @@ impl RuntimeEngine {
                     }
 
                     match inst {
+                        MirInst::UsingEnter {
+                            scope_id,
+                            activations,
+                        } => {
+                            let mut bound = Vec::new();
+                            for activation in activations {
+                                let fields = match &activation.fields {
+                                    JsonValue::Object(map) => map.clone(),
+                                    _ => Map::new(),
+                                };
+                                // Bind bare tag fields and optional handle object for `$session.token`.
+                                if let Some(handle) = &activation.handle {
+                                    loop_frame
+                                        .locals
+                                        .insert(handle.clone(), JsonValue::Object(fields.clone()));
+                                }
+                                for (key, value) in &fields {
+                                    loop_frame.locals.insert(key.clone(), value.clone());
+                                }
+                                bound.push((
+                                    activation.tag.clone(),
+                                    activation.handle.clone(),
+                                    fields,
+                                ));
+                            }
+                            loop_frame.using_stack.push(UsingScope {
+                                scope_id: *scope_id,
+                                activations: bound,
+                            });
+                            continue;
+                        }
+                        MirInst::UsingExit { scope_id } => {
+                            let Some(top) = loop_frame.using_stack.pop() else {
+                                return Err(GraphemeError::RuntimeError(format!(
+                                    "using_exit for scope {} with empty using stack",
+                                    scope_id
+                                )));
+                            };
+                            if top.scope_id != *scope_id {
+                                return Err(GraphemeError::RuntimeError(format!(
+                                    "using_exit scope mismatch: expected {}, found {}",
+                                    scope_id, top.scope_id
+                                )));
+                            }
+                            for (_tag, handle, fields) in top.activations {
+                                if let Some(handle) = handle {
+                                    loop_frame.locals.remove(&handle);
+                                }
+                                for key in fields.keys() {
+                                    loop_frame.locals.remove(key);
+                                }
+                            }
+                            continue;
+                        }
                         MirInst::Call {
                             module,
                             op,
@@ -862,7 +944,10 @@ impl RuntimeEngine {
                             }
 
                             if is_call_step(module) {
-                                let call_max_depth = resolve_call_max_depth(args, max_call_depth)?;
+                                let scope = loop_frame.template_scope(state, iteration);
+                                let resolved_call_args = resolve_current_templates(args, &scope);
+                                let call_max_depth =
+                                    resolve_call_max_depth(&resolved_call_args, max_call_depth)?;
                                 if let Some(result) = self.invoke_target(
                                     functions,
                                     function_index,
@@ -876,6 +961,7 @@ impl RuntimeEngine {
                                     op,
                                     &capability.0,
                                     base_context,
+                                    &resolved_call_args,
                                 )? {
                                     return Ok(Some(result));
                                 }
@@ -1047,6 +1133,7 @@ impl RuntimeEngine {
                                     target,
                                     "flow.branch",
                                     base_context,
+                                    &JsonValue::Object(Map::new()),
                                 )? {
                                     return Ok(Some(result));
                                 }
@@ -1109,6 +1196,7 @@ impl RuntimeEngine {
                                     &target,
                                     "flow.match",
                                     base_context,
+                                    &JsonValue::Object(Map::new()),
                                 )? {
                                     return Ok(Some(result));
                                 }
@@ -1144,6 +1232,7 @@ impl RuntimeEngine {
         target: &str,
         capability_label: &str,
         base_context: StepContext,
+        call_args: &JsonValue,
     ) -> Result<Option<ExecutionResult>, GraphemeError> {
         if target == "$return" {
             return Ok(None);
@@ -1174,6 +1263,12 @@ impl RuntimeEngine {
             ))
         })?;
 
+        let callee_locals = build_locals(
+            &functions[target_index].params,
+            call_args,
+            &functions[target_index].name,
+        )?;
+
         if let Some(result) = self.execute_function(
             functions,
             function_index,
@@ -1185,6 +1280,7 @@ impl RuntimeEngine {
             remaining_steps,
             call_depth + 1,
             max_call_depth,
+            callee_locals,
         )? {
             return Ok(Some(result));
         }
@@ -1547,7 +1643,73 @@ fn variable_ref_from_object(map: &Map<String, JsonValue>) -> Option<&str> {
     map.get("$var")?.as_str()
 }
 
+fn build_locals(
+    params: &[MirParam],
+    call_args: &JsonValue,
+    function_name: &str,
+) -> Result<Map<String, JsonValue>, GraphemeError> {
+    let arg_map = match call_args {
+        JsonValue::Null => Map::new(),
+        JsonValue::Object(map) => map.clone(),
+        _ => {
+            return Err(GraphemeError::RuntimeError(format!(
+                "call args for '{}' must be an object",
+                function_name
+            )))
+        }
+    };
+
+    let mut locals = Map::new();
+    for param in params {
+        if let Some(value) = arg_map.get(&param.name) {
+            locals.insert(param.name.clone(), value.clone());
+            continue;
+        }
+        if let Some(default) = &param.default {
+            locals.insert(param.name.clone(), default.clone());
+            continue;
+        }
+        if param.required {
+            return Err(GraphemeError::RuntimeError(format!(
+                "call '{}' missing required parameter '{}'",
+                function_name, param.name
+            )));
+        }
+    }
+    Ok(locals)
+}
+
+fn resolve_local_reference(reference: &str, scope: &TemplateScope<'_>) -> Option<JsonValue> {
+    if reference == "args" {
+        return Some(JsonValue::Object(scope.locals.clone()));
+    }
+    if let Some(path) = reference.strip_prefix("args.") {
+        return Some(
+            select_json_path(&JsonValue::Object(scope.locals.clone()), path)
+                .cloned()
+                .unwrap_or(JsonValue::Null),
+        );
+    }
+    if let Some(value) = scope.locals.get(reference) {
+        return Some(value.clone());
+    }
+    if let Some((name, path)) = reference.split_once('.') {
+        if let Some(value) = scope.locals.get(name) {
+            return Some(
+                select_json_path(value, path)
+                    .cloned()
+                    .unwrap_or(JsonValue::Null),
+            );
+        }
+    }
+    None
+}
+
 fn resolve_variable_reference(reference: &str, scope: &TemplateScope<'_>) -> JsonValue {
+    if let Some(value) = resolve_local_reference(reference, scope) {
+        return value;
+    }
+
     if reference == "state" {
         return scope.state.clone();
     }
@@ -1556,9 +1718,7 @@ fn resolve_variable_reference(reference: &str, scope: &TemplateScope<'_>) -> Jso
         return scope.current.clone();
     }
 
-    if let Some(path) = reference
-        .strip_prefix("state.")
-    {
+    if let Some(path) = reference.strip_prefix("state.") {
         return select_json_path(scope.state, path)
             .cloned()
             .unwrap_or(JsonValue::Null);
@@ -1599,6 +1759,17 @@ fn resolve_variable_reference(reference: &str, scope: &TemplateScope<'_>) -> Jso
 }
 
 fn resolve_current_string_template(template: &str, scope: &TemplateScope<'_>) -> JsonValue {
+    if let Some(reference) = template.strip_prefix('$') {
+        if reference
+            .chars()
+            .all(|c| is_selector_char(c) || c == '.')
+        {
+            if let Some(value) = resolve_local_reference(reference, scope) {
+                return value;
+            }
+        }
+    }
+
     if template == "$state" {
         return scope.state.clone();
     }
@@ -1607,9 +1778,7 @@ fn resolve_current_string_template(template: &str, scope: &TemplateScope<'_>) ->
         return scope.current.clone();
     }
 
-    if let Some(path) = template
-        .strip_prefix("$state.")
-    {
+    if let Some(path) = template.strip_prefix("$state.") {
         if path.chars().all(is_selector_char) {
             return select_json_path(scope.state, path)
                 .cloned()
@@ -1659,109 +1828,20 @@ fn resolve_current_string_template(template: &str, scope: &TemplateScope<'_>) ->
     let mut i = 0usize;
 
     while i < bytes.len() {
-        if bytes[i] == b'{' && i + 1 < bytes.len() && template[i + 1..].starts_with("$") {
-            let refs = ["$state", "$current", "$item", "$loop"];
-            let mut matched = None;
-            for r in refs {
-                if template[i + 1..].starts_with(r) {
-                    matched = Some(r);
-                    break;
-                }
-            }
-            let Some(prefix) = matched else {
-                out.push(bytes[i] as char);
-                i += 1;
-                continue;
-            };
-
-            let mut j = i + 1 + prefix.len();
-            let mut resolved = None;
-
-            if j < bytes.len() && bytes[j] == b'.' {
-                j += 1;
-                let path_start = j;
-                while j < bytes.len() && is_selector_char(bytes[j] as char) {
-                    j += 1;
-                }
-                if j < bytes.len() && bytes[j] == b'}' {
-                    let path = &template[path_start..j];
-                    let scoped = match prefix {
-                        "$state" => select_json_path(scope.state, path),
-                        "$current" => select_json_path(scope.current, path),
-                        "$item" => scope.item.and_then(|item| select_json_path(item, path)),
-                        "$loop" => scope
-                            .loop_meta
-                            .as_ref()
-                            .and_then(|meta| select_json_path(meta, path)),
-                        _ => None,
-                    };
-                    resolved = Some(scoped.map(json_value_to_inline_string).unwrap_or_default());
-                    j += 1;
-                }
-            } else if j < bytes.len() && bytes[j] == b'}' {
-                let scoped = match prefix {
-                    "$state" => Some(scope.state),
-                    "$current" => Some(scope.current),
-                    "$item" => scope.item,
-                    "$loop" => scope.loop_meta.as_ref(),
-                    _ => None,
-                };
-                resolved = Some(scoped.map(json_value_to_inline_string).unwrap_or_default());
-                j += 1;
-            }
-
-            if let Some(text) = resolved {
+        if bytes[i] == b'{' && i + 1 < bytes.len() && bytes[i + 1] == b'$' {
+            if let Some((end, text)) = resolve_braced_template_at(template, i + 1, scope) {
                 out.push_str(&text);
-                i = j;
+                i = end;
                 continue;
             }
         }
 
-        let refs = ["$state", "$current", "$item", "$loop"];
-        let mut found = None;
-        for r in refs {
-            if template[i..].starts_with(r) {
-                found = Some(r);
-                break;
-            }
-        }
-        if let Some(prefix) = found {
-            let mut j = i + prefix.len();
-            if j < bytes.len() && bytes[j] == b'.' {
-                j += 1;
-                while j < bytes.len() && is_selector_char(bytes[j] as char) {
-                    j += 1;
-                }
-                let path = &template[i + prefix.len() + 1..j];
-                let scoped = match prefix {
-                    "$state" => select_json_path(scope.state, path),
-                    "$current" => select_json_path(scope.current, path),
-                    "$item" => scope.item.and_then(|item| select_json_path(item, path)),
-                    "$loop" => scope
-                        .loop_meta
-                        .as_ref()
-                        .and_then(|meta| select_json_path(meta, path)),
-                    _ => None,
-                };
-                if let Some(value) = scoped {
-                    out.push_str(&json_value_to_inline_string(value));
-                }
-                i = j;
+        if bytes[i] == b'$' {
+            if let Some((end, text)) = resolve_bare_template_at(template, i, scope) {
+                out.push_str(&text);
+                i = end;
                 continue;
             }
-
-            let scoped = match prefix {
-                "$state" => Some(scope.state),
-                "$current" => Some(scope.current),
-                "$item" => scope.item,
-                "$loop" => scope.loop_meta.as_ref(),
-                _ => None,
-            };
-            if let Some(value) = scoped {
-                out.push_str(&json_value_to_inline_string(value));
-            }
-            i += prefix.len();
-            continue;
         }
 
         out.push(bytes[i] as char);
@@ -1769,6 +1849,114 @@ fn resolve_current_string_template(template: &str, scope: &TemplateScope<'_>) ->
     }
 
     JsonValue::String(out)
+}
+
+fn resolve_braced_template_at(
+    template: &str,
+    dollar_idx: usize,
+    scope: &TemplateScope<'_>,
+) -> Option<(usize, String)> {
+    let (end, value) = resolve_dollar_expr_at(template, dollar_idx, scope)?;
+    if end < template.len() && template.as_bytes()[end] == b'}' {
+        Some((end + 1, json_value_to_inline_string(&value)))
+    } else {
+        None
+    }
+}
+
+fn resolve_bare_template_at(
+    template: &str,
+    dollar_idx: usize,
+    scope: &TemplateScope<'_>,
+) -> Option<(usize, String)> {
+    let (end, value) = resolve_dollar_expr_at(template, dollar_idx, scope)?;
+    Some((end, json_value_to_inline_string(&value)))
+}
+
+fn resolve_dollar_expr_at(
+    template: &str,
+    dollar_idx: usize,
+    scope: &TemplateScope<'_>,
+) -> Option<(usize, JsonValue)> {
+    if !template[dollar_idx..].starts_with('$') {
+        return None;
+    }
+
+    let reserved = ["$state", "$current", "$item", "$loop", "$args"];
+    let mut matched = None;
+    for prefix in reserved {
+        if template[dollar_idx..].starts_with(prefix) {
+            matched = Some(prefix);
+            break;
+        }
+    }
+
+    if let Some(prefix) = matched {
+        let mut j = dollar_idx + prefix.len();
+        if j < template.len() && template.as_bytes()[j] == b'.' {
+            j += 1;
+            let path_start = j;
+            while j < template.len() && is_selector_char(template.as_bytes()[j] as char) {
+                j += 1;
+            }
+            let path = &template[path_start..j];
+            let value = match prefix {
+                "$state" => select_json_path(scope.state, path).cloned(),
+                "$current" => select_json_path(scope.current, path).cloned(),
+                "$item" => scope
+                    .item
+                    .and_then(|item| select_json_path(item, path))
+                    .cloned(),
+                "$loop" => scope
+                    .loop_meta
+                    .as_ref()
+                    .and_then(|meta| select_json_path(meta, path))
+                    .cloned(),
+                "$args" => select_json_path(&JsonValue::Object(scope.locals.clone()), path).cloned(),
+                _ => None,
+            }
+            .unwrap_or(JsonValue::Null);
+            return Some((j, value));
+        }
+
+        let value = match prefix {
+            "$state" => scope.state.clone(),
+            "$current" => scope.current.clone(),
+            "$item" => scope.item.cloned().unwrap_or(JsonValue::Null),
+            "$loop" => scope.loop_meta.clone().unwrap_or(JsonValue::Null),
+            "$args" => JsonValue::Object(scope.locals.clone()),
+            _ => JsonValue::Null,
+        };
+        return Some((j, value));
+    }
+
+    // Local param: $name or $name.path
+    let mut j = dollar_idx + 1;
+    if j >= template.len() || !is_ident_start(template.as_bytes()[j] as char) {
+        return None;
+    }
+    j += 1;
+    while j < template.len() && is_selector_char(template.as_bytes()[j] as char) {
+        j += 1;
+    }
+    let mut end = j;
+    if end < template.len() && template.as_bytes()[end] == b'.' {
+        end += 1;
+        let path_start = end;
+        while end < template.len() && is_selector_char(template.as_bytes()[end] as char) {
+            end += 1;
+        }
+        if end == path_start {
+            return None;
+        }
+    }
+    let reference = &template[dollar_idx + 1..end];
+    let value = resolve_local_reference(reference, scope)?;
+    Some((end, value))
+}
+
+fn is_ident_start(c: char) -> bool {
+    c.is_ascii_alphabetic() || c == '_'
 }
 
 fn is_selector_char(c: char) -> bool {
@@ -1981,6 +2169,7 @@ mod tests {
         let function = MirFunction {
             name: "Main".to_string(),
             kind: MirFunctionKind::Fragment,
+                params: vec![],
             retry_config: None,
             timeout_config: None,
             intent_config: Some(MirIntentConfig {
@@ -2046,6 +2235,7 @@ mod tests {
             functions: vec![MirFunction {
                 name: "Main".to_string(),
                 kind: MirFunctionKind::Fragment,
+                params: vec![],
                 retry_config: None,
                 timeout_config: None,
                 intent_config: None,
@@ -2084,11 +2274,13 @@ mod tests {
             "id": "$current.id"
         });
         let current = json!({"id": "123", "status": "ready"});
+        let locals = Map::new();
         let scope = TemplateScope {
             current: &current,
             state: &current,
             item: None,
             loop_meta: None,
+            locals: &locals,
         };
 
         let resolved = args_with_pipeline_input(&args, &current, &scope);
@@ -2107,6 +2299,59 @@ mod tests {
     }
 
     #[test]
+    fn template_scope_resolves_locals_and_args_alias() {
+        let current = json!({"ignored": true});
+        let mut locals = Map::new();
+        locals.insert("label".to_string(), json!("priority"));
+        let scope = TemplateScope {
+            current: &current,
+            state: &current,
+            item: None,
+            loop_meta: None,
+            locals: &locals,
+        };
+
+        assert_eq!(
+            resolve_current_string_template("$label", &scope),
+            json!("priority")
+        );
+        assert_eq!(
+            resolve_current_string_template("hi {$label}", &scope),
+            json!("hi priority")
+        );
+        assert_eq!(
+            resolve_current_string_template("$args.label", &scope),
+            json!("priority")
+        );
+    }
+
+    #[test]
+    fn build_locals_applies_defaults_and_requires_params() {
+        let params = vec![
+            MirParam {
+                name: "label".to_string(),
+                type_name: Some("String".to_string()),
+                default: Some(json!("fallback")),
+                required: false,
+            },
+            MirParam {
+                name: "priority".to_string(),
+                type_name: Some("String".to_string()),
+                default: None,
+                required: true,
+            },
+        ];
+
+        let ok = build_locals(&params, &json!({"priority": "high"}), "Greet")
+            .expect("required provided");
+        assert_eq!(ok.get("label"), Some(&json!("fallback")));
+        assert_eq!(ok.get("priority"), Some(&json!("high")));
+
+        let err = build_locals(&params, &json!({}), "Greet").expect_err("missing required");
+        assert!(err.to_string().contains("missing required parameter 'priority'"));
+    }
+
+    #[test]
     fn args_with_pipeline_input_interpolates_brace_current_templates() {
         let args = json!({
             "message": "fib:{$current.a}",
@@ -2114,11 +2359,13 @@ mod tests {
             "snapshot": "{$current}"
         });
         let current = json!({"a": 21, "status": "ready"});
+        let locals = Map::new();
         let scope = TemplateScope {
             current: &current,
             state: &current,
             item: None,
             loop_meta: None,
+            locals: &locals,
         };
 
         let resolved = args_with_pipeline_input(&args, &current, &scope);
@@ -2759,6 +3006,7 @@ mod tests {
         let function = MirFunction {
             name: "Main".to_string(),
             kind: MirFunctionKind::Fragment,
+                params: vec![],
             retry_config: None,
             timeout_config: None,
             intent_config: None,

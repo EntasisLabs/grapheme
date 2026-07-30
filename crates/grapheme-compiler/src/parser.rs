@@ -23,6 +23,7 @@ impl ParseState {
 
         self.synthetic_iterators.push(IteratorDef {
             name: name.clone(),
+            variables: vec![],
             signature: ExecutableSignature {
                 input: TypeRef::Scalar(ScalarKind::Any, false),
                 output: Some(TypeRef::Scalar(ScalarKind::Any, false)),
@@ -158,6 +159,8 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
                     Rule::state_machine_def => {
                         definitions.push(Definition::StateMachine(parse_state_machine_def(def)?))
                     }
+                    Rule::tag_def => definitions.push(Definition::Tag(parse_tag_def(def)?)),
+                    Rule::using_decl => definitions.push(Definition::Using(parse_using_decl(def)?)),
                     Rule::schema_def => definitions.push(Definition::Schema(parse_schema(def)?)),
                     Rule::module_proposal => {
                         definitions.push(Definition::ModuleProposal(parse_module_proposal(def)?))
@@ -277,6 +280,171 @@ fn parse_enum_def(pair: Pair<Rule>) -> Result<EnumDef, GraphemeError> {
     }
 
     Ok(EnumDef { name, members })
+}
+
+fn parse_tag_def(pair: Pair<Rule>) -> Result<TagDef, GraphemeError> {
+    let mut inner = pair.into_inner();
+    let name = inner
+        .next()
+        .ok_or_else(|| GraphemeError::ParseError("tag missing name".to_string()))?
+        .as_str()
+        .to_string();
+
+    let mut allow_list = Vec::new();
+    let mut variables = Vec::new();
+    for p in inner {
+        match p.as_rule() {
+            Rule::ident => allow_list.push(p.as_str().to_string()),
+            Rule::variable_def => variables.push(parse_variable_def(p)?),
+            _ => {}
+        }
+    }
+
+    if variables.is_empty() {
+        return Err(GraphemeError::ParseError(format!(
+            "tag '{}' must declare at least one binding",
+            name
+        )));
+    }
+
+    Ok(TagDef {
+        name,
+        allow_list,
+        variables,
+    })
+}
+
+fn parse_using_mutability(pair: Pair<Rule>) -> Result<UsingMutability, GraphemeError> {
+    match pair.as_str() {
+        "const" => Ok(UsingMutability::Const),
+        "mutable" => Ok(UsingMutability::Mutable),
+        other => Err(GraphemeError::ParseError(format!(
+            "unknown using mutability '{other}'"
+        ))),
+    }
+}
+
+fn parse_using_fields(pair: Pair<Rule>) -> Result<Vec<(String, Value)>, GraphemeError> {
+    match pair.as_rule() {
+        Rule::arg_list => {
+            let mut fields = Vec::new();
+            for arg in pair.into_inner() {
+                let mut inner = arg.into_inner();
+                let name = inner.next().unwrap().as_str().to_string();
+                let value = parse_value(inner.next().unwrap())?;
+                fields.push((name, value));
+            }
+            Ok(fields)
+        }
+        Rule::object_value => {
+            let mut fields = Vec::new();
+            for field in pair.into_inner() {
+                let mut inner = field.into_inner();
+                let name = inner.next().unwrap().as_str().to_string();
+                let value = parse_value(inner.next().unwrap())?;
+                fields.push((name, value));
+            }
+            Ok(fields)
+        }
+        r => Err(GraphemeError::UnexpectedRule(format!("{r:?}"))),
+    }
+}
+
+fn parse_using_binding(pair: Pair<Rule>) -> Result<UsingBinding, GraphemeError> {
+    let mut mutability = None;
+    let mut idents = Vec::new();
+    let mut fields = Vec::new();
+
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::using_mutability => mutability = Some(parse_using_mutability(p)?),
+            Rule::ident => idents.push(p.as_str().to_string()),
+            Rule::arg_list | Rule::object_value => fields = parse_using_fields(p)?,
+            _ => {}
+        }
+    }
+
+    let (handle, tag) = match idents.as_slice() {
+        [tag] => (None, tag.clone()),
+        [handle, tag] => (Some(handle.clone()), tag.clone()),
+        _ => {
+            return Err(GraphemeError::ParseError(
+                "using binding must be `tag(...)` or `$handle: tag(...)`".to_string(),
+            ))
+        }
+    };
+
+    Ok(UsingBinding {
+        mutability,
+        handle,
+        tag,
+        fields,
+    })
+}
+
+fn parse_using_decl(pair: Pair<Rule>) -> Result<UsingDecl, GraphemeError> {
+    let mut mutability = None;
+    let mut handle = None;
+    let mut tag = None;
+    let mut fields = Vec::new();
+
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::using_mutability => mutability = Some(parse_using_mutability(p)?),
+            Rule::ident => {
+                if handle.is_none() {
+                    handle = Some(p.as_str().to_string());
+                } else if tag.is_none() {
+                    tag = Some(p.as_str().to_string());
+                }
+            }
+            Rule::arg_list | Rule::object_value => fields = parse_using_fields(p)?,
+            _ => {}
+        }
+    }
+
+    Ok(UsingDecl {
+        mutability: mutability.ok_or_else(|| {
+            GraphemeError::ParseError("using decl requires const or mutable".to_string())
+        })?,
+        handle: handle.ok_or_else(|| {
+            GraphemeError::ParseError("using decl missing handle name".to_string())
+        })?,
+        tag: tag.ok_or_else(|| GraphemeError::ParseError("using decl missing tag".to_string()))?,
+        fields,
+    })
+}
+
+fn parse_using_step(
+    pair: Pair<Rule>,
+    state: &mut ParseState,
+) -> Result<UsingStep, GraphemeError> {
+    let mut bindings = Vec::new();
+    let mut pipelines = Vec::new();
+
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::using_binding => bindings.push(parse_using_binding(p)?),
+            Rule::pipeline => pipelines.push(parse_pipeline(p, state)?),
+            _ => {}
+        }
+    }
+
+    if bindings.is_empty() {
+        return Err(GraphemeError::ParseError(
+            "using step requires at least one binding".to_string(),
+        ));
+    }
+    if pipelines.is_empty() {
+        return Err(GraphemeError::ParseError(
+            "using step requires a body pipeline".to_string(),
+        ));
+    }
+
+    Ok(UsingStep {
+        bindings,
+        pipelines,
+    })
 }
 
 fn parse_state_machine_def(pair: Pair<Rule>) -> Result<StateMachineDef, GraphemeError> {
@@ -496,12 +664,13 @@ fn parse_mutation(pair: Pair<Rule>, state: &mut ParseState) -> Result<MutationDe
 fn parse_iterator(pair: Pair<Rule>, state: &mut ParseState) -> Result<IteratorDef, GraphemeError> {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
-    let (_, signature, directives, pipelines) = parse_operation_body(inner, state)?;
+    let (variables, signature, directives, pipelines) = parse_operation_body(inner, state)?;
     let signature = signature.ok_or_else(|| {
         GraphemeError::ParseError(format!("iterator '{}' is missing required signature", name))
     })?;
     Ok(IteratorDef {
         name,
+        variables,
         signature,
         directives,
         pipelines,
@@ -628,10 +797,10 @@ fn parse_pipeline(pair: Pair<Rule>, state: &mut ParseState) -> Result<Pipeline, 
             Rule::struct_init_step => {
                 steps.push(PipelineStep::StructInit(parse_struct_init_step(p)?))
             }
+            Rule::using_step => steps.push(PipelineStep::Using(parse_using_step(p, state)?)),
             Rule::field_call => steps.push(PipelineStep::Field(parse_field_call(p)?)),
             Rule::call_step => steps.push(PipelineStep::Call(parse_call_step(p)?)),
             Rule::pipe_step => {
-                // pipe_step = { "|>" ~ (match_step | if_step | transition_step | apply_step | set_step | struct_init_step | call_step | field_call) }
                 let inner = p.into_inner().next().unwrap();
                 match inner.as_rule() {
                     Rule::match_step => steps.push(PipelineStep::Field(
@@ -651,6 +820,9 @@ fn parse_pipeline(pair: Pair<Rule>, state: &mut ParseState) -> Result<Pipeline, 
                     )),
                     Rule::struct_init_step => {
                         steps.push(PipelineStep::StructInit(parse_struct_init_step(inner)?))
+                    }
+                    Rule::using_step => {
+                        steps.push(PipelineStep::Using(parse_using_step(inner, state)?))
                     }
                     Rule::field_call => steps.push(PipelineStep::Field(parse_field_call(inner)?)),
                     Rule::call_step => steps.push(PipelineStep::Call(parse_call_step(inner)?)),

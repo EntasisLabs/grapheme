@@ -1,0 +1,12 @@
+import core from "grapheme/core"
+
+tag auth {
+  $token: String
+}
+
+query TagUsingScope {
+  using auth(token: "secret") {
+    core.echo(message: "token={$token}")
+  }
+  |> core.echo(message: "after")
+}

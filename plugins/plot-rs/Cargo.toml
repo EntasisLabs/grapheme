@@ -1,7 +1,8 @@
 [package]
 name = "plot-plugin"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.92"
 description = "Grapheme reference Wasm plot capability plugin (SVG output)"
 
 [[bin]]

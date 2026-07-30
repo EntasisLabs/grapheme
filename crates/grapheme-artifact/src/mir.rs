@@ -10,9 +10,21 @@ pub struct MirProgram {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirParam {
+    pub name: String,
+    #[serde(default)]
+    pub type_name: Option<String>,
+    #[serde(default)]
+    pub default: Option<JsonValue>,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MirFunction {
     pub name: String,
     pub kind: MirFunctionKind,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub params: Vec<MirParam>,
     #[serde(default)]
     pub retry_config: Option<MirRetryConfig>,
     #[serde(default)]
@@ -117,6 +129,23 @@ pub enum MirInst {
         default_target: MirMatchTarget,
         max_depth: Option<u32>,
     },
+    UsingEnter {
+        scope_id: u32,
+        activations: Vec<MirTagActivation>,
+    },
+    UsingExit {
+        scope_id: u32,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirTagActivation {
+    pub tag: String,
+    #[serde(default)]
+    pub handle: Option<String>,
+    #[serde(default)]
+    pub mutability: Option<String>,
+    pub fields: JsonValue,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

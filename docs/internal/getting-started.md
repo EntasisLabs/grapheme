@@ -17,14 +17,15 @@ Estimated time: 10 minutes.
 
 ## Prerequisites
 
-- Rust stable toolchain
+- Rust **1.92+** (edition 2024; required by Wasmer/WASIX deps); `rust-toolchain.toml` pins `stable`
 - `rustup`
 - `wasm32-wasip1` target for plugin builds
 - Node.js + npm (for extension packaging and local extension development)
 
-Install the Wasm target:
+Install / sync the workspace toolchain:
 
 ```bash
+rustup show
 rustup target add wasm32-wasip1
 ```
 

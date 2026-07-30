@@ -144,6 +144,8 @@ pub fn verify_hir_with_lints_mode(
             )));
         }
 
+        verify_executable_params(def)?;
+
         for (i, pipeline) in def.pipelines.iter().enumerate() {
             if pipeline.steps.is_empty() {
                 return Err(GraphemeError::VerificationError(format!(
@@ -160,6 +162,7 @@ pub fn verify_hir_with_lints_mode(
                     step_idx,
                     step,
                     &executable_names,
+                    &executable_by_name,
                     def.recursive_directive_count > 0,
                 )?;
                 verify_flow_branch_step(
@@ -1215,12 +1218,43 @@ fn verify_timeout_directive(
     Ok(())
 }
 
+const RESERVED_PARAM_NAMES: &[&str] = &["state", "current", "item", "loop", "args", "env"];
+
+fn verify_executable_params(def: &super::hir::HirExecutable) -> Result<(), GraphemeError> {
+    let mut seen = HashSet::new();
+    for param in &def.params {
+        if param.name.trim().is_empty() {
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}': parameter name cannot be empty",
+                def.name
+            )));
+        }
+        if RESERVED_PARAM_NAMES
+            .iter()
+            .any(|reserved| param.name.eq_ignore_ascii_case(reserved))
+        {
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}': parameter '${}' uses reserved name",
+                def.name, param.name
+            )));
+        }
+        if !seen.insert(param.name.clone()) {
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}': duplicate parameter '${}'",
+                def.name, param.name
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn verify_call_step(
     def_name: &str,
     pipeline_idx: usize,
     step_idx: usize,
     step: &HirStep,
     executable_names: &HashSet<String>,
+    executable_by_name: &HashMap<String, &super::hir::HirExecutable>,
     has_recursive_directive: bool,
 ) -> Result<(), GraphemeError> {
     let Some(module_raw) = step.module.as_deref() else {
@@ -1245,11 +1279,30 @@ fn verify_call_step(
         ))
     })?;
 
+    let callee_params = executable_by_name
+        .get(&step.op)
+        .map(|executable| executable.params.as_slice())
+        .unwrap_or(&[]);
+    let callee_param_names = callee_params
+        .iter()
+        .map(|param| param.name.as_str())
+        .collect::<HashSet<_>>();
+
     for arg_name in args.keys() {
-        if arg_name != "max_depth" {
+        if arg_name == "max_depth" || callee_param_names.contains(arg_name.as_str()) {
+            continue;
+        }
+        return Err(GraphemeError::TypeError(format!(
+            "definition '{}', pipeline {}, step {}: unknown call arg '{}' for target '{}'",
+            def_name, pipeline_idx, step_idx, arg_name, step.op
+        )));
+    }
+
+    for param in callee_params {
+        if param.required && !args.contains_key(&param.name) {
             return Err(GraphemeError::TypeError(format!(
-                "definition '{}', pipeline {}, step {}: unknown call arg '{}' for target '{}'",
-                def_name, pipeline_idx, step_idx, arg_name, step.op
+                "definition '{}', pipeline {}, step {}: call '{}' missing required arg '{}'",
+                def_name, pipeline_idx, step_idx, step.op, param.name
             )));
         }
     }
@@ -1291,6 +1344,13 @@ fn verify_step_types(
     let Some(module_raw) = step.module.as_deref() else {
         return Ok(());
     };
+
+    // Runtime control ops introduced by RFC-0004 lowering (not capability catalog ops).
+    if module_raw.eq_ignore_ascii_case("runtime")
+        && matches!(step.op.as_str(), "using_enter" | "using_exit")
+    {
+        return Ok(());
+    }
 
     let module = module_raw.to_lowercase();
     let maybe_spec = find_op_spec(&module, &step.op);

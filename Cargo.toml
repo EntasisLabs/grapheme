@@ -12,3 +12,7 @@ members = [
 exclude = ["plugins/core-echo-rs", "plugins/io-rs", "plugins/http-rs", "plugins/memory-rs", "plugins/tcp-rs", "plugins/smtp-rs", "plugins/secrets-rs", "plugins/docs-rs", "plugins/pdf-rs", "plugins/image-rs", "plugins/plot-rs"]
 default-members = ["crates/grapheme-cli"]
 resolver = "2"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.92"

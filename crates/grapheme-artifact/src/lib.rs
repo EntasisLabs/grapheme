@@ -16,6 +16,6 @@ pub use artifact::{
 pub use capability::{Capability, CapabilityPolicy};
 pub use mir::{
     MirBlock, MirFunction, MirFunctionKind, MirInst, MirIntentConfig, MirLoopConfig,
-    MirLoopMergeMode, MirLoopUntil, MirMatchCase, MirMatchTarget, MirProgram, MirRetryConfig,
-    MirTerminator, MirTimeoutConfig,
+    MirLoopMergeMode, MirLoopUntil, MirMatchCase, MirMatchTarget, MirParam, MirProgram,
+    MirRetryConfig, MirTerminator, MirTimeoutConfig,
 };

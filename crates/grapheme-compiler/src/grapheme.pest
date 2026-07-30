@@ -271,12 +271,28 @@ transition_step = {
     ~ object_value?
 }
 
+using_mutability = { "const" | "mutable" }
+
+using_binding = {
+    using_mutability? ~ ("$" ~ ident ~ ":")? ~ ident ~ (arg_list | object_value)
+}
+
+// Scoped ambient activation (RFC-0004): using auth(...) { ... }
+using_step = {
+    "using"
+    ~ using_binding
+    ~ ("," ~ using_binding)*
+    ~ "{"
+    ~ pipeline+
+    ~ "}"
+}
+
 // The pipe operator |> chains steps left to right
 // Each step receives the AgentState from the previous
-pipe_step = { "|>" ~ (match_step | if_step | transition_step | apply_step | set_step | struct_init_step | call_step | field_call) }
+pipe_step = { "|>" ~ (match_step | if_step | transition_step | apply_step | set_step | struct_init_step | using_step | call_step | field_call) }
 
 pipeline = {
-    (match_step | if_step | transition_step | apply_step | set_step | struct_init_step | call_step | field_call) ~ pipe_step*
+    (match_step | if_step | transition_step | apply_step | set_step | struct_init_step | using_step | call_step | field_call) ~ pipe_step*
 }
 
 // ── Top-Level Definitions ─────────────────────────────────────
@@ -308,14 +324,14 @@ mutation_def = {
 
 // Iterators: reusable named executable pipelines (like functions)
 iterator_def = {
-    "iterator" ~ ident ~ executable_signature ~ directive* ~ "{"
+    "iterator" ~ ident ~ variable_defs? ~ executable_signature ~ directive* ~ "{"
     ~ pipeline+
     ~ "}"
 }
 
 // Node alias: semantic equivalent of iterator
 node_def = {
-    "node" ~ ident ~ executable_signature ~ directive* ~ "{"
+    "node" ~ ident ~ variable_defs? ~ executable_signature ~ directive* ~ "{"
     ~ pipeline+
     ~ "}"
 }
@@ -334,6 +350,18 @@ subscription_def = {
     ~ "}"
 }
 
+// Tag schema (RFC-0004): ambient context type
+tag_def = {
+    "tag" ~ ident ~ ("for" ~ "[" ~ ident ~ ("," ~ ident)* ~ "]")? ~ "{"
+    ~ variable_def+
+    ~ "}"
+}
+
+// Program-scoped named handle: using const $session: auth(...)
+using_decl = {
+    "using" ~ using_mutability ~ "$" ~ ident ~ ":" ~ ident ~ (arg_list | object_value)
+}
+
 // ── Program Root ──────────────────────────────────────────────
 
 definition = {
@@ -348,6 +376,8 @@ definition = {
     | struct_def
     | enum_def
     | state_machine_def
+    | tag_def
+    | using_decl
   | schema_def
   | module_proposal
 }
