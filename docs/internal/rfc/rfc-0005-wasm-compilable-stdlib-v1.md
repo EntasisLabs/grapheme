@@ -104,7 +104,7 @@ Sequence after this layering lands:
 2. **Container crate sketch** — thin `cdylib`/`bin` that links `grapheme-stdlib` with `wasm` only, plus a MIR walk loop; capability calls call host imports. **Done** (`crates/grapheme-aot-container`).
 3. **Host import surface** — stabilize `grapheme.runtime.host.v1::{state.*, call.capability, ...}` beyond the current Stage B scaffold allowlist; fulfill stubs from the host Wasix path. **Done** (in-process multi-round fulfillment via `CapabilityHost`; `state.read`/`state.write`/`call.capability`).
 4. **Emitter** — compiler replaces Stage B “bytes provided by caller” scaffold with real container emission for reference workflows (`core`/`json`/`csv`/`yaml`/`html` only). **Done** (`compile_to_aot_stage_b` / `*_default` + `scripts/build-aot-container.sh`).
-5. **Parity** — same fixtures vs interpreted Stage A path; strict Stage B mode already rejects fallback.
+5. **Parity** — same fixtures vs interpreted Stage A path; strict Stage B mode already rejects fallback. **Done** (outcome + `state.current` parity fixtures; Wasix multi-round uses the same `host_fulfillments` contract when `prefer_stage_b_wasix` is set).
 
 Security boundary stays unchanged: policy admission remains on the host side of every capability import.
 

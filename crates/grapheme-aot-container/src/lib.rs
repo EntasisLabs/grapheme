@@ -101,6 +101,58 @@ pub fn execute_to_json(request: &ExecuteRequest) -> JsonValue {
     }
 }
 
+/// Parse a container walk result from JSON (Wasix stdout / host envelope `data`).
+pub fn walk_result_from_json(value: &JsonValue) -> Result<WalkResult, String> {
+    let ok = value
+        .get("ok")
+        .and_then(|v| v.as_bool())
+        .ok_or_else(|| "walk result missing boolean ok".to_string())?;
+    let current = value
+        .get("current")
+        .cloned()
+        .unwrap_or(JsonValue::Null);
+    let steps = value
+        .get("steps")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as usize;
+    let host_calls = value
+        .get("host_calls")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let error = match value.get("error") {
+        None | Some(JsonValue::Null) => None,
+        Some(err) => Some(WalkError {
+            code: err
+                .get("code")
+                .and_then(|v| v.as_str())
+                .unwrap_or("UNKNOWN")
+                .to_string(),
+            message: err
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            capability: err
+                .get("capability")
+                .and_then(|v| v.as_str())
+                .map(ToOwned::to_owned),
+            step_index: err
+                .get("step_index")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize,
+        }),
+    };
+
+    Ok(WalkResult {
+        current,
+        steps,
+        ok,
+        error,
+        host_calls,
+    })
+}
+
 /// Parse stdin JSON supporting both direct `ExecuteRequest` and Wasix envelopes.
 pub fn parse_stdin_request(raw: &str) -> Result<ExecuteRequest, String> {
     let value: JsonValue =

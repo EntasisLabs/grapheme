@@ -42,5 +42,5 @@ Wasix hosts wrap the same payload under `args`.
 
 ## Next
 
-- Wasix multi-round sandbox path using the same `host_fulfillments` contract
-- Broader Stage A vs Stage B parity fixtures (RFC-0005 step 5)
+- Broader MIR→Wasm lowering beyond the interpreter-in-Wasm container
+- Expand local Wasm module set beyond `core` / `json` / `csv` / `yaml` / `html`
