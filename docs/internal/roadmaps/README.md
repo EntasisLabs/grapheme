@@ -23,3 +23,4 @@ This section tracks forward-looking language, runtime, and platform plans.
 3. docs/internal/language/typed-records-v1.md
 4. docs/internal/language/turing-roadmap.md
 5. docs/internal/rfc/rfc-0004-params-and-tagged-vars-v1.md
+6. docs/internal/rfc/rfc-0005-wasm-compilable-stdlib-v1.md

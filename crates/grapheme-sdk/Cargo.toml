@@ -33,4 +33,4 @@ grapheme-artifact = { path = "../grapheme-artifact", version = "0.2.0" }
 grapheme-compiler = { path = "../grapheme-compiler", version = "0.6.1", default-features = false }
 grapheme-runtime = { path = "../grapheme-runtime", version = "0.6.1", default-features = false }
 grapheme-signatures = { path = "../grapheme-signatures", version = "0.6.1", default-features = false }
-grapheme-stdlib = { path = "../grapheme-stdlib", version = "0.6.1", default-features = false }
+grapheme-stdlib = { path = "../grapheme-stdlib", version = "0.6.1", default-features = false, features = ["host"] }
