@@ -1,0 +1,49 @@
+{
+  "functions": [
+    {
+      "name": "HelloWorld",
+      "kind": "Query",
+      "retry_config": null,
+      "timeout_config": null,
+      "intent_config": null,
+      "loop_config": null,
+      "blocks": [
+        {
+          "id": 0,
+          "instructions": [
+            {
+              "Call": {
+                "module": "core",
+                "op": "set_fields",
+                "capability": "core.set_fields",
+                "arg_count": 1,
+                "args": {
+                  "fields": {
+                    "message": "LETS GO?!!!!!"
+                  }
+                },
+                "stores_state": true
+              }
+            },
+            {
+              "Call": {
+                "module": "core",
+                "op": "echo",
+                "capability": "core.echo",
+                "arg_count": 1,
+                "args": {
+                  "message": {
+                    "$var": "state.message"
+                  }
+                },
+                "stores_state": true
+              }
+            }
+          ],
+          "terminator": "ReturnState"
+        }
+      ]
+    }
+  ],
+  "capabilities": ["core.echo", "core.set_fields"]
+}

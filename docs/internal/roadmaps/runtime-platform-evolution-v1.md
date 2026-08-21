@@ -234,11 +234,13 @@ Stage B initial scaffold status:
 9. Runtime release builds now default strict Stage B container-first policy; migration override available via `GRAPHEME_STRICT_STAGE_B=true|false`.
 10. Next: remove remaining scaffold assumptions once lowering emits production-valid workflow Wasm end-to-end.
 11. Stdlib Wasm prerequisite (RFC-0005): `grapheme-stdlib` now exposes a `wasm`/`transforms` profile that compiles for `wasm32-wasip1` without host TLS/DB deps. Stage B containers must link this profile only; capability ops stay as `grapheme.runtime.host.v1::*` imports or Wasix plugins.
+12. Stage B container crate (`grapheme-aot-container`): slim MIR walker WASI bin over the Wasm stdlib profile; local `core`/`json`/`csv`/`yaml`/`html` dispatch; non-local ops emit `call.capability` host stubs. Runtime Stage B Wasix path now passes MIR + entrypoint on stdin.
 
 Start gate (must be true before Track 4 execution):
 
 1. Trace/event schema stability is locked for runtime + SDK outputs.
 2. Stdlib Wasm profile stays green in CI (`cargo check -p grapheme-stdlib --no-default-features --features wasm --target wasm32-wasip1`).
+3. AOT container crate stays green in CI (`cargo check -p grapheme-aot-container --target wasm32-wasip1`).
 
 ## Cross-Cutting Workstreams
 

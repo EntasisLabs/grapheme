@@ -100,9 +100,9 @@ cargo check -p grapheme-stdlib --features full
 
 Sequence after this layering lands:
 
-1. **Stdlib Wasm gate** (this RFC) — green `wasm32-wasip1` check for `--features wasm`.
-2. **Container crate sketch** — thin `cdylib`/`bin` that links `grapheme-stdlib` with `wasm` only, plus a MIR walk loop; capability calls call host imports.
-3. **Host import surface** — stabilize `grapheme.runtime.host.v1::{state.*, call.capability, ...}` beyond the current Stage B scaffold allowlist.
+1. **Stdlib Wasm gate** (this RFC) — green `wasm32-wasip1` check for `--features wasm`. **Done.**
+2. **Container crate sketch** — thin `cdylib`/`bin` that links `grapheme-stdlib` with `wasm` only, plus a MIR walk loop; capability calls call host imports. **Done** (`crates/grapheme-aot-container`).
+3. **Host import surface** — stabilize `grapheme.runtime.host.v1::{state.*, call.capability, ...}` beyond the current Stage B scaffold allowlist; fulfill stubs from the host Wasix path.
 4. **Emitter** — compiler replaces Stage B “bytes provided by caller” scaffold with real container emission for reference workflows (`core`/`json`/`csv`/`yaml`/`html` only).
 5. **Parity** — same fixtures vs interpreted Stage A path; strict Stage B mode already rejects fallback.
 

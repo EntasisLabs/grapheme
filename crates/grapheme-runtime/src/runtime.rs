@@ -467,7 +467,7 @@ impl RuntimeEngine {
         host: &mut dyn CapabilityHost,
     ) -> Result<(AgentState, ExecutionResult), GraphemeError> {
         if let Some(container) = aot.payload.workflow_wasm.as_ref() {
-            match self.try_execute_stage_b_container(container)? {
+            match self.try_execute_stage_b_container(aot, container)? {
                 StageBContainerExecution::Executed(container_output) => {
                     let mut state =
                         AgentState::with_trace_policy(self.options.trace_policy.clone());
@@ -537,6 +537,7 @@ fn stage_b_container_event(container: &grapheme_artifact::AotWorkflowWasmContain
 impl RuntimeEngine {
     fn try_execute_stage_b_container(
         &self,
+        aot: &AotEnvelope,
         container: &grapheme_artifact::AotWorkflowWasmContainer,
     ) -> Result<StageBContainerExecution, GraphemeError> {
         let Some(inline_wasm_hex) = container.inline_wasm_hex.as_ref() else {
@@ -574,9 +575,14 @@ impl RuntimeEngine {
             content_hash: Some(container.sha256.clone()),
         };
 
+        // Pass MIR + entrypoint so grapheme-aot-container can walk the workflow.
+        // Placeholder Stage B bytes still fail Wasix compile and fall back as before.
         let args = serde_json::json!({
             "entry_export": container.entry_export,
             "allowed_imports": container.allowed_imports,
+            "entrypoint": aot.base_artifact.entrypoint,
+            "mir": aot.base_artifact.payload.mir,
+            "initial_current": {},
         });
 
         let output = self
@@ -598,6 +604,7 @@ impl RuntimeEngine {
 impl RuntimeEngine {
     fn try_execute_stage_b_container(
         &self,
+        _aot: &AotEnvelope,
         _container: &grapheme_artifact::AotWorkflowWasmContainer,
     ) -> Result<StageBContainerExecution, GraphemeError> {
         Ok(StageBContainerExecution::Unavailable(

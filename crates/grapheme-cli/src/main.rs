@@ -295,6 +295,7 @@ const HOST_PREFERRED_MODULES: &[&str] = &["http", "tcp", "smtp"];
 const STAGE_B_DEFAULT_ALLOWED_IMPORTS: &[&str] = &[
     "grapheme.runtime.host.v1::state.read",
     "grapheme.runtime.host.v1::state.write",
+    "grapheme.runtime.host.v1::call.capability",
 ];
 const STAGE_B_DEFAULT_WORKFLOW_WASM_BYTES: &[u8] = b"\0asmstageb";
 

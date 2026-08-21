@@ -2487,6 +2487,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "grapheme-aot-container"
+version = "0.6.1"
+dependencies = [
+ "grapheme-artifact",
+ "grapheme-stdlib",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "grapheme-artifact"
 version = "0.2.0"
 dependencies = [
