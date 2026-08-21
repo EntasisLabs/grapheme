@@ -12,9 +12,15 @@ WASI binary that:
 ## Build
 
 ```bash
-cargo check -p grapheme-aot-container
-cargo build -p grapheme-aot-container --release --target wasm32-wasip1
+# Native walker / tests
+cargo test -p grapheme-aot-container
+
+# WASI artifact used for Stage B AOT emission
+bash scripts/build-aot-container.sh
+# -> crates/grapheme-aot-container/assets/grapheme-aot-container.wasm
 ```
+
+`default_workflow_wasm()` prefers the built artifact and falls back to a minimal placeholder module for metadata-only envelopes.
 
 ## Execute request
 
@@ -36,5 +42,5 @@ Wasix hosts wrap the same payload under `args`.
 
 ## Next
 
-- Link real host imports in the Wasix Stage B path (RFC step 3)
-- Compiler emission of this container instead of placeholder bytes (RFC step 4)
+- Wasix multi-round sandbox path using the same `host_fulfillments` contract
+- Broader Stage A vs Stage B parity fixtures (RFC-0005 step 5)

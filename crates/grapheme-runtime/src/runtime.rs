@@ -466,6 +466,35 @@ impl RuntimeEngine {
         aot: &AotEnvelope,
         host: &mut dyn CapabilityHost,
     ) -> Result<(AgentState, ExecutionResult), GraphemeError> {
+        // Primary path (RFC-0005 steps 2-3): in-process container walker + host fulfillment.
+        match crate::stage_b::execute_stage_b_in_process(
+            aot,
+            host,
+            self.options.trace_policy.clone(),
+        ) {
+            Ok(execution) => {
+                let mut state = execution.state;
+                let mut runtime_events = module_lifecycle_events_to_json(
+                    self.options.module_manager.lifecycle_events(),
+                );
+                if let Some(container) = aot.payload.workflow_wasm.as_ref() {
+                    runtime_events.push(stage_b_container_event(container));
+                }
+                runtime_events.push(crate::stage_b::stage_b_host_event(
+                    execution.rounds,
+                    execution.host_calls_fulfilled,
+                ));
+                state.set_runtime_events(runtime_events);
+                return Ok((state, execution.result));
+            }
+            Err(err) => {
+                if self.options.strict_stage_b_container_execution {
+                    return Err(err);
+                }
+            }
+        }
+
+        // Optional Wasix sandbox path when in-process failed and feature is on.
         if let Some(container) = aot.payload.workflow_wasm.as_ref() {
             match self.try_execute_stage_b_container(aot, container)? {
                 StageBContainerExecution::Executed(container_output) => {
@@ -2040,6 +2069,7 @@ mod tests {
     }
 
     #[cfg_attr(feature = "wasix-runtime", allow(dead_code))]
+    #[allow(dead_code)]
     fn stage_b_strict_mode_snapshot_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests")
@@ -2902,7 +2932,12 @@ mod tests {
                 .message
                 .as_deref()
                 .unwrap_or_default()
-                .contains("stage_b scaffold executed via parity path")
+                .contains("stage_b container executed in-process")
+                || result
+                    .message
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains("stage_b scaffold executed via parity path")
                 || result
                     .message
                     .as_deref()
@@ -2914,19 +2949,23 @@ mod tests {
             event.get("kind").and_then(|v| v.as_str()) == Some("aot.stage_b.container_routed")
         });
         assert!(stage_b_event.is_some());
+        let host_event = state.runtime_events.iter().find(|event| {
+            event.get("kind").and_then(|v| v.as_str()) == Some("aot.stage_b.host_fulfilled")
+        });
+        assert!(host_event.is_some());
     }
 
-    #[cfg(not(feature = "wasix-runtime"))]
     #[test]
-    fn execute_aot_stage_b_strict_mode_rejects_parity_fallback() {
+    fn execute_aot_stage_b_strict_mode_uses_in_process_container() {
         let artifact = loop_artifact(1, MirLoopMergeMode::Replace);
         let stage_a = build_aot_from_artifact(&artifact).expect("stage_a build should succeed");
-        let imports = vec![
-            "grapheme.runtime.host.v1::state.read".to_string(),
-            "grapheme.runtime.host.v1::state.write".to_string(),
-        ];
-        let stage_b = build_stage_b_container_from_aot(&stage_a, b"\0asmstageb", &imports)
-            .expect("stage_b build should succeed");
+        let imports = grapheme_aot_container::default_allowed_imports();
+        let stage_b = build_stage_b_container_from_aot(
+            &stage_a,
+            &grapheme_aot_container::default_workflow_wasm(),
+            &imports,
+        )
+        .expect("stage_b build should succeed");
 
         let mut options = RuntimeOptions::default();
         options.strict_stage_b_container_execution = true;
@@ -2935,24 +2974,89 @@ mod tests {
             mode: HostMode::StepIndexNumber,
         };
 
-        let err = runtime.execute_aot(&stage_b, &mut host).expect_err(
-            "strict mode should reject parity fallback when wasix runtime is unavailable",
-        );
+        let (state, result) = runtime
+            .execute_aot(&stage_b, &mut host)
+            .expect("strict stage_b should use in-process container walker");
 
-        assert!(matches!(err, GraphemeError::ArtifactCompatibilityError(_)));
-        assert!(err
-            .to_string()
-            .contains("strict stage_b container execution required"));
-
-        let snapshot = json!({
-            "error_kind": "artifact_compatibility_error",
-            "message": err.to_string(),
+        assert!(matches!(result.outcome, ExecutionOutcome::Succeeded));
+        assert!(result
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("stage_b container executed in-process"));
+        let host_event = state.runtime_events.iter().find(|event| {
+            event.get("kind").and_then(|v| v.as_str()) == Some("aot.stage_b.host_fulfilled")
         });
-        let expected = fs::read_to_string(stage_b_strict_mode_snapshot_path())
-            .expect("read stage_b strict mode snapshot golden")
-            .parse::<JsonValue>()
-            .expect("parse stage_b strict mode snapshot golden json");
-        assert_eq!(snapshot, expected);
+        assert!(host_event.is_some());
+    }
+
+    #[test]
+    fn execute_aot_stage_b_fulfills_host_capability_rounds() {
+        let capability = Capability::from_module_op("http", "get");
+        let instruction = MirInst::Call {
+            module: Some("http".to_string()),
+            op: "get".to_string(),
+            capability: capability.clone(),
+            arg_count: 1,
+            args: json!({ "url": "https://example.com" }),
+            stores_state: true,
+        };
+        let function = MirFunction {
+            name: "NeedsHost".to_string(),
+            kind: MirFunctionKind::Query,
+            params: vec![],
+            retry_config: None,
+            timeout_config: None,
+            intent_config: None,
+            loop_config: None,
+            blocks: vec![MirBlock {
+                id: 0,
+                instructions: vec![instruction],
+                terminator: MirTerminator::ReturnState,
+            }],
+        };
+        let mir = MirProgram {
+            functions: vec![function],
+            capabilities: vec![capability],
+        };
+        let artifact = build_artifact_from_mir(&mir, Some("NeedsHost")).expect("artifact");
+        let stage_a = build_aot_from_artifact(&artifact).expect("stage_a");
+        let stage_b = build_stage_b_container_from_aot(
+            &stage_a,
+            &grapheme_aot_container::default_workflow_wasm(),
+            &grapheme_aot_container::default_allowed_imports(),
+        )
+        .expect("stage_b");
+
+        let mut options = RuntimeOptions::default();
+        options.strict_stage_b_container_execution = true;
+        let runtime = RuntimeEngine::new(options);
+        let mut host = TestHost {
+            mode: HostMode::VerboseObject,
+        };
+
+        let (state, result) = runtime
+            .execute_aot(&stage_b, &mut host)
+            .expect("host fulfillment should succeed");
+
+        assert!(matches!(result.outcome, ExecutionOutcome::Succeeded));
+        assert_eq!(
+            state.current.get("message").and_then(|v| v.as_str()),
+            Some("ok")
+        );
+        let host_event = state
+            .runtime_events
+            .iter()
+            .find(|event| {
+                event.get("kind").and_then(|v| v.as_str()) == Some("aot.stage_b.host_fulfilled")
+            })
+            .expect("host_fulfilled event");
+        assert_eq!(
+            host_event
+                .get("host_calls_fulfilled")
+                .and_then(|v| v.as_u64()),
+            Some(1)
+        );
     }
 
     #[cfg(feature = "wasix-runtime")]
@@ -2971,10 +3075,7 @@ mod tests {
 
         let artifact = loop_artifact(1, MirLoopMergeMode::Replace);
         let stage_a = build_aot_from_artifact(&artifact).expect("stage_a build should succeed");
-        let imports = vec![
-            "grapheme.runtime.host.v1::state.read".to_string(),
-            "grapheme.runtime.host.v1::state.write".to_string(),
-        ];
+        let imports = grapheme_aot_container::default_allowed_imports();
         let stage_b = build_stage_b_container_from_aot(&stage_a, &workflow_wasm, &imports)
             .expect("stage_b build should succeed");
 
@@ -2987,16 +3088,21 @@ mod tests {
 
         let (state, result) = match runtime.execute_aot(&stage_b, &mut host) {
             Ok(outcome) => outcome,
-            Err(err) => panic!("stage_b direct path should succeed with wasix feature: {err}"),
+            Err(err) => panic!("stage_b should succeed: {err}"),
         };
 
         assert!(matches!(result.outcome, ExecutionOutcome::Succeeded));
+        // Prefer in-process walker; Wasix is a secondary sandbox path.
         assert!(result
             .message
             .as_deref()
             .unwrap_or_default()
-            .contains("stage_b container executed directly via wasix backend"));
-        assert!(state.current.is_null());
+            .contains("stage_b container executed"));
+        assert!(state
+            .runtime_events
+            .iter()
+            .any(|event| event.get("kind").and_then(|v| v.as_str())
+                == Some("aot.stage_b.host_fulfilled")));
     }
 
     fn loop_artifact(max: u32, merge: MirLoopMergeMode) -> ArtifactEnvelope {

@@ -96,6 +96,16 @@ impl Compiler {
             aot: stage_b,
         })
     }
+
+    /// Compile source into Stage B AOT using the default workflow-container artifact.
+    pub fn compile_source_to_aot_stage_b_default(
+        source: &str,
+        options: CompilerOptions,
+    ) -> Result<CompiledAotScript, CompilerError> {
+        let wasm = grapheme_aot_container::default_workflow_wasm();
+        let imports = grapheme_aot_container::default_allowed_imports();
+        Self::compile_source_to_aot_stage_b(source, options, &wasm, &imports)
+    }
 }
 
 fn glyph_entrypoint(ast: &Program) -> Result<Option<String>, CompilerError> {

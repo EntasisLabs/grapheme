@@ -1,4 +1,6 @@
-use grapheme_aot_container::{execute, execute_to_json, parse_stdin_request, ExecuteRequest};
+use grapheme_aot_container::{
+    execute, execute_to_json, parse_stdin_request, ExecuteRequest, HostFulfillment,
+};
 use grapheme_artifact::MirProgram;
 use serde_json::json;
 
@@ -20,6 +22,7 @@ fn hello_world_walks_core_ops_locally() {
         initial_current: Some(json!({})),
         args: None,
         allowed_imports: None,
+        host_fulfillments: Vec::new(),
     };
 
     let result = execute(&request).expect("execute");
@@ -41,6 +44,7 @@ fn http_op_surfaces_host_call_required() {
         initial_current: None,
         args: None,
         allowed_imports: None,
+        host_fulfillments: Vec::new(),
     };
 
     let result = execute(&request).expect("execute returns WalkResult even on host boundary");
@@ -54,6 +58,27 @@ fn http_op_surfaces_host_call_required() {
             .and_then(|v| v.as_str()),
         Some("grapheme.runtime.host.v1::call.capability")
     );
+}
+
+#[test]
+fn host_fulfillment_resumes_past_capability_boundary() {
+    let mir = load_mir("host-call-required.mir.json");
+    let request = ExecuteRequest {
+        entrypoint: Some("NeedsHttp".to_string()),
+        mir,
+        initial_current: None,
+        args: None,
+        allowed_imports: None,
+        host_fulfillments: vec![HostFulfillment {
+            step_index: 0,
+            result: json!({ "status": 200, "body": "ok" }),
+        }],
+    };
+
+    let result = execute(&request).expect("execute");
+    assert!(result.ok, "expected ok after fulfillment, error={:?}", result.error);
+    assert_eq!(result.current.get("status").and_then(|v| v.as_u64()), Some(200));
+    assert!(result.host_calls.is_empty());
 }
 
 #[test]
@@ -72,4 +97,11 @@ fn parse_wasix_envelope_extracts_execute_request() {
     let request = parse_stdin_request(&raw).expect("parse wasix envelope");
     let out = execute_to_json(&request);
     assert_eq!(out.get("ok").and_then(|v| v.as_bool()), Some(true));
+}
+
+#[test]
+fn default_workflow_wasm_prefers_built_artifact_or_placeholder() {
+    let bytes = grapheme_aot_container::default_workflow_wasm();
+    assert!(bytes.len() >= 8);
+    assert_eq!(&bytes[0..4], b"\0asm");
 }

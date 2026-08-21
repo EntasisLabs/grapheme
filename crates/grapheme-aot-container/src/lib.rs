@@ -3,6 +3,7 @@
 //! Links `grapheme-stdlib` with the Wasm-safe profile and walks MIR inside a
 //! WASI binary. Capability ops outside that profile surface as
 //! `grapheme.runtime.host.v1::call.capability` stubs (RFC-0005 step 2).
+//! Host runtimes fulfill stubs across rounds via `host_fulfillments` (step 3).
 
 pub mod host;
 pub mod templates;
@@ -19,6 +20,13 @@ pub use host::{
 };
 pub use walk::WalkResult as ContainerWalkResult;
 
+/// Host-provided result for a prior `HOST_CALL_REQUIRED` step.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostFulfillment {
+    pub step_index: usize,
+    pub result: JsonValue,
+}
+
 /// Execute-request contract for the Stage B container.
 ///
 /// Accepted either as the stdin root object or nested under Wasix
@@ -34,6 +42,9 @@ pub struct ExecuteRequest {
     pub args: Option<JsonValue>,
     #[serde(default)]
     pub allowed_imports: Option<Vec<String>>,
+    /// Results for host capability steps fulfilled by the host between rounds.
+    #[serde(default)]
+    pub host_fulfillments: Vec<HostFulfillment>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,7 +74,13 @@ pub fn execute(request: &ExecuteRequest) -> Result<WalkResult, WalkError> {
         .clone()
         .unwrap_or(JsonValue::Object(Default::default()));
     let call_args = request.args.clone().unwrap_or(JsonValue::Null);
-    walk_program(&request.mir, &entrypoint, initial, &call_args)
+    walk_program(
+        &request.mir,
+        &entrypoint,
+        initial,
+        &call_args,
+        &request.host_fulfillments,
+    )
 }
 
 pub fn execute_to_json(request: &ExecuteRequest) -> JsonValue {
@@ -113,4 +130,34 @@ pub fn default_allowed_imports() -> Vec<String> {
         STATE_WRITE_IMPORT.to_string(),
         CALL_CAPABILITY_IMPORT.to_string(),
     ]
+}
+
+fn workflow_wasm_asset_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("assets")
+        .join("grapheme-aot-container.wasm")
+}
+
+/// Load the prebuilt WASI workflow-container bytes for Stage B AOT emission.
+///
+/// Build with `scripts/build-aot-container.sh` first.
+pub fn load_workflow_wasm() -> Result<Vec<u8>, String> {
+    let path = workflow_wasm_asset_path();
+    std::fs::read(&path).map_err(|e| {
+        format!(
+            "missing Stage B container wasm at {} ({e}); run scripts/build-aot-container.sh",
+            path.display()
+        )
+    })
+}
+
+/// Minimal empty Wasm module used when the release container artifact is absent
+/// (unit tests / metadata-only Stage B envelopes). Not executable as a walker.
+pub fn placeholder_workflow_wasm() -> &'static [u8] {
+    &[0x00, b'a', b's', b'm', 0x01, 0x00, 0x00, 0x00]
+}
+
+/// Prefer the built container artifact; fall back to a minimal placeholder module.
+pub fn default_workflow_wasm() -> Vec<u8> {
+    load_workflow_wasm().unwrap_or_else(|_| placeholder_workflow_wasm().to_vec())
 }

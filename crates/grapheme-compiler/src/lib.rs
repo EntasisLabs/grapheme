@@ -85,6 +85,16 @@ pub fn compile_to_aot_stage_b_with_container(
         .map_err(|e| CompilerError::ArtifactEmitError(e.to_string()))
 }
 
+/// Compile source to Stage B using the default workflow-container wasm + host imports.
+pub fn compile_to_aot_stage_b(
+    source: &str,
+    entrypoint: Option<&str>,
+) -> Result<AotEnvelope, CompilerError> {
+    let wasm = grapheme_aot_container::default_workflow_wasm();
+    let imports = grapheme_aot_container::default_allowed_imports();
+    compile_to_aot_stage_b_with_container(source, entrypoint, &wasm, &imports)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

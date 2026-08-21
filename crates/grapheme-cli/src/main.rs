@@ -292,12 +292,14 @@ const PLUGIN_BUILD_SPECS: &[PluginBuildSpec] = &[
 ];
 
 const HOST_PREFERRED_MODULES: &[&str] = &["http", "tcp", "smtp"];
-const STAGE_B_DEFAULT_ALLOWED_IMPORTS: &[&str] = &[
-    "grapheme.runtime.host.v1::state.read",
-    "grapheme.runtime.host.v1::state.write",
-    "grapheme.runtime.host.v1::call.capability",
-];
-const STAGE_B_DEFAULT_WORKFLOW_WASM_BYTES: &[u8] = b"\0asmstageb";
+
+fn stage_b_default_imports() -> Vec<String> {
+    grapheme_aot_container::default_allowed_imports()
+}
+
+fn stage_b_default_workflow_wasm() -> Vec<u8> {
+    grapheme_aot_container::default_workflow_wasm()
+}
 
 const BUNDLED_EXAMPLES: &[BundledExample] = &[
     BundledExample {
@@ -1991,14 +1993,11 @@ fn run_program(file_path: &str, run_options: RunOptions) -> Result<(), CompilerE
                 .map_err(|e| CompilerError::RuntimeError(e.to_string()))?
         }
         Some(AotStageSelection::StageB) => {
-            let imports = STAGE_B_DEFAULT_ALLOWED_IMPORTS
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>();
+            let imports = stage_b_default_imports();
             let aot = engine
                 .compile_source_to_aot_stage_b(
                     &source,
-                    STAGE_B_DEFAULT_WORKFLOW_WASM_BYTES,
+                    stage_b_default_workflow_wasm().as_slice(),
                     &imports,
                 )
                 .map_err(|e| CompilerError::RuntimeError(e.to_string()))?;
@@ -2774,13 +2773,10 @@ fn emit_compile_cmd(args: &[String]) -> Result<(), CompilerError> {
             let aot = match aot_stage {
                 AotStageSelection::StageA => stage_a,
                 AotStageSelection::StageB => {
-                    let imports = STAGE_B_DEFAULT_ALLOWED_IMPORTS
-                        .iter()
-                        .map(|s| s.to_string())
-                        .collect::<Vec<_>>();
+                    let imports = stage_b_default_imports();
                     grapheme_artifact::build_stage_b_container_from_aot(
                         &stage_a,
-                        STAGE_B_DEFAULT_WORKFLOW_WASM_BYTES,
+                        stage_b_default_workflow_wasm().as_slice(),
                         &imports,
                     )
                     .map_err(|e| CompilerError::ArtifactEmitError(e.to_string()))?
@@ -2849,13 +2845,10 @@ fn emit_build_cmd(args: &[String]) -> Result<(), CompilerError> {
     let aot = match aot_stage {
         AotStageSelection::StageA => stage_a,
         AotStageSelection::StageB => {
-            let imports = STAGE_B_DEFAULT_ALLOWED_IMPORTS
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>();
+            let imports = stage_b_default_imports();
             grapheme_artifact::build_stage_b_container_from_aot(
                 &stage_a,
-                STAGE_B_DEFAULT_WORKFLOW_WASM_BYTES,
+                stage_b_default_workflow_wasm().as_slice(),
                 &imports,
             )
             .map_err(|e| CompilerError::ArtifactEmitError(e.to_string()))?
@@ -3286,13 +3279,10 @@ query Hello {
             .expect("artifact compile should succeed");
         let stage_a = grapheme_artifact::build_aot_from_artifact(&artifact)
             .expect("stage_a build should succeed");
-        let imports = STAGE_B_DEFAULT_ALLOWED_IMPORTS
-            .iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>();
+        let imports = stage_b_default_imports();
         let stage_b = grapheme_artifact::build_stage_b_container_from_aot(
             &stage_a,
-            STAGE_B_DEFAULT_WORKFLOW_WASM_BYTES,
+            stage_b_default_workflow_wasm().as_slice(),
             &imports,
         )
         .expect("stage_b build should succeed");

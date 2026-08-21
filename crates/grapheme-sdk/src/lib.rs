@@ -284,6 +284,16 @@ impl GraphemeEngine {
             .map_err(|e| GraphemeSdkError::Contract(e.to_string()))
     }
 
+    /// Compile source into Stage B AOT using the default workflow-container wasm.
+    pub fn compile_source_to_aot_stage_b_default(
+        &self,
+        source: &str,
+    ) -> Result<AotEnvelope, GraphemeSdkError> {
+        let wasm = grapheme_aot_container::default_workflow_wasm();
+        let imports = grapheme_aot_container::default_allowed_imports();
+        self.compile_source_to_aot_stage_b(source, &wasm, &imports)
+    }
+
     /// Execute a prebuilt artifact envelope.
     pub fn execute_artifact(
         &self,
@@ -3031,7 +3041,13 @@ query HelloAot {
                 .message
                 .as_deref()
                 .unwrap_or_default()
-                .contains("stage_b scaffold executed via parity path")
+                .contains("stage_b container executed in-process")
+                || result
+                    .execution
+                    .message
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains("stage_b scaffold executed via parity path")
                 || result
                     .execution
                     .message
@@ -3053,11 +3069,23 @@ query HelloAot {
             .unwrap_or(false);
 
         assert!(stage_b_event_found);
+
+        let host_event_found = result
+            .final_state
+            .get("runtime_events")
+            .and_then(|events| events.as_array())
+            .map(|events| {
+                events.iter().any(|event| {
+                    event.get("kind").and_then(|v| v.as_str())
+                        == Some("aot.stage_b.host_fulfilled")
+                })
+            })
+            .unwrap_or(false);
+        assert!(host_event_found);
     }
 
-    #[cfg(not(feature = "wasix-runtime"))]
     #[test]
-    fn execute_aot_stage_b_strict_mode_rejects_when_container_runtime_unavailable() {
+    fn execute_aot_stage_b_strict_mode_uses_in_process_container() {
         let source = r#"import core from "grapheme/core"
 
 query HelloAot {
@@ -3070,21 +3098,28 @@ query HelloAot {
         let engine = GraphemeEngine::builder()
             .with_strict_stage_b_container_execution(true)
             .build();
-        let imports = vec![
-            "grapheme.runtime.host.v1::state.read".to_string(),
-            "grapheme.runtime.host.v1::state.write".to_string(),
-        ];
         let stage_b = engine
-            .compile_source_to_aot_stage_b(source, b"\0asmstageb", &imports)
+            .compile_source_to_aot_stage_b_default(source)
             .expect("compile source to stage_b should succeed");
 
-        let err = engine
+        let result = engine
             .execute_aot(&stage_b)
-            .expect_err("strict mode should reject fallback when container runtime is unavailable");
+            .expect("strict stage_b should execute in-process container");
 
-        assert!(matches!(err, GraphemeSdkError::Contract(_)));
-        assert!(err
-            .to_string()
-            .contains("strict stage_b container execution required"));
+        assert!(result
+            .execution
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("stage_b container executed in-process"));
+        let events = result
+            .final_state
+            .get("runtime_events")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        assert!(events.iter().any(|e| {
+            e.get("kind").and_then(|v| v.as_str()) == Some("aot.stage_b.host_fulfilled")
+        }));
     }
 }
