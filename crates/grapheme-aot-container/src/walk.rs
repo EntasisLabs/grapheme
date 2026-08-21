@@ -9,6 +9,15 @@ use serde_json::{json, Map, Value as JsonValue};
 
 use crate::host::{self, HostCallRequest, CALL_CAPABILITY_IMPORT};
 use crate::templates::{args_with_pipeline_input, TemplateScope};
+use crate::HostFulfillment;
+
+/// Modules that may run inside the Stage B container even if Cargo feature
+/// unification enables host stdlib crates in the same build graph.
+const LOCAL_WASM_MODULES: &[&str] = &["core", "json", "csv", "yaml", "html"];
+
+fn is_local_wasm_op(module: &str, op: &str) -> bool {
+    LOCAL_WASM_MODULES.contains(&module) && registry::is_registered_op(module, op)
+}
 
 #[derive(Debug, Clone)]
 pub struct WalkError {
@@ -27,10 +36,11 @@ pub struct WalkResult {
     pub host_calls: Vec<JsonValue>,
 }
 
-struct WalkState {
+struct WalkState<'a> {
     current: JsonValue,
     steps: usize,
     host_calls: Vec<JsonValue>,
+    host_fulfillments: &'a [HostFulfillment],
 }
 
 pub fn walk_program(
@@ -38,6 +48,7 @@ pub fn walk_program(
     entrypoint: &str,
     initial_current: JsonValue,
     call_args: &JsonValue,
+    host_fulfillments: &[HostFulfillment],
 ) -> Result<WalkResult, WalkError> {
     let functions = &mir.functions;
     let function_idx = functions
@@ -55,6 +66,7 @@ pub fn walk_program(
         current: initial_current,
         steps: 0,
         host_calls: Vec::new(),
+        host_fulfillments,
     };
 
     match execute_function(functions, function_idx, &mut state, &locals, 0, 32) {
@@ -78,7 +90,7 @@ pub fn walk_program(
 fn execute_function(
     functions: &[MirFunction],
     function_idx: usize,
-    state: &mut WalkState,
+    state: &mut WalkState<'_>,
     locals: &Map<String, JsonValue>,
     call_depth: usize,
     max_call_depth: usize,
@@ -256,13 +268,14 @@ fn dispatch_call(
     op: &str,
     capability: &Capability,
     args: &JsonValue,
-    state: &mut WalkState,
+    state: &mut WalkState<'_>,
     locals: &Map<String, JsonValue>,
     call_depth: usize,
     max_call_depth: usize,
 ) -> Result<(), WalkError> {
     let module_id = module.unwrap_or("core");
     state.steps += 1;
+    let step_index = state.steps.saturating_sub(1);
 
     let current = state.current.clone();
     let scope = TemplateScope {
@@ -284,13 +297,13 @@ fn dispatch_call(
         return Ok(());
     }
 
-    if registry::is_registered_op(module_id, op) {
+    if is_local_wasm_op(module_id, op) {
         let Some(output) = registry::dispatch(module_id, op, &call_args) else {
             return Err(WalkError {
                 code: "LOCAL_DISPATCH_FAILED".to_string(),
                 message: format!("registered op '{module_id}.{op}' returned no value"),
                 capability: Some(capability.0.clone()),
-                step_index: state.steps.saturating_sub(1),
+                step_index,
             });
         };
         if let Some(error) = output.get("error") {
@@ -306,10 +319,20 @@ fn dispatch_call(
                     .unwrap_or("operation returned error")
                     .to_string(),
                 capability: Some(capability.0.clone()),
-                step_index: state.steps.saturating_sub(1),
+                step_index,
             });
         }
         state.current = output;
+        return Ok(());
+    }
+
+    // Host already fulfilled this step in a prior round.
+    if let Some(fulfilled) = state
+        .host_fulfillments
+        .iter()
+        .find(|f| f.step_index == step_index)
+    {
+        state.current = fulfilled.result.clone();
         return Ok(());
     }
 
@@ -333,14 +356,14 @@ fn dispatch_call(
             .unwrap_or("host capability call required")
             .to_string(),
         capability: Some(capability.0.clone()),
-        step_index: state.steps.saturating_sub(1),
+        step_index,
     })
 }
 
 fn invoke_named(
     functions: &[MirFunction],
     name: &str,
-    state: &mut WalkState,
+    state: &mut WalkState<'_>,
     locals: &Map<String, JsonValue>,
     call_depth: usize,
     max_call_depth: usize,
@@ -367,7 +390,7 @@ fn invoke_named(
 fn invoke_match_target(
     functions: &[MirFunction],
     target: &MirMatchTarget,
-    state: &mut WalkState,
+    state: &mut WalkState<'_>,
     locals: &Map<String, JsonValue>,
     call_depth: usize,
     max_call_depth: usize,

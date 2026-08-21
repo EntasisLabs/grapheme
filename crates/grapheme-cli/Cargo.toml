@@ -29,5 +29,6 @@ toml = "0.8"
 grapheme-compiler = { path = "../grapheme-compiler", version = "0.6.1", default-features = false, features = ["full"] }
 grapheme-runtime = { path = "../grapheme-runtime", version = "0.6.1", default-features = false, features = ["wasix-runtime", "full"] }
 grapheme-artifact = { path = "../grapheme-artifact", version = "0.2.0" }
+grapheme-aot-container = { path = "../grapheme-aot-container", version = "0.6.1" }
 grapheme-stdlib = { path = "../grapheme-stdlib", version = "0.6.1", features = ["full"] }
 grapheme-sdk = { path = "../grapheme-sdk", version = "0.6.1", default-features = false, features = ["full"] }

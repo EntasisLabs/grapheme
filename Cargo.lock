@@ -2511,6 +2511,7 @@ dependencies = [
 name = "grapheme-cli"
 version = "0.6.1"
 dependencies = [
+ "grapheme-aot-container",
  "grapheme-artifact",
  "grapheme-compiler",
  "grapheme-runtime",
@@ -2526,6 +2527,7 @@ dependencies = [
 name = "grapheme-compiler"
 version = "0.6.1"
 dependencies = [
+ "grapheme-aot-container",
  "grapheme-artifact",
  "grapheme-signatures",
  "pest",
@@ -2549,6 +2551,7 @@ dependencies = [
 name = "grapheme-runtime"
 version = "0.6.1"
 dependencies = [
+ "grapheme-aot-container",
  "grapheme-artifact",
  "grapheme-signatures",
  "grapheme-stdlib",
@@ -2568,6 +2571,7 @@ dependencies = [
 name = "grapheme-sdk"
 version = "0.6.1"
 dependencies = [
+ "grapheme-aot-container",
  "grapheme-artifact",
  "grapheme-compiler",
  "grapheme-runtime",

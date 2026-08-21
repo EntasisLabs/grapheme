@@ -42,7 +42,8 @@ jobs:
         run: |
           cargo test -p grapheme-runtime module_manifest::tests::manifest_ops_are_registered_or_explicitly_unsupported_for_stdlib_scope
           cargo test -p grapheme-runtime module_manifest::tests::stdlib_registered_ops_exist_in_runtime_manifests_for_stdlib_scope
-          cargo test -p grapheme-runtime execute_aot_stage_b_strict_mode_rejects_parity_fallback
+          cargo test -p grapheme-runtime execute_aot_stage_b_strict_mode_uses_in_process_container
+          cargo test -p grapheme-runtime execute_aot_stage_b_fulfills_host_capability_rounds
 
       - name: Stdlib signature scope conformance test
         run: cargo test -p grapheme-stdlib registry::tests::signature_scope_ops_are_registered_or_explicitly_unsupported
@@ -61,7 +62,12 @@ jobs:
 
       - name: SDK AOT strict mode tests
         run: |
-          cargo test -p grapheme-sdk execute_aot_stage_b_strict_mode_rejects_when_container_runtime_unavailable
+          cargo test -p grapheme-sdk execute_aot_stage_b_strict_mode_uses_in_process_container
+
+      - name: Build Stage B container wasm artifact
+        run: |
+          ./scripts/build-aot-container.sh
+          test -f crates/grapheme-aot-container/assets/grapheme-aot-container.wasm
 
       - name: CLI AOT build manifest snapshot contract
         run: |
@@ -86,3 +92,4 @@ jobs:
       - name: Runtime Stage B direct path tests (wasix-runtime)
         run: |
           cargo test -p grapheme-runtime --features wasix-runtime execute_aot_stage_b_direct_path_with_wasix_feature
+          cargo test -p grapheme-runtime --features wasix-runtime execute_aot_stage_b_fulfills_host_capability_rounds

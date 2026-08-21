@@ -17,3 +17,8 @@ resolver = "2"
 [workspace.package]
 edition = "2024"
 rust-version = "1.92"
+
+[profile.release.package.grapheme-aot-container]
+opt-level = "z"
+codegen-units = 1
+strip = true

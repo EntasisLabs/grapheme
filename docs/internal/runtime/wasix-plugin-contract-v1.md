@@ -65,7 +65,9 @@ Workflow container runtime (`grapheme-aot-container`):
 
 1. WASI bin walks MIR from stdin (`args.mir` + `args.entrypoint` under the Wasix envelope).
 2. Wasm-safe stdlib ops (`core`/`json`/`csv`/`yaml`/`html`) run locally inside the container.
-3. Other capability ops emit a structured `host_call_required` stub for `call.capability` until real host imports are linked.
+3. Other capability ops emit a structured `host_call_required` stub for `call.capability`.
+4. Host runtimes fulfill stubs across rounds via `host_fulfillments` (in-process walker is the default Stage B path; Wasix remains an optional sandbox).
+5. Default Stage B emission loads `assets/grapheme-aot-container.wasm` (build with `scripts/build-aot-container.sh`).
 
 Optional inline container transport:
 
