@@ -59,9 +59,13 @@ Current scaffold contract:
 
 - `grapheme.runtime.host.v1::state.read`
 - `grapheme.runtime.host.v1::state.write`
-- `grapheme.runtime.host.v1::<future-op>`
+- `grapheme.runtime.host.v1::call.capability`
 
-Any import outside this namespace is rejected during Stage B build or execution boundary validation.
+Workflow container runtime (`grapheme-aot-container`):
+
+1. WASI bin walks MIR from stdin (`args.mir` + `args.entrypoint` under the Wasix envelope).
+2. Wasm-safe stdlib ops (`core`/`json`/`csv`/`yaml`/`html`) run locally inside the container.
+3. Other capability ops emit a structured `host_call_required` stub for `call.capability` until real host imports are linked.
 
 Optional inline container transport:
 

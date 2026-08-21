@@ -1,0 +1,29 @@
+{
+  "functions": [
+    {
+      "name": "NeedsHttp",
+      "kind": "Query",
+      "blocks": [
+        {
+          "id": 0,
+          "instructions": [
+            {
+              "Call": {
+                "module": "http",
+                "op": "get",
+                "capability": "http.get",
+                "arg_count": 1,
+                "args": {
+                  "url": "https://example.com"
+                },
+                "stores_state": true
+              }
+            }
+          ],
+          "terminator": "ReturnState"
+        }
+      ]
+    }
+  ],
+  "capabilities": ["http.get"]
+}

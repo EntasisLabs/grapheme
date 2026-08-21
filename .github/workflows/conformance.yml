@@ -25,6 +25,11 @@ jobs:
         run: |
           cargo check -p grapheme-stdlib --no-default-features --features wasm --target wasm32-wasip1
 
+      - name: Stage B AOT container Wasm check (RFC-0005 step 2)
+        run: |
+          cargo check -p grapheme-aot-container --target wasm32-wasip1
+          cargo test -p grapheme-aot-container
+
       - name: Single-source grammar contract check
         run: |
           ./scripts/check-grammar-sync.sh
