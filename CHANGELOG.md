@@ -5,6 +5,50 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-08-21
+
+**Language + Stage B release** — executable parameters / tagged variables (RFC-0004) and a Wasm-compilable Stage B AOT path (RFC-0005). See `docs/internal/rfc/rfc-0004-params-and-tagged-vars-v1.md` and `docs/internal/rfc/rfc-0005-wasm-compilable-stdlib-v1.md`.
+
+### Added
+
+- **Executable parameters (RFC-0004 Phase 1)** — GraphQL-style `$param` lists on `query` / `mutation` / `iterator` / `subscription`, lowered through HIR → MIR → runtime locals with CLI/SDK entrypoint arg binding.
+- **Tag schemas + scoped `using` (RFC-0004 Phase 2a)** — tagged variable schemas and block-scoped `using` for ambient auth/session-style handles.
+- **Wasm-safe stdlib profile (RFC-0005)** — `grapheme-stdlib` feature split: default `host` vs `wasm` / `transforms` so Stage B containers compile for `wasm32-wasip1` without TLS/DB stacks.
+- **`grapheme-aot-container`** — slim MIR walker WASI binary for Stage B workflows; local ops for `core` / `json` / `csv` / `yaml` / `html`; host-only ops surface as `grapheme.runtime.host.v1::call.capability` stubs.
+- **Stage B host fulfillment** — multi-round in-process walker + `CapabilityHost` fulfillment (`call.capability`, `state.read` / `state.write`) via `host_fulfillments`.
+- **Default Stage B emission** — `compile_to_aot_stage_b` / SDK `compile_source_to_aot_stage_b_default` + `scripts/build-aot-container.sh`.
+- **Wasix multi-round Stage B** — optional sandbox path (`prefer_stage_b_wasix` / `GRAPHEME_PREFER_STAGE_B_WASIX`) using the same fulfillment contract.
+- **Stage A ↔ Stage B parity fixtures** — outcome + `state.current` parity for core transforms and host-capability paths.
+
+### Changed
+
+- **Toolchain** — Rust edition **2024** / **rust-version 1.92+** required.
+- **Strict Stage B** — in-process container walker is the primary path; Wasix is opt-in; parity fallback still available when not strict.
+- **CI** — conformance gates for Wasm stdlib check, Stage B container, parity tests, and Wasix multi-round (builds container artifact first).
+
+### Crate versions (this release)
+
+All workspace language crates ship at **0.7.0** except `grapheme-artifact` (unchanged at 0.2.0). The release tag is **v0.7.0**.
+
+| Crate | Version |
+| --- | --- |
+| `grapheme-signatures` | 0.7.0 |
+| `grapheme-stdlib` | 0.7.0 |
+| `grapheme-aot-container` | 0.7.0 |
+| `grapheme-runtime` | 0.7.0 |
+| `grapheme-compiler` | 0.7.0 |
+| `grapheme-sdk` | 0.7.0 |
+| `grapheme-cli` | 0.7.0 |
+| `grapheme-lsp` | 0.7.0 |
+| VS Code extension | 0.7.0 |
+| `grapheme-artifact` | 0.2.0 (unchanged) |
+
+### Notes
+
+- Last published Git tag before this cut was **v0.4.0**; Cargo already carried 0.5.x/0.6.x trains without matching tags. **v0.7.0** is the aligned language + Stage B cut.
+- Build the Stage B wasm asset before Wasix sandbox runs: `./scripts/build-aot-container.sh`.
+- RFC-0004 Phases 3+ (tag-typed parameters as the full call-edge model, `uses` sugar) remain follow-ups beyond this release.
+
 ## [0.6.1] - 2026-06-03
 
 ### Fixed

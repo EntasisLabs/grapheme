@@ -1,6 +1,6 @@
 [package]
 name = "grapheme-sdk"
-version = "0.6.1"
+version = "0.7.0"
 edition = "2024"
 rust-version = "1.92"
 description = "Embedded SDK for compiling and executing Grapheme workflows"
@@ -30,8 +30,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
 grapheme-artifact = { path = "../grapheme-artifact", version = "0.2.0" }
-grapheme-aot-container = { path = "../grapheme-aot-container", version = "0.6.1" }
-grapheme-compiler = { path = "../grapheme-compiler", version = "0.6.1", default-features = false }
-grapheme-runtime = { path = "../grapheme-runtime", version = "0.6.1", default-features = false }
-grapheme-signatures = { path = "../grapheme-signatures", version = "0.6.1", default-features = false }
-grapheme-stdlib = { path = "../grapheme-stdlib", version = "0.6.1", default-features = false, features = ["host"] }
+grapheme-aot-container = { path = "../grapheme-aot-container", version = "0.7.0" }
+grapheme-compiler = { path = "../grapheme-compiler", version = "0.7.0", default-features = false }
+grapheme-runtime = { path = "../grapheme-runtime", version = "0.7.0", default-features = false }
+grapheme-signatures = { path = "../grapheme-signatures", version = "0.7.0", default-features = false }
+grapheme-stdlib = { path = "../grapheme-stdlib", version = "0.7.0", default-features = false, features = ["host"] }

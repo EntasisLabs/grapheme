@@ -169,7 +169,7 @@ cargo build -p grapheme-lsp --release
 - `docs/internal/lsp/quickstart.md`
 - `extensions/grapheme-vscode/README.md`
 
-Set `grapheme.lsp.releaseTag` to `v0.6.0` when using auto-download for envelope-hint support.
+Set `grapheme.lsp.releaseTag` to `v0.7.0` when using auto-download for envelope-hint support.
 
 ## 11) Wasm capability module not found on run
 

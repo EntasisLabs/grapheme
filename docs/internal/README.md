@@ -37,6 +37,7 @@ This is the front door for the docs set. Use this page for fast navigation.
 10. docs/internal/native-modules.md
 11. docs/internal/troubleshooting.md
 12. docs/internal/roadmaps/release-0.6.0-extensible-platform.md
+13. docs/internal/release/release-0.7.0.md
 
 ## Domain Indexes
 

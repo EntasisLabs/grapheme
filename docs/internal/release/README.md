@@ -4,8 +4,9 @@ Use this section for release packaging, distribution, and governance gates.
 
 ## Primary Guides
 
-1. docs/release/lsp-release.md
-2. docs/release/release-gates-and-doc-versioning.md
+1. docs/internal/release/release-0.7.0.md
+2. docs/internal/release/lsp-release.md
+3. docs/internal/release/release-gates-and-doc-versioning.md
 
 ## Suggested Operator Flow
 

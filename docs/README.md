@@ -9,6 +9,7 @@ This directory is the product track: outcome-first, language-first, and operator
 ## Release notes
 
 - [CHANGELOG.md](../CHANGELOG.md) — version history and crate alignment per release.
+- **0.7.0 language + Stage B:** params/tags + AOT container — `docs/internal/release/release-0.7.0.md`
 - **0.6.0 extensible platform:** Wasm discovery, hotload, capability modules — `docs/internal/roadmaps/release-0.6.0-extensible-platform.md`
 
 ## Start Here
