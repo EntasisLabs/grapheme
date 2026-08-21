@@ -233,10 +233,12 @@ Stage B initial scaffold status:
 8. Conformance now includes strict Stage B fallback rejection tests in runtime + SDK.
 9. Runtime release builds now default strict Stage B container-first policy; migration override available via `GRAPHEME_STRICT_STAGE_B=true|false`.
 10. Next: remove remaining scaffold assumptions once lowering emits production-valid workflow Wasm end-to-end.
+11. Stdlib Wasm prerequisite (RFC-0005): `grapheme-stdlib` now exposes a `wasm`/`transforms` profile that compiles for `wasm32-wasip1` without host TLS/DB deps. Stage B containers must link this profile only; capability ops stay as `grapheme.runtime.host.v1::*` imports or Wasix plugins.
 
 Start gate (must be true before Track 4 execution):
 
 1. Trace/event schema stability is locked for runtime + SDK outputs.
+2. Stdlib Wasm profile stays green in CI (`cargo check -p grapheme-stdlib --no-default-features --features wasm --target wasm32-wasip1`).
 
 ## Cross-Cutting Workstreams
 

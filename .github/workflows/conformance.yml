@@ -15,9 +15,15 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
 
       - name: Cargo Cache
         uses: Swatinem/rust-cache@v2
+
+      - name: Stdlib Wasm profile check (RFC-0005)
+        run: |
+          cargo check -p grapheme-stdlib --no-default-features --features wasm --target wasm32-wasip1
 
       - name: Single-source grammar contract check
         run: |

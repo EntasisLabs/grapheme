@@ -2,18 +2,37 @@
 
 Grapheme 0.6.0 introduces **opt-in capability modules** for embedders while the CLI ships everything by default.
 
+As of RFC-0005, `grapheme-stdlib` also layers **host** vs **wasm** profiles so Stage B / `wasm32-wasip1` work does not pull TLS/DB stacks.
+
 ## Quick reference
 
 | Crate | Version (0.6.0 train) | Default features | Full stack |
 | --- | --- | --- | --- |
 | `grapheme-cli` | 0.6.0 | `full` | All capabilities + WASIX runtime |
 | `grapheme-lsp` | 0.6.0 | `full` | Editor gets full signatures |
-| `grapheme-sdk` | 0.6.0 | *(none)* | Enable `full` or pick modules |
-| `grapheme-stdlib` | 0.6.0 | *(none)* | `data`, `pdf`, `image`, `plot`, `media` |
+| `grapheme-sdk` | 0.6.0 | *(none)*; stdlib edge enables `host` | Enable `full` or pick modules |
+| `grapheme-stdlib` | 0.6.0 | `host` | `host` + `data`, `pdf`, `image`, `plot`, `media` |
 | `grapheme-signatures` | 0.6.0 | *(none)* | Capability op metadata |
 | `grapheme-runtime` | 0.6.0 | *(none)* | Execution engine |
 | `grapheme-compiler` | 0.6.0 | *(none)* | Compiler pipeline |
 | `grapheme-artifact` | 0.2.0 | — | MIR envelope (independent semver) |
+
+## Stdlib host vs Wasm profiles
+
+| Feature | What it enables | `wasm32-wasip1` |
+| --- | --- | --- |
+| *(always)* | `core`, `json`, `envelope`, `capability` | yes |
+| `transforms` / `wasm` | `csv`, `yaml`, `html` | yes |
+| `host` (default) | transforms + `http`, `web`, `net`, `email`, `sql`, `surreal` | no |
+| `data` / `media` / … | existing capability modules | no (host/plugin paths) |
+
+Wasm recipe (Stage B prerequisite):
+
+```bash
+cargo check -p grapheme-stdlib --no-default-features --features wasm --target wasm32-wasip1
+```
+
+See `docs/internal/rfc/rfc-0005-wasm-compilable-stdlib-v1.md`.
 
 ## SDK (embedders)
 
@@ -38,7 +57,7 @@ Available flags on `grapheme-sdk`:
 - `media` — probe/transcode (native ffmpeg/ffprobe CLI bridge)
 - `wasix-runtime` — Wasm module execution backend (included in `full`)
 
-Without capability features, module discovery and compile-time verification will not include `data.*`, `pdf.*`, etc.
+Without capability features, module discovery and compile-time verification will not include `data.*`, `pdf.*`, etc. Network/DB host modules remain available via the SDK→stdlib `host` edge.
 
 ### Hotload in embedders
 
@@ -67,7 +86,14 @@ grapheme run examples/platform-release-060.gr
 If you depend on `grapheme-stdlib` directly (tests, custom hosts):
 
 ```toml
-grapheme-stdlib = { version = "0.6", default-features = false, features = ["data"] }
+# Host product path (default)
+grapheme-stdlib = { version = "0.6" }
+
+# Capability add-ons
+grapheme-stdlib = { version = "0.6", features = ["data"] }
+
+# Wasm / Stage B container profile
+grapheme-stdlib = { version = "0.6", default-features = false, features = ["wasm"] }
 ```
 
 Dispatch via `grapheme_stdlib::registry::dispatch` returns `None` for disabled modules.
@@ -91,6 +117,7 @@ Legacy flat JSON objects are still accepted during migration (`meta.legacy_flat`
 ## Related docs
 
 - Release plan: `docs/internal/roadmaps/release-0.6.0-extensible-platform.md`
+- Wasm-compilable stdlib RFC: `docs/internal/rfc/rfc-0005-wasm-compilable-stdlib-v1.md`
 - Wasm sidecar manifest: `docs/internal/runtime/wasm-module-manifest-v1.md`
 - CLI module commands: `docs/internal/cli.md`
 - SDK API overview: `docs/internal/sdk.md`

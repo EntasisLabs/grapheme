@@ -1,7 +1,23 @@
-use crate::{
-    core, csv, email, html, http, json as json_mod, research, smtp, sql, surreal, tcp, web, yaml,
-};
-use serde_json::{json, Value as JsonValue};
+use crate::{core, json as json_mod};
+use serde_json::Value as JsonValue;
+
+#[cfg(any(feature = "http", feature = "net", feature = "web"))]
+use serde_json::json;
+
+#[cfg(feature = "transforms")]
+use crate::{csv, html, yaml};
+#[cfg(feature = "http")]
+use crate::http;
+#[cfg(feature = "web")]
+use crate::{research, web};
+#[cfg(feature = "net")]
+use crate::{smtp, tcp};
+#[cfg(feature = "email")]
+use crate::email;
+#[cfg(feature = "sql")]
+use crate::sql;
+#[cfg(feature = "surreal")]
+use crate::surreal;
 
 struct RegisteredModule {
     module_id: &'static str,
@@ -19,52 +35,63 @@ const REGISTERED_MODULES: &[RegisteredModule] = &[
         handler: dispatch_core,
     },
     RegisteredModule {
-        module_id: "http",
-        handler: dispatch_http,
+        module_id: "json",
+        handler: dispatch_json,
     },
-    RegisteredModule {
-        module_id: "web",
-        handler: dispatch_web,
-    },
-    RegisteredModule {
-        module_id: "websearch",
-        handler: dispatch_websearch,
-    },
-    RegisteredModule {
-        module_id: "tcp",
-        handler: dispatch_tcp,
-    },
-    RegisteredModule {
-        module_id: "smtp",
-        handler: dispatch_smtp,
-    },
-    RegisteredModule {
-        module_id: "email",
-        handler: dispatch_email,
-    },
-    RegisteredModule {
-        module_id: "sql",
-        handler: dispatch_sql,
-    },
-    RegisteredModule {
-        module_id: "surreal",
-        handler: dispatch_surreal,
-    },
+    #[cfg(feature = "transforms")]
     RegisteredModule {
         module_id: "html",
         handler: dispatch_html,
     },
-    RegisteredModule {
-        module_id: "json",
-        handler: dispatch_json,
-    },
+    #[cfg(feature = "transforms")]
     RegisteredModule {
         module_id: "csv",
         handler: dispatch_csv,
     },
+    #[cfg(feature = "transforms")]
     RegisteredModule {
         module_id: "yaml",
         handler: dispatch_yaml,
+    },
+    #[cfg(feature = "http")]
+    RegisteredModule {
+        module_id: "http",
+        handler: dispatch_http,
+    },
+    #[cfg(feature = "web")]
+    RegisteredModule {
+        module_id: "web",
+        handler: dispatch_web,
+    },
+    #[cfg(feature = "web")]
+    RegisteredModule {
+        module_id: "websearch",
+        handler: dispatch_websearch,
+    },
+    #[cfg(feature = "net")]
+    RegisteredModule {
+        module_id: "tcp",
+        handler: dispatch_tcp,
+    },
+    #[cfg(feature = "net")]
+    RegisteredModule {
+        module_id: "smtp",
+        handler: dispatch_smtp,
+    },
+    #[cfg(feature = "email")]
+    RegisteredModule {
+        module_id: "email",
+        handler: dispatch_email,
+    },
+    #[cfg(feature = "sql")]
+    RegisteredModule {
+        module_id: "sql",
+        handler: dispatch_sql,
+    },
+    #[cfg(feature = "surreal")]
+    RegisteredModule {
+        module_id: "surreal",
+        handler: dispatch_surreal,
     },
 ];
 
@@ -220,16 +247,19 @@ const JSON_OPS: &[RegisteredOp] = &[RegisteredOp {
     handler: json_mod::parse,
 }];
 
+#[cfg(feature = "transforms")]
 const CSV_OPS: &[RegisteredOp] = &[RegisteredOp {
     op: "to_list",
     handler: csv::to_list,
 }];
 
+#[cfg(feature = "transforms")]
 const YAML_OPS: &[RegisteredOp] = &[RegisteredOp {
     op: "to_json",
     handler: yaml::to_json,
 }];
 
+#[cfg(feature = "transforms")]
 const HTML_OPS: &[RegisteredOp] = &[
     RegisteredOp {
         op: "to_md",
@@ -254,24 +284,35 @@ pub fn dispatch(module: &str, op: &str, args: &JsonValue) -> Option<JsonValue> {
 pub fn is_registered_op(module: &str, op: &str) -> bool {
     match module {
         "core" => CORE_OPS.iter().any(|entry| entry.op == op),
+        "json" => JSON_OPS.iter().any(|entry| entry.op == op),
+        #[cfg(feature = "transforms")]
+        "html" => HTML_OPS.iter().any(|entry| entry.op == op),
+        #[cfg(feature = "transforms")]
+        "csv" => CSV_OPS.iter().any(|entry| entry.op == op),
+        #[cfg(feature = "transforms")]
+        "yaml" => YAML_OPS.iter().any(|entry| entry.op == op),
+        #[cfg(feature = "http")]
         "http" => matches!(op, "get" | "post"),
+        #[cfg(feature = "web")]
         "web" => matches!(
             op,
             "duckduckgo" | "google" | "xaviv" | "tavily" | "brave" | "providers" | "capabilities"
         ),
+        #[cfg(feature = "web")]
         "websearch" => matches!(op, "search" | "research_materials" | "research_report"),
+        #[cfg(feature = "net")]
         "tcp" => matches!(op, "connect" | "send" | "receive"),
+        #[cfg(feature = "net")]
         "smtp" => matches!(op, "send_mail"),
+        #[cfg(feature = "email")]
         "email" => matches!(op, "smtp" | "gmail" | "providers" | "capabilities"),
+        #[cfg(feature = "sql")]
         "sql" => matches!(op, "query" | "execute" | "transaction" | "health"),
+        #[cfg(feature = "surreal")]
         "surreal" => matches!(
             op,
             "query" | "select" | "create" | "update" | "delete" | "health"
         ),
-        "html" => HTML_OPS.iter().any(|entry| entry.op == op),
-        "json" => JSON_OPS.iter().any(|entry| entry.op == op),
-        "csv" => CSV_OPS.iter().any(|entry| entry.op == op),
-        "yaml" => YAML_OPS.iter().any(|entry| entry.op == op),
         #[cfg(feature = "data")]
         "data" => matches!(
             op,
@@ -292,7 +333,16 @@ pub fn is_registered_op(module: &str, op: &str) -> bool {
 pub fn registered_ops_for_module(module: &str) -> Vec<&'static str> {
     match module {
         "core" => CORE_OPS.iter().map(|entry| entry.op).collect(),
+        "json" => JSON_OPS.iter().map(|entry| entry.op).collect(),
+        #[cfg(feature = "transforms")]
+        "html" => HTML_OPS.iter().map(|entry| entry.op).collect(),
+        #[cfg(feature = "transforms")]
+        "csv" => CSV_OPS.iter().map(|entry| entry.op).collect(),
+        #[cfg(feature = "transforms")]
+        "yaml" => YAML_OPS.iter().map(|entry| entry.op).collect(),
+        #[cfg(feature = "http")]
         "http" => vec!["get", "post"],
+        #[cfg(feature = "web")]
         "web" => vec![
             "duckduckgo",
             "google",
@@ -302,16 +352,18 @@ pub fn registered_ops_for_module(module: &str) -> Vec<&'static str> {
             "providers",
             "capabilities",
         ],
+        #[cfg(feature = "web")]
         "websearch" => vec!["search", "research_materials", "research_report"],
+        #[cfg(feature = "net")]
         "tcp" => vec!["connect", "send", "receive"],
+        #[cfg(feature = "net")]
         "smtp" => vec!["send_mail"],
+        #[cfg(feature = "email")]
         "email" => vec!["smtp", "gmail", "providers", "capabilities"],
+        #[cfg(feature = "sql")]
         "sql" => vec!["query", "execute", "transaction", "health"],
+        #[cfg(feature = "surreal")]
         "surreal" => vec!["query", "select", "create", "update", "delete", "health"],
-        "html" => HTML_OPS.iter().map(|entry| entry.op).collect(),
-        "json" => JSON_OPS.iter().map(|entry| entry.op).collect(),
-        "csv" => CSV_OPS.iter().map(|entry| entry.op).collect(),
-        "yaml" => YAML_OPS.iter().map(|entry| entry.op).collect(),
         #[cfg(feature = "data")]
         "data" => vec![
             "read_csv", "filter", "group_by", "aggregate", "to_json", "schema",
@@ -338,6 +390,7 @@ fn dispatch_core(op: &str, args: &JsonValue) -> Option<JsonValue> {
     dispatch_table(op, args, CORE_OPS)
 }
 
+#[cfg(feature = "http")]
 fn dispatch_http(op: &str, args: &JsonValue) -> Option<JsonValue> {
     match op {
         "get" => {
@@ -352,6 +405,7 @@ fn dispatch_http(op: &str, args: &JsonValue) -> Option<JsonValue> {
     }
 }
 
+#[cfg(feature = "web")]
 fn dispatch_web(op: &str, args: &JsonValue) -> Option<JsonValue> {
     match op {
         "duckduckgo" => Some(web::search_provider(args, "duckduckgo")),
@@ -365,6 +419,7 @@ fn dispatch_web(op: &str, args: &JsonValue) -> Option<JsonValue> {
     }
 }
 
+#[cfg(feature = "web")]
 fn dispatch_websearch(op: &str, args: &JsonValue) -> Option<JsonValue> {
     match op {
         "search" => {
@@ -383,6 +438,7 @@ fn dispatch_websearch(op: &str, args: &JsonValue) -> Option<JsonValue> {
     }
 }
 
+#[cfg(feature = "net")]
 fn dispatch_tcp(op: &str, args: &JsonValue) -> Option<JsonValue> {
     match op {
         "connect" => {
@@ -401,6 +457,7 @@ fn dispatch_tcp(op: &str, args: &JsonValue) -> Option<JsonValue> {
     }
 }
 
+#[cfg(feature = "net")]
 fn dispatch_smtp(op: &str, args: &JsonValue) -> Option<JsonValue> {
     match op {
         "send_mail" => Some(smtp::send_mail(args)),
@@ -408,6 +465,7 @@ fn dispatch_smtp(op: &str, args: &JsonValue) -> Option<JsonValue> {
     }
 }
 
+#[cfg(feature = "email")]
 fn dispatch_email(op: &str, args: &JsonValue) -> Option<JsonValue> {
     match op {
         "smtp" => Some(email::send_provider(args, "smtp")),
@@ -418,6 +476,7 @@ fn dispatch_email(op: &str, args: &JsonValue) -> Option<JsonValue> {
     }
 }
 
+#[cfg(feature = "sql")]
 fn dispatch_sql(op: &str, args: &JsonValue) -> Option<JsonValue> {
     match op {
         "query" => Some(sql::query(args)),
@@ -428,6 +487,7 @@ fn dispatch_sql(op: &str, args: &JsonValue) -> Option<JsonValue> {
     }
 }
 
+#[cfg(feature = "surreal")]
 fn dispatch_surreal(op: &str, args: &JsonValue) -> Option<JsonValue> {
     match op {
         "query" => Some(surreal::query(args)),
@@ -440,6 +500,7 @@ fn dispatch_surreal(op: &str, args: &JsonValue) -> Option<JsonValue> {
     }
 }
 
+#[cfg(feature = "transforms")]
 fn dispatch_html(op: &str, args: &JsonValue) -> Option<JsonValue> {
     dispatch_table(op, args, HTML_OPS)
 }
@@ -448,10 +509,12 @@ fn dispatch_json(op: &str, args: &JsonValue) -> Option<JsonValue> {
     dispatch_table(op, args, JSON_OPS)
 }
 
+#[cfg(feature = "transforms")]
 fn dispatch_csv(op: &str, args: &JsonValue) -> Option<JsonValue> {
     dispatch_table(op, args, CSV_OPS)
 }
 
+#[cfg(feature = "transforms")]
 fn dispatch_yaml(op: &str, args: &JsonValue) -> Option<JsonValue> {
     dispatch_table(op, args, YAML_OPS)
 }
@@ -468,7 +531,10 @@ fn dispatch_capability(module: &str, op: &str, args: &JsonValue) -> Option<JsonV
         "plot" => dispatch_plot(op, args),
         #[cfg(feature = "media")]
         "media" => dispatch_media(op, args),
-        _ => None,
+        _ => {
+            let _ = (op, args);
+            None
+        }
     }
 }
 
@@ -534,11 +600,13 @@ fn dispatch_table(op: &str, args: &JsonValue, ops: &[RegisteredOp]) -> Option<Js
         .map(|entry| (entry.handler)(args))
 }
 
+#[cfg(feature = "http")]
 #[derive(Debug, Clone)]
 struct HttpGetRequest {
     url: String,
 }
 
+#[cfg(feature = "http")]
 impl HttpGetRequest {
     fn from_args(args: &JsonValue) -> Self {
         Self {
@@ -547,12 +615,14 @@ impl HttpGetRequest {
     }
 }
 
+#[cfg(feature = "http")]
 #[derive(Debug, Clone)]
 struct HttpPostRequest {
     url: String,
     body: Option<JsonValue>,
 }
 
+#[cfg(feature = "http")]
 impl HttpPostRequest {
     fn from_args(args: &JsonValue) -> Self {
         Self {
@@ -566,11 +636,13 @@ impl HttpPostRequest {
     }
 }
 
+#[cfg(feature = "net")]
 #[derive(Debug, Clone)]
 struct TcpConnectRequest {
     target: String,
 }
 
+#[cfg(feature = "net")]
 impl TcpConnectRequest {
     fn from_args(args: &JsonValue) -> Self {
         Self {
@@ -579,12 +651,14 @@ impl TcpConnectRequest {
     }
 }
 
+#[cfg(feature = "net")]
 #[derive(Debug, Clone)]
 struct TcpSendRequest {
     target: String,
     data: String,
 }
 
+#[cfg(feature = "net")]
 impl TcpSendRequest {
     fn from_args(args: &JsonValue) -> Self {
         let data = arg_str(args, "data")
@@ -598,12 +672,14 @@ impl TcpSendRequest {
     }
 }
 
+#[cfg(feature = "net")]
 #[derive(Debug, Clone)]
 struct TcpReceiveRequest {
     target: String,
     max_bytes: usize,
 }
 
+#[cfg(feature = "net")]
 impl TcpReceiveRequest {
     fn from_args(args: &JsonValue) -> Self {
         let max_bytes = args
@@ -625,6 +701,7 @@ impl TcpReceiveRequest {
     }
 }
 
+#[cfg(any(feature = "http", feature = "net", feature = "web"))]
 fn arg_str(args: &JsonValue, key: &str) -> Option<String> {
     args.get(key)
         .and_then(|v| v.as_str())
@@ -638,6 +715,7 @@ fn arg_str(args: &JsonValue, key: &str) -> Option<String> {
         })
 }
 
+#[cfg(any(feature = "http", feature = "net", feature = "web"))]
 fn arg_str_alt(args: &JsonValue, keys: &[&str]) -> Option<String> {
     for key in keys {
         if let Some(value) = arg_str(args, key) {
@@ -647,6 +725,7 @@ fn arg_str_alt(args: &JsonValue, keys: &[&str]) -> Option<String> {
     None
 }
 
+#[cfg(feature = "web")]
 fn arg_u64(args: &JsonValue, key: &str) -> Option<u64> {
     args.get(key)
         .and_then(|v| {
@@ -664,6 +743,7 @@ fn arg_u64(args: &JsonValue, key: &str) -> Option<u64> {
         })
 }
 
+#[cfg(feature = "web")]
 fn arg_bool(args: &JsonValue, key: &str) -> Option<bool> {
     args.get(key).and_then(parse_bool_value).or_else(|| {
         args.get("__input")
@@ -673,6 +753,7 @@ fn arg_bool(args: &JsonValue, key: &str) -> Option<bool> {
     })
 }
 
+#[cfg(feature = "web")]
 fn parse_bool_value(v: &JsonValue) -> Option<bool> {
     v.as_bool().or_else(|| {
         v.as_str()
@@ -684,6 +765,7 @@ fn parse_bool_value(v: &JsonValue) -> Option<bool> {
     })
 }
 
+#[cfg(feature = "web")]
 #[derive(Debug, Clone)]
 struct WebsearchSearchRequest {
     query: Option<String>,
@@ -691,6 +773,7 @@ struct WebsearchSearchRequest {
     max_results: Option<u64>,
 }
 
+#[cfg(feature = "web")]
 impl WebsearchSearchRequest {
     fn from_args(args: &JsonValue) -> Self {
         Self {
@@ -715,6 +798,7 @@ impl WebsearchSearchRequest {
     }
 }
 
+#[cfg(feature = "web")]
 #[derive(Debug, Clone)]
 struct ResearchMaterialsRequest {
     query: Option<String>,
@@ -725,6 +809,7 @@ struct ResearchMaterialsRequest {
     md_options: Option<JsonValue>,
 }
 
+#[cfg(feature = "web")]
 impl ResearchMaterialsRequest {
     fn from_args(args: &JsonValue) -> Self {
         Self {
@@ -765,6 +850,7 @@ impl ResearchMaterialsRequest {
     }
 }
 
+#[cfg(feature = "web")]
 #[derive(Debug, Clone)]
 struct ResearchReportRequest {
     query: Option<String>,
@@ -776,6 +862,7 @@ struct ResearchReportRequest {
     md_options: Option<JsonValue>,
 }
 
+#[cfg(feature = "web")]
 impl ResearchReportRequest {
     fn from_args(args: &JsonValue) -> Self {
         Self {
@@ -842,6 +929,7 @@ mod tests {
         "yaml",
     ];
 
+    #[cfg(feature = "net")]
     #[test]
     fn tcp_send_request_reads_target_and_data_from_pipeline_input_object() {
         let args = json!({
@@ -856,6 +944,7 @@ mod tests {
         assert_eq!(req.data, "hello");
     }
 
+    #[cfg(feature = "net")]
     #[test]
     fn tcp_receive_request_uses_session_fallback_and_default_max_bytes() {
         let args = json!({
@@ -867,6 +956,7 @@ mod tests {
         assert_eq!(req.max_bytes, 1024);
     }
 
+    #[cfg(feature = "http")]
     #[test]
     fn http_post_request_reads_body_from_pipeline_input() {
         let args = json!({
@@ -881,6 +971,7 @@ mod tests {
         assert!(req.body.is_some());
     }
 
+    #[cfg(feature = "web")]
     #[test]
     fn websearch_search_request_accepts_query_from_pipeline_text() {
         let args = json!({
@@ -893,6 +984,7 @@ mod tests {
         assert_eq!(req.query.as_deref(), Some("rust async runtime"));
     }
 
+    #[cfg(feature = "web")]
     #[test]
     fn research_materials_request_reads_bool_and_numbers_from_pipeline_input() {
         let args = json!({
@@ -911,6 +1003,7 @@ mod tests {
         assert_eq!(req.include_http_body, Some(true));
     }
 
+    #[cfg(feature = "web")]
     #[test]
     fn research_report_request_includes_report_chars_in_normalized_args() {
         let args = json!({
@@ -926,6 +1019,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "host")]
     #[test]
     fn signature_scope_ops_are_registered_or_explicitly_unsupported() {
         let mut missing = Vec::new();
@@ -948,6 +1042,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "sql")]
     #[test]
     fn sql_query_executes_basic_select() {
         let out = dispatch(
@@ -963,6 +1058,7 @@ mod tests {
         assert_eq!(out.get("ok").and_then(|v| v.as_bool()), Some(true));
     }
 
+    #[cfg(feature = "sql")]
     #[test]
     fn sql_transaction_executes_registered_path() {
         let out = dispatch(
@@ -983,6 +1079,7 @@ mod tests {
         assert_eq!(out.get("ok").and_then(|v| v.as_bool()), Some(true));
     }
 
+    #[cfg(feature = "surreal")]
     #[test]
     fn surreal_select_executes_registered_path() {
         let out = dispatch(
