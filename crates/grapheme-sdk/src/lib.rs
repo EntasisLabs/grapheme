@@ -131,6 +131,12 @@ impl GraphemeEngineBuilder {
         self
     }
 
+    /// Prefer Wasix multi-round Stage B execution when `wasix-runtime` is enabled.
+    pub fn with_prefer_stage_b_wasix(mut self, enabled: bool) -> Self {
+        self.runtime_options.prefer_stage_b_wasix = enabled;
+        self
+    }
+
     /// Set compiler options used by source-based compile helpers.
     pub fn with_compiler_options(mut self, options: CompilerOptions) -> Self {
         self.compiler_options = options;
@@ -3053,7 +3059,7 @@ query HelloAot {
                     .message
                     .as_deref()
                     .unwrap_or_default()
-                    .contains("stage_b container executed directly via wasix backend")
+                    .contains("stage_b container executed via wasix")
         );
 
         let stage_b_event_found = result
@@ -3121,5 +3127,120 @@ query HelloAot {
         assert!(events.iter().any(|e| {
             e.get("kind").and_then(|v| v.as_str()) == Some("aot.stage_b.host_fulfilled")
         }));
+    }
+
+    fn assert_stage_a_stage_b_current_parity(
+        stage_a: &ExecuteResultPayload,
+        stage_b: &ExecuteResultPayload,
+    ) {
+        assert!(matches!(
+            (&stage_a.execution.outcome, &stage_b.execution.outcome),
+            (ExecutionOutcome::Succeeded, ExecutionOutcome::Succeeded)
+                | (
+                    ExecutionOutcome::RetryableFailure,
+                    ExecutionOutcome::RetryableFailure
+                )
+                | (
+                    ExecutionOutcome::FatalFailure,
+                    ExecutionOutcome::FatalFailure
+                )
+        ));
+        assert_eq!(
+            stage_a.final_state.get("current"),
+            stage_b.final_state.get("current"),
+            "Stage A vs Stage B state.current mismatch\nA={:?}\nB={:?}",
+            stage_a.final_state.get("current"),
+            stage_b.final_state.get("current"),
+        );
+    }
+
+    #[test]
+    fn stage_a_vs_stage_b_core_transform_current_parity() {
+        let source = r#"import core from "grapheme/core"
+
+query HelloParity {
+    core.echo(message: "parity-hello") {
+        state { current }
+    }
+}
+"#;
+
+        let engine = GraphemeEngine::builder()
+            .with_strict_stage_b_container_execution(true)
+            .build();
+        let stage_a = engine
+            .compile_source_to_aot(source)
+            .expect("stage_a compile");
+        let stage_b = engine
+            .compile_source_to_aot_stage_b_default(source)
+            .expect("stage_b compile");
+
+        let a = engine.execute_aot(&stage_a).expect("stage_a execute");
+        let b = engine.execute_aot(&stage_b).expect("stage_b execute");
+        assert_stage_a_stage_b_current_parity(&a, &b);
+        assert!(b
+            .execution
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("stage_b container executed in-process"));
+    }
+
+    #[test]
+    fn stage_a_vs_stage_b_host_capability_current_parity() {
+        let source = r#"import http from "grapheme/http"
+
+query NeedsHostParity {
+    http.get(url: "https://example.com/parity") {
+        state { current }
+    }
+}
+"#;
+
+        let engine = GraphemeEngine::builder()
+            .with_strict_stage_b_container_execution(true)
+            .with_capability_interceptor(|call| {
+                assert_eq!(call.op, "get");
+                Some(Ok(serde_json::json!({
+                    "status": 200,
+                    "body": "parity-host-ok",
+                    "url": call.args.get("url").cloned().unwrap_or(serde_json::Value::Null),
+                })))
+            })
+            .build();
+
+        let stage_a = engine
+            .compile_source_to_aot(source)
+            .expect("stage_a compile");
+        let stage_b = engine
+            .compile_source_to_aot_stage_b_default(source)
+            .expect("stage_b compile");
+
+        let a = engine.execute_aot(&stage_a).expect("stage_a execute");
+        let b = engine.execute_aot(&stage_b).expect("stage_b execute");
+        assert_stage_a_stage_b_current_parity(&a, &b);
+        assert_eq!(
+            b.final_state
+                .get("current")
+                .and_then(|v| v.get("body"))
+                .and_then(|v| v.as_str()),
+            Some("parity-host-ok")
+        );
+        let host_calls = b
+            .final_state
+            .get("runtime_events")
+            .and_then(|events| events.as_array())
+            .and_then(|events| {
+                events.iter().find_map(|event| {
+                    if event.get("kind").and_then(|v| v.as_str())
+                        == Some("aot.stage_b.host_fulfilled")
+                    {
+                        event.get("host_calls_fulfilled").and_then(|v| v.as_u64())
+                    } else {
+                        None
+                    }
+                })
+            });
+        assert_eq!(host_calls, Some(1));
     }
 }

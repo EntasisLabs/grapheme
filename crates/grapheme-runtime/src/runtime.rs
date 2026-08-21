@@ -46,6 +46,9 @@ pub struct RuntimeOptions {
     pub stream_step_output: bool,
     /// Enforce Stage B direct container execution without parity fallback.
     pub strict_stage_b_container_execution: bool,
+    /// Prefer Wasix sandbox multi-round Stage B over in-process walker when
+    /// `wasix-runtime` is enabled and the envelope carries executable wasm.
+    pub prefer_stage_b_wasix: bool,
     /// Optional max executed steps across full run.
     pub max_steps: Option<usize>,
     /// Optional max call depth for nested function execution.
@@ -67,6 +70,7 @@ impl Default for RuntimeOptions {
             trace_policy: TracePolicy::default(),
             stream_step_output: false,
             strict_stage_b_container_execution: default_strict_stage_b_container_execution(),
+            prefer_stage_b_wasix: default_prefer_stage_b_wasix(),
             max_steps: Some(100_000),
             max_call_depth: Some(DEFAULT_MAX_CALL_DEPTH),
             initial_state_current: None,
@@ -84,6 +88,10 @@ fn default_strict_stage_b_container_execution() -> bool {
     !cfg!(debug_assertions)
 }
 
+fn default_prefer_stage_b_wasix() -> bool {
+    parse_bool_env("GRAPHEME_PREFER_STAGE_B_WASIX").unwrap_or(false)
+}
+
 fn parse_bool_env(var: &str) -> Option<bool> {
     let value = std::env::var(var).ok()?;
     match value.trim().to_ascii_lowercase().as_str() {
@@ -95,7 +103,7 @@ fn parse_bool_env(var: &str) -> Option<bool> {
 
 #[cfg_attr(not(feature = "wasix-runtime"), allow(dead_code))]
 enum StageBContainerExecution {
-    Executed(JsonValue),
+    ExecutedHost(crate::stage_b::StageBHostExecution),
     Unavailable(String),
 }
 
@@ -466,89 +474,84 @@ impl RuntimeEngine {
         aot: &AotEnvelope,
         host: &mut dyn CapabilityHost,
     ) -> Result<(AgentState, ExecutionResult), GraphemeError> {
+        // Optional Wasix multi-round sandbox when explicitly preferred.
+        if self.options.prefer_stage_b_wasix {
+            if let Some(container) = aot.payload.workflow_wasm.as_ref() {
+                match self.try_execute_stage_b_wasix_rounds(aot, container, host)? {
+                    StageBContainerExecution::ExecutedHost(execution) => {
+                        return Ok(self.finalize_stage_b_host_execution(aot, execution));
+                    }
+                    StageBContainerExecution::Unavailable(reason) => {
+                        if self.options.strict_stage_b_container_execution {
+                            return Err(GraphemeError::ArtifactCompatibilityError(format!(
+                                "strict stage_b wasix execution required: {reason}"
+                            )));
+                        }
+                    }
+                }
+            } else if self.options.strict_stage_b_container_execution {
+                return Err(GraphemeError::ArtifactCompatibilityError(
+                    "strict stage_b wasix execution required: missing workflow_wasm container"
+                        .to_string(),
+                ));
+            }
+        }
+
         // Primary path (RFC-0005 steps 2-3): in-process container walker + host fulfillment.
         match crate::stage_b::execute_stage_b_in_process(
             aot,
             host,
             self.options.trace_policy.clone(),
         ) {
-            Ok(execution) => {
-                let mut state = execution.state;
-                let mut runtime_events = module_lifecycle_events_to_json(
-                    self.options.module_manager.lifecycle_events(),
-                );
-                if let Some(container) = aot.payload.workflow_wasm.as_ref() {
-                    runtime_events.push(stage_b_container_event(container));
-                }
-                runtime_events.push(crate::stage_b::stage_b_host_event(
-                    execution.rounds,
-                    execution.host_calls_fulfilled,
-                ));
-                state.set_runtime_events(runtime_events);
-                return Ok((state, execution.result));
-            }
+            Ok(execution) => Ok(self.finalize_stage_b_host_execution(aot, execution)),
             Err(err) => {
                 if self.options.strict_stage_b_container_execution {
                     return Err(err);
                 }
-            }
-        }
 
-        // Optional Wasix sandbox path when in-process failed and feature is on.
-        if let Some(container) = aot.payload.workflow_wasm.as_ref() {
-            match self.try_execute_stage_b_container(aot, container)? {
-                StageBContainerExecution::Executed(container_output) => {
-                    let mut state =
-                        AgentState::with_trace_policy(self.options.trace_policy.clone());
-                    state.advance_in_place(
-                        0,
-                        format!("aot.stage_b::{}", container.entry_export),
-                        container_output,
-                    );
-                    let mut runtime_events = module_lifecycle_events_to_json(
-                        self.options.module_manager.lifecycle_events(),
-                    );
-                    runtime_events.push(stage_b_container_event(container));
-                    state.set_runtime_events(runtime_events);
-
-                    return Ok((
-                        state,
-                        ExecutionResult {
-                            outcome: ExecutionOutcome::Succeeded,
-                            output_sttp_node_id: None,
-                            trace_summary: TraceSummary {
-                                steps: 1,
-                                failed_step: None,
-                            },
-                            message: Some(
-                                "stage_b container executed directly via wasix backend".to_string(),
-                            ),
-                        },
-                    ));
-                }
-                StageBContainerExecution::Unavailable(reason) => {
-                    if self.options.strict_stage_b_container_execution {
-                        return Err(GraphemeError::ArtifactCompatibilityError(format!(
-                            "strict stage_b container execution required: {reason}"
-                        )));
+                // Non-strict: try Wasix multi-round if available, else Stage A parity.
+                if let Some(container) = aot.payload.workflow_wasm.as_ref() {
+                    if let StageBContainerExecution::ExecutedHost(execution) =
+                        self.try_execute_stage_b_wasix_rounds(aot, container, host)?
+                    {
+                        return Ok(self.finalize_stage_b_host_execution(aot, execution));
                     }
                 }
+
+                let (mut state, mut result) = self.execute_artifact(&aot.base_artifact, host)?;
+                if let Some(container) = aot.payload.workflow_wasm.as_ref() {
+                    state
+                        .runtime_events
+                        .push(stage_b_container_event(container));
+                }
+                if result.message.is_none() {
+                    result.message = Some(
+                        "stage_b scaffold executed via parity path until wasm container runtime lowering is enabled"
+                            .to_string(),
+                    );
+                }
+                Ok((state, result))
             }
         }
+    }
 
-        let (mut state, mut result) = self.execute_artifact(&aot.base_artifact, host)?;
+    fn finalize_stage_b_host_execution(
+        &self,
+        aot: &AotEnvelope,
+        execution: crate::stage_b::StageBHostExecution,
+    ) -> (AgentState, ExecutionResult) {
+        let mut state = execution.state;
+        let mut runtime_events =
+            module_lifecycle_events_to_json(self.options.module_manager.lifecycle_events());
         if let Some(container) = aot.payload.workflow_wasm.as_ref() {
-            state
-                .runtime_events
-                .push(stage_b_container_event(container));
+            runtime_events.push(stage_b_container_event(container));
         }
-        if result.message.is_none() {
-            result.message = Some(
-                "stage_b scaffold executed via parity path until wasm container runtime lowering is enabled"
-                    .to_string(),
-            );
-        }
-        Ok((state, result))
+        runtime_events.push(crate::stage_b::stage_b_host_event(
+            execution.rounds,
+            execution.host_calls_fulfilled,
+        ));
+        state.set_runtime_events(runtime_events);
+        (state, execution.result)
     }
 }
 
@@ -564,10 +567,11 @@ fn stage_b_container_event(container: &grapheme_artifact::AotWorkflowWasmContain
 
 #[cfg(feature = "wasix-runtime")]
 impl RuntimeEngine {
-    fn try_execute_stage_b_container(
+    fn try_execute_stage_b_wasix_rounds(
         &self,
         aot: &AotEnvelope,
         container: &grapheme_artifact::AotWorkflowWasmContainer,
+        host: &mut dyn CapabilityHost,
     ) -> Result<StageBContainerExecution, GraphemeError> {
         let Some(inline_wasm_hex) = container.inline_wasm_hex.as_ref() else {
             return Ok(StageBContainerExecution::Unavailable(
@@ -575,11 +579,28 @@ impl RuntimeEngine {
             ));
         };
 
-        let wasm_bytes = hex::decode(inline_wasm_hex).map_err(|e| {
-            GraphemeError::ArtifactCompatibilityError(format!(
-                "stage_b inline_wasm_hex is not valid hex: {e}"
-            ))
-        })?;
+        let wasm_bytes = match hex::decode(inline_wasm_hex) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                return Ok(StageBContainerExecution::Unavailable(format!(
+                    "stage_b inline_wasm_hex is not valid hex: {e}"
+                )));
+            }
+        };
+
+        // Placeholder / non-WASI bytes cannot drive multi-round walks.
+        if wasm_bytes.len() < 8 || &wasm_bytes[0..4] != b"\0asm" {
+            return Ok(StageBContainerExecution::Unavailable(
+                "stage_b wasm bytes are not a wasm module".to_string(),
+            ));
+        }
+        // Tiny placeholder modules used for metadata-only envelopes.
+        if wasm_bytes.len() <= 16 {
+            return Ok(StageBContainerExecution::Unavailable(
+                "stage_b wasm is a placeholder module; build grapheme-aot-container first"
+                    .to_string(),
+            ));
+        }
 
         let mut wasm_path = std::env::temp_dir();
         let now_nanos = std::time::SystemTime::now()
@@ -588,12 +609,12 @@ impl RuntimeEngine {
             .as_nanos();
         wasm_path.push(format!("grapheme-aot-stage-b-{now_nanos}.wasm"));
 
-        std::fs::write(&wasm_path, &wasm_bytes).map_err(|e| {
-            GraphemeError::RuntimeError(format!(
+        if let Err(e) = std::fs::write(&wasm_path, &wasm_bytes) {
+            return Ok(StageBContainerExecution::Unavailable(format!(
                 "write stage_b wasm container '{}': {e}",
                 wasm_path.display()
-            ))
-        })?;
+            )));
+        }
 
         let resolved = ResolvedModuleCall {
             module_id: "workflow".to_string(),
@@ -604,26 +625,35 @@ impl RuntimeEngine {
             content_hash: Some(container.sha256.clone()),
         };
 
-        // Pass MIR + entrypoint so grapheme-aot-container can walk the workflow.
-        // Placeholder Stage B bytes still fail Wasix compile and fall back as before.
-        let args = serde_json::json!({
-            "entry_export": container.entry_export,
-            "allowed_imports": container.allowed_imports,
-            "entrypoint": aot.base_artifact.entrypoint,
-            "mir": aot.base_artifact.payload.mir,
-            "initial_current": {},
-        });
-
-        let output = self
-            .wasix_backend
-            .execute_call(&wasm_path, &resolved, &args);
+        let execution = crate::stage_b::execute_stage_b_rounds(
+            aot,
+            host,
+            self.options.trace_policy.clone(),
+            "via wasix backend",
+            |request| {
+                let args = serde_json::to_value(request).map_err(|e| {
+                    GraphemeError::RuntimeError(format!(
+                        "serialize stage_b wasix execute request: {e}"
+                    ))
+                })?;
+                let output = self
+                    .wasix_backend
+                    .execute_call(&wasm_path, &resolved, &args)
+                    .map_err(|err| {
+                        GraphemeError::RuntimeError(format!(
+                            "wasix stage_b round failed: {err}"
+                        ))
+                    })?;
+                crate::stage_b::walk_result_from_wasix_output(&output)
+            },
+        );
 
         let _ = std::fs::remove_file(&wasm_path);
 
-        match output {
-            Ok(value) => Ok(StageBContainerExecution::Executed(value)),
+        match execution {
+            Ok(execution) => Ok(StageBContainerExecution::ExecutedHost(execution)),
             Err(err) => Ok(StageBContainerExecution::Unavailable(format!(
-                "wasix backend could not execute stage_b container: {err}"
+                "wasix multi-round stage_b failed: {err}"
             ))),
         }
     }
@@ -631,10 +661,11 @@ impl RuntimeEngine {
 
 #[cfg(not(feature = "wasix-runtime"))]
 impl RuntimeEngine {
-    fn try_execute_stage_b_container(
+    fn try_execute_stage_b_wasix_rounds(
         &self,
         _aot: &AotEnvelope,
         _container: &grapheme_artifact::AotWorkflowWasmContainer,
+        _host: &mut dyn CapabilityHost,
     ) -> Result<StageBContainerExecution, GraphemeError> {
         Ok(StageBContainerExecution::Unavailable(
             "wasix-runtime feature is not enabled".to_string(),
@@ -2942,7 +2973,7 @@ mod tests {
                     .message
                     .as_deref()
                     .unwrap_or_default()
-                    .contains("stage_b container executed directly via wasix backend")
+                    .contains("stage_b container executed via wasix")
         );
 
         let stage_b_event = state.runtime_events.iter().find(|event| {
@@ -3103,6 +3134,90 @@ mod tests {
             .iter()
             .any(|event| event.get("kind").and_then(|v| v.as_str())
                 == Some("aot.stage_b.host_fulfilled")));
+    }
+
+    #[cfg(feature = "wasix-runtime")]
+    #[test]
+    fn execute_aot_stage_b_wasix_multi_round_host_fulfillments() {
+        let Ok(workflow_wasm) = grapheme_aot_container::load_workflow_wasm() else {
+            eprintln!(
+                "skipping wasix multi-round test: run scripts/build-aot-container.sh first"
+            );
+            return;
+        };
+
+        let capability = Capability::from_module_op("http", "get");
+        let instruction = MirInst::Call {
+            module: Some("http".to_string()),
+            op: "get".to_string(),
+            capability: capability.clone(),
+            arg_count: 1,
+            args: json!({ "url": "https://example.com" }),
+            stores_state: true,
+        };
+        let function = MirFunction {
+            name: "NeedsHost".to_string(),
+            kind: MirFunctionKind::Query,
+            params: vec![],
+            retry_config: None,
+            timeout_config: None,
+            intent_config: None,
+            loop_config: None,
+            blocks: vec![MirBlock {
+                id: 0,
+                instructions: vec![instruction],
+                terminator: MirTerminator::ReturnState,
+            }],
+        };
+        let mir = MirProgram {
+            functions: vec![function],
+            capabilities: vec![capability],
+        };
+        let artifact = build_artifact_from_mir(&mir, Some("NeedsHost")).expect("artifact");
+        let stage_a = build_aot_from_artifact(&artifact).expect("stage_a");
+        let stage_b = build_stage_b_container_from_aot(
+            &stage_a,
+            &workflow_wasm,
+            &grapheme_aot_container::default_allowed_imports(),
+        )
+        .expect("stage_b");
+
+        let mut options = RuntimeOptions::default();
+        options.strict_stage_b_container_execution = true;
+        options.prefer_stage_b_wasix = true;
+        let runtime = RuntimeEngine::new(options);
+        let mut host = TestHost {
+            mode: HostMode::VerboseObject,
+        };
+
+        let (state, result) = runtime
+            .execute_aot(&stage_b, &mut host)
+            .expect("wasix multi-round host fulfillment should succeed");
+
+        assert!(matches!(result.outcome, ExecutionOutcome::Succeeded));
+        assert!(result
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("via wasix backend"));
+        assert_eq!(
+            state.current.get("message").and_then(|v| v.as_str()),
+            Some("ok")
+        );
+        let host_event = state
+            .runtime_events
+            .iter()
+            .find(|event| {
+                event.get("kind").and_then(|v| v.as_str()) == Some("aot.stage_b.host_fulfilled")
+            })
+            .expect("host_fulfilled event");
+        assert_eq!(
+            host_event
+                .get("host_calls_fulfilled")
+                .and_then(|v| v.as_u64()),
+            Some(1)
+        );
+        assert!(host_event.get("rounds").and_then(|v| v.as_u64()).unwrap_or(0) >= 2);
     }
 
     fn loop_artifact(max: u32, merge: MirLoopMergeMode) -> ArtifactEnvelope {

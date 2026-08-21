@@ -1,12 +1,13 @@
 //! Stage B container execution with host import fulfillment.
 //!
-//! Runs the same MIR walker as `grapheme-aot-container` in-process, fulfilling
+//! Runs the same MIR walker as `grapheme-aot-container`, fulfilling
 //! `grapheme.runtime.host.v1::call.capability` (and state read/write) via
-//! [`CapabilityHost`] across rounds.
+//! [`CapabilityHost`] across rounds. The round driver may be in-process or
+//! Wasix (when `prefer_stage_b_wasix` / `wasix-runtime` is enabled).
 
 use grapheme_aot_container::{
     host::{is_host_call_error, CALL_CAPABILITY_IMPORT, STATE_READ_IMPORT, STATE_WRITE_IMPORT},
-    ExecuteRequest, HostFulfillment,
+    walk_result_from_json, ContainerWalkResult, ExecuteRequest, HostFulfillment,
 };
 use grapheme_artifact::{
     AotEnvelope, Capability, ExecutionOutcome, ExecutionResult, TraceSummary,
@@ -26,11 +27,18 @@ pub struct StageBHostExecution {
     pub host_calls_fulfilled: usize,
 }
 
-pub fn execute_stage_b_in_process(
+/// Shared multi-round Stage B loop. `run_round` executes one container walk
+/// (in-process or Wasix) for the given request.
+pub fn execute_stage_b_rounds<F>(
     aot: &AotEnvelope,
     host: &mut dyn CapabilityHost,
     trace_policy: crate::state::TracePolicy,
-) -> Result<StageBHostExecution, GraphemeError> {
+    backend_label: &str,
+    mut run_round: F,
+) -> Result<StageBHostExecution, GraphemeError>
+where
+    F: FnMut(&ExecuteRequest) -> Result<ContainerWalkResult, GraphemeError>,
+{
     let mir = &aot.base_artifact.payload.mir;
     let entrypoint = aot.base_artifact.entrypoint.clone();
     let mut fulfillments: Vec<HostFulfillment> = Vec::new();
@@ -47,12 +55,7 @@ pub fn execute_stage_b_in_process(
             host_fulfillments: fulfillments.clone(),
         };
 
-        let walk = grapheme_aot_container::execute(&request).map_err(|err| {
-            GraphemeError::RuntimeError(format!(
-                "stage_b container walk failed: {} ({})",
-                err.message, err.code
-            ))
-        })?;
+        let walk = run_round(&request)?;
 
         if walk.ok {
             agent.advance_in_place(
@@ -70,7 +73,7 @@ pub fn execute_stage_b_in_process(
                         failed_step: None,
                     },
                     message: Some(format!(
-                        "stage_b container executed in-process (rounds={round}, host_calls={host_calls_fulfilled})"
+                        "stage_b container executed {backend_label} (rounds={round}, host_calls={host_calls_fulfilled})"
                     )),
                 },
                 rounds: round,
@@ -137,6 +140,45 @@ pub fn execute_stage_b_in_process(
     Err(GraphemeError::RuntimeError(format!(
         "stage_b host fulfillment exceeded max rounds ({MAX_HOST_ROUNDS})"
     )))
+}
+
+pub fn execute_stage_b_in_process(
+    aot: &AotEnvelope,
+    host: &mut dyn CapabilityHost,
+    trace_policy: crate::state::TracePolicy,
+) -> Result<StageBHostExecution, GraphemeError> {
+    execute_stage_b_rounds(aot, host, trace_policy, "in-process", |request| {
+        grapheme_aot_container::execute(request).map_err(|err| {
+            GraphemeError::RuntimeError(format!(
+                "stage_b container walk failed: {} ({})",
+                err.message, err.code
+            ))
+        })
+    })
+}
+
+/// Unwrap Wasix host envelope / raw walk JSON into a [`ContainerWalkResult`].
+pub fn walk_result_from_wasix_output(output: &JsonValue) -> Result<ContainerWalkResult, GraphemeError> {
+    let walk_json = if output.get("ok").is_some() && output.get("steps").is_some() {
+        output.clone()
+    } else if let Some(data) = output.get("data") {
+        if data.get("ok").is_some() {
+            data.clone()
+        } else {
+            return Err(GraphemeError::RuntimeError(
+                "wasix stage_b output data is not a container walk result".to_string(),
+            ));
+        }
+    } else {
+        return Err(GraphemeError::RuntimeError(
+            "wasix stage_b output missing walk result (expected ok/steps or host envelope data)"
+                .to_string(),
+        ));
+    };
+
+    walk_result_from_json(&walk_json).map_err(|e| {
+        GraphemeError::RuntimeError(format!("parse wasix stage_b walk result: {e}"))
+    })
 }
 
 fn fulfill_host_stub(
