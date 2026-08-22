@@ -16,7 +16,7 @@ As of RFC-0005, `grapheme-stdlib` also layers **host** vs **wasm** profiles so S
 | `grapheme-runtime` | 0.7.0 | *(none)* | Execution engine |
 | `grapheme-compiler` | 0.7.0 | *(none)* | Compiler pipeline |
 | `grapheme-aot-container` | 0.7.0 | Wasm-safe walker | Stage B WASI binary |
-| `grapheme-artifact` | 0.2.0 | — | MIR envelope (independent semver) |
+| `grapheme-artifact` | 0.3.0 | — | MIR envelope (independent semver) |
 
 ## Stdlib host vs Wasm profiles
 

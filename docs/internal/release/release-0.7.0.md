@@ -18,7 +18,7 @@ Use with `docs/internal/release/release-gates-and-doc-versioning.md`.
 
 ### Versions
 
-- [x] Workspace crates bumped to **0.7.0** (`grapheme-artifact` stays **0.2.0**)
+- [x] Workspace crates bumped to **0.7.0** (`grapheme-artifact` uses independent semver at **0.3.0**)
 - [x] VS Code extension `package.json` / lock → **0.7.0**
 - [x] `CHANGELOG.md` `[0.7.0]` entry
 - [x] `scripts/publish-crates.sh` includes `grapheme-aot-container` (after stdlib)

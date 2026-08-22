@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Crate versions (this release)
 
-All workspace language crates ship at **0.7.0** except `grapheme-artifact` (unchanged at 0.2.0). The release tag is **v0.7.0**.
+All workspace language crates ship at **0.7.0** except `grapheme-artifact`, which advances to **0.3.0** for the expanded MIR contract. The release tag is **v0.7.0**.
 
 | Crate | Version |
 | --- | --- |
@@ -42,11 +42,12 @@ All workspace language crates ship at **0.7.0** except `grapheme-artifact` (unch
 | `grapheme-cli` | 0.7.0 |
 | `grapheme-lsp` | 0.7.0 |
 | VS Code extension | 0.7.0 |
-| `grapheme-artifact` | 0.2.0 (unchanged) |
+| `grapheme-artifact` | 0.3.0 |
 
 ### Notes
 
 - Last published Git tag before this cut was **v0.4.0**; Cargo already carried 0.5.x/0.6.x trains without matching tags. **v0.7.0** is the aligned language + Stage B cut.
+- `grapheme-artifact` 0.3.0 carries the breaking MIR additions for executable parameters and scoped `using` instructions required by the 0.7.0 crates.
 - Build the Stage B wasm asset before Wasix sandbox runs: `./scripts/build-aot-container.sh`.
 - RFC-0004 Phases 3+ (tag-typed parameters as the full call-edge model, `uses` sugar) remain follow-ups beyond this release.
 
