@@ -14,9 +14,10 @@ pub mod verifier;
 
 use crate::ast::Definition;
 use grapheme_artifact::{
-    build_aot_from_artifact, build_artifact_from_mir, build_stage_b_container_from_aot,
-    AotEnvelope, ArtifactEnvelope,
+    build_aot_from_artifact, build_artifact_from_mir, AotEnvelope, ArtifactEnvelope,
 };
+#[cfg(feature = "stage-b")]
+use grapheme_artifact::build_stage_b_container_from_aot;
 
 pub use compiler_api::{CompiledAotScript, CompiledScript, Compiler, CompilerOptions};
 pub use error::CompilerError;
@@ -74,6 +75,7 @@ pub fn compile_to_aot(
 }
 
 /// Compile source and emit a Stage B AOT envelope with workflow container metadata.
+#[cfg(feature = "stage-b")]
 pub fn compile_to_aot_stage_b_with_container(
     source: &str,
     entrypoint: Option<&str>,
@@ -86,6 +88,7 @@ pub fn compile_to_aot_stage_b_with_container(
 }
 
 /// Compile source to Stage B using the default workflow-container wasm + host imports.
+#[cfg(feature = "stage-b")]
 pub fn compile_to_aot_stage_b(
     source: &str,
     entrypoint: Option<&str>,
@@ -205,6 +208,7 @@ query Hello {
         assert_eq!(snapshot, expected);
     }
 
+    #[cfg(feature = "stage-b")]
     #[test]
     fn compile_to_aot_stage_b_includes_workflow_container_metadata() {
         let source = r#"
@@ -232,6 +236,7 @@ query Hello {
         assert_eq!(container.allowed_imports, imports);
     }
 
+    #[cfg(feature = "stage-b")]
     #[test]
     fn compile_to_aot_stage_b_rejects_imports_outside_host_interface() {
         let source = r#"
@@ -248,6 +253,7 @@ query Hello {
         assert!(err.to_string().contains("outside host interface boundary"));
     }
 
+    #[cfg(feature = "stage-b")]
     #[test]
     fn stage_b_aot_snapshot_matches_golden_contract() {
         let source = r#"

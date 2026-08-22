@@ -1,8 +1,7 @@
 use grapheme_artifact::artifact::ArtifactError;
-use grapheme_artifact::{
-    build_aot_from_artifact, build_artifact_from_mir, build_stage_b_container_from_aot,
-    AotEnvelope, ArtifactEnvelope,
-};
+use grapheme_artifact::{build_aot_from_artifact, build_artifact_from_mir, AotEnvelope, ArtifactEnvelope};
+#[cfg(feature = "stage-b")]
+use grapheme_artifact::build_stage_b_container_from_aot;
 
 use crate::ast::{Definition, Program};
 use crate::error::CompilerError;
@@ -79,6 +78,7 @@ impl Compiler {
     }
 
     /// Compile source into Stage B AOT with provided workflow bytes/import contract.
+    #[cfg(feature = "stage-b")]
     pub fn compile_source_to_aot_stage_b(
         source: &str,
         options: CompilerOptions,
@@ -98,6 +98,7 @@ impl Compiler {
     }
 
     /// Compile source into Stage B AOT using the default workflow-container artifact.
+    #[cfg(feature = "stage-b")]
     pub fn compile_source_to_aot_stage_b_default(
         source: &str,
         options: CompilerOptions,

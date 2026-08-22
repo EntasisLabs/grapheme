@@ -5,6 +5,49 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-08-22
+
+**Slim embedded SDK release** — upstreams the host-integration seams needed by
+embedded products and adds a dependency-light core profile for iOS and Wasm.
+
+### Added
+
+- **Slim SDK profile** — `grapheme-sdk` can be built with
+  `default-features = false, features = ["slim"]`; it keeps the core/json
+  compiler and runtime while excluding the host capability stack, AOT
+  container, and Wasix runtime.
+- **Host module registration** — embedders can register MirV1 host manifests
+  with `ModuleRegistry::register_host_module` and configure the registry from
+  `GraphemeEngineBuilder`.
+- **Per-call initial state** — `execute_source_with_initial_state` seeds
+  `state.current` without mutating the engine's reusable runtime options.
+
+### Changed
+
+- **Optional Stage B** — AOT/Stage B support is behind the `stage-b` feature;
+  default SDK/compiler/runtime builds retain the existing host + Stage B
+  behavior, while slim builds omit it.
+- **Target coverage** — the slim SDK is checked for `aarch64-apple-ios`, both
+  iOS simulator architectures, and `wasm32-unknown-unknown`.
+
+### Crate versions (this release)
+
+All workspace language crates ship at **0.7.1** except `grapheme-artifact`,
+which remains at **0.3.0**. The release tag is **v0.7.1**.
+
+| Crate | Version |
+| --- | --- |
+| `grapheme-signatures` | 0.7.1 |
+| `grapheme-stdlib` | 0.7.1 |
+| `grapheme-aot-container` | 0.7.1 |
+| `grapheme-runtime` | 0.7.1 |
+| `grapheme-compiler` | 0.7.1 |
+| `grapheme-sdk` | 0.7.1 |
+| `grapheme-cli` | 0.7.1 |
+| `grapheme-lsp` | 0.7.1 |
+| VS Code extension | 0.7.1 |
+| `grapheme-artifact` | 0.3.0 |
+
 ## [0.7.0] - 2026-08-21
 
 **Language + Stage B release** — executable parameters / tagged variables (RFC-0004) and a Wasm-compilable Stage B AOT path (RFC-0005). See `docs/internal/rfc/rfc-0004-params-and-tagged-vars-v1.md` and `docs/internal/rfc/rfc-0005-wasm-compilable-stdlib-v1.md`.

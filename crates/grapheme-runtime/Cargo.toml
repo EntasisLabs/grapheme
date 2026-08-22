@@ -1,6 +1,6 @@
 [package]
 name = "grapheme-runtime"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2024"
 rust-version = "1.92"
 description = "Policy-governed Grapheme runtime engine"
@@ -9,8 +9,17 @@ repository = "https://github.com/entasislabs/grapheme"
 homepage = "https://github.com/entasislabs/grapheme"
 
 [features]
-default = []
-full = ["data", "pdf", "image", "plot", "media", "grapheme-signatures/full"]
+default = ["stage-b"]
+stage-b = ["dep:grapheme-aot-container"]
+full = [
+    "stage-b",
+    "data",
+    "pdf",
+    "image",
+    "plot",
+    "media",
+    "grapheme-signatures/full",
+]
 data = ["grapheme-signatures/data"]
 pdf = ["grapheme-signatures/pdf"]
 image = ["grapheme-signatures/image"]
@@ -25,14 +34,14 @@ sha2 = "0.10"
 hex = "0.4"
 thiserror = "1.0"
 grapheme-artifact = { path = "../grapheme-artifact", version = "0.3.0" }
-grapheme-aot-container = { path = "../grapheme-aot-container", version = "0.7.0" }
-grapheme-signatures = { path = "../grapheme-signatures", version = "0.7.0", default-features = false }
+grapheme-aot-container = { path = "../grapheme-aot-container", version = "0.7.1", optional = true }
+grapheme-signatures = { path = "../grapheme-signatures", version = "0.7.1", default-features = false }
 wasmer = { version = "7.2.0-alpha.2", optional = true, default-features = false }
 wasmer-types = { version = "7.2.0-alpha.2", optional = true }
 wasmer-wasix = { version = "0.702.0-alpha.2", optional = true, default-features = false, features = ["sys-default"] }
 tokio = { version = "1", optional = true, features = ["rt-multi-thread"] }
 
 [dev-dependencies]
-grapheme-signatures = { path = "../grapheme-signatures", version = "0.7.0", features = ["full"] }
-grapheme-stdlib = { path = "../grapheme-stdlib", version = "0.7.0", features = ["full"] }
+grapheme-signatures = { path = "../grapheme-signatures", version = "0.7.1", features = ["full"] }
+grapheme-stdlib = { path = "../grapheme-stdlib", version = "0.7.1", features = ["full"] }
 wat = "1"

@@ -1,6 +1,6 @@
 [package]
 name = "grapheme-compiler"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2024"
 rust-version = "1.92"
 description = "Compiler pipeline for Grapheme source to MIR artifacts"
@@ -9,8 +9,9 @@ repository = "https://github.com/entasislabs/grapheme"
 homepage = "https://github.com/entasislabs/grapheme"
 
 [features]
-default = []
-full = ["grapheme-signatures/full"]
+default = ["stage-b"]
+stage-b = ["dep:grapheme-aot-container"]
+full = ["stage-b", "grapheme-signatures/full"]
 data = ["grapheme-signatures/data"]
 pdf = ["grapheme-signatures/pdf"]
 image = ["grapheme-signatures/image"]
@@ -24,5 +25,5 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
 grapheme-artifact = { path = "../grapheme-artifact", version = "0.3.0" }
-grapheme-aot-container = { path = "../grapheme-aot-container", version = "0.7.0" }
-grapheme-signatures = { path = "../grapheme-signatures", version = "0.7.0", default-features = false }
+grapheme-aot-container = { path = "../grapheme-aot-container", version = "0.7.1", optional = true }
+grapheme-signatures = { path = "../grapheme-signatures", version = "0.7.1", default-features = false }

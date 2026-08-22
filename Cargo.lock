@@ -2488,7 +2488,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-aot-container"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "grapheme-artifact",
  "grapheme-stdlib",
@@ -2509,7 +2509,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-cli"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "grapheme-aot-container",
  "grapheme-artifact",
@@ -2525,7 +2525,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-compiler"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "grapheme-aot-container",
  "grapheme-artifact",
@@ -2539,7 +2539,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-lsp"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "grapheme-compiler",
  "grapheme-signatures",
@@ -2549,7 +2549,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-runtime"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "grapheme-aot-container",
  "grapheme-artifact",
@@ -2569,7 +2569,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-sdk"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "grapheme-aot-container",
  "grapheme-artifact",
@@ -2585,11 +2585,11 @@ dependencies = [
 
 [[package]]
 name = "grapheme-signatures"
-version = "0.7.0"
+version = "0.7.1"
 
 [[package]]
 name = "grapheme-stdlib"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "csv",
  "ehttp",

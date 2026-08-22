@@ -2,7 +2,7 @@
   "name": "grapheme-vscode",
   "displayName": "Grapheme Lang",
   "description": "Grapheme Lang (.gr) support powered by a prebuilt LSP binary",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "publisher": "grapheme-dev",
   "license": "Apache-2.0",
   "repository": {
@@ -68,7 +68,7 @@
         "grapheme.lsp.releaseTag": {
           "type": "string",
           "default": "latest",
-          "description": "Release tag to fetch. Use latest or a concrete tag like v0.7.0."
+          "description": "Release tag to fetch. Use latest or a concrete tag like v0.7.1."
         },
         "grapheme.lsp.autoDownload": {
           "type": "boolean",

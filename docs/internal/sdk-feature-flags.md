@@ -1,21 +1,24 @@
-# SDK and CLI feature flags (0.7.0+)
+# SDK and CLI feature flags (0.7.1+)
 
 Grapheme 0.6.0 introduced **opt-in capability modules** for embedders while the CLI ships everything by default. The 0.7.0 train keeps that matrix and ships Stage B / tagged-variable work on top.
+
+The 0.7.1 train adds an explicit **slim embedded profile** for iOS, Wasm, and
+other products that only need the core compiler/runtime.
 
 As of RFC-0005, `grapheme-stdlib` also layers **host** vs **wasm** profiles so Stage B / `wasm32-wasip1` work does not pull TLS/DB stacks.
 
 ## Quick reference
 
-| Crate | Version (0.7.0 train) | Default features | Full stack |
+| Crate | Version (0.7.1 train) | Default features | Full stack |
 | --- | --- | --- | --- |
-| `grapheme-cli` | 0.7.0 | `full` | All capabilities + WASIX runtime |
-| `grapheme-lsp` | 0.7.0 | `full` | Editor gets full signatures |
-| `grapheme-sdk` | 0.7.0 | *(none)*; stdlib edge enables `host` | Enable `full` or pick modules |
-| `grapheme-stdlib` | 0.7.0 | `host` | `host` + `data`, `pdf`, `image`, `plot`, `media` |
-| `grapheme-signatures` | 0.7.0 | *(none)* | Capability op metadata |
-| `grapheme-runtime` | 0.7.0 | *(none)* | Execution engine |
-| `grapheme-compiler` | 0.7.0 | *(none)* | Compiler pipeline |
-| `grapheme-aot-container` | 0.7.0 | Wasm-safe walker | Stage B WASI binary |
+| `grapheme-cli` | 0.7.1 | `full` | All capabilities + WASIX runtime |
+| `grapheme-lsp` | 0.7.1 | `full` | Editor gets full signatures |
+| `grapheme-sdk` | 0.7.1 | `host` + `stage-b` | `slim`, `full`, or selected modules |
+| `grapheme-stdlib` | 0.7.1 | `host` | `host` + `data`, `pdf`, `image`, `plot`, `media` |
+| `grapheme-signatures` | 0.7.1 | *(none)* | Capability op metadata |
+| `grapheme-runtime` | 0.7.1 | `stage-b` | Execution engine + AOT support |
+| `grapheme-compiler` | 0.7.1 | `stage-b` | Compiler pipeline + AOT support |
+| `grapheme-aot-container` | 0.7.1 | Wasm-safe walker | Stage B WASI binary |
 | `grapheme-artifact` | 0.3.0 | — | MIR envelope (independent semver) |
 
 ## Stdlib host vs Wasm profiles
@@ -35,22 +38,39 @@ cargo check -p grapheme-stdlib --no-default-features --features wasm --target wa
 
 See `docs/internal/rfc/rfc-0005-wasm-compilable-stdlib-v1.md`.
 
+## Slim embedded profile (iOS / Wasm)
+
+Use this profile when the host application supplies its own integrations and
+only needs core/json compilation and execution:
+
+```toml
+[dependencies]
+grapheme-sdk = { version = "0.7.1", default-features = false, features = ["slim"] }
+```
+
+The slim graph excludes the host capability stack, transforms, AOT container,
+and Wasix runtime. It is suitable for `aarch64-apple-ios`, iOS simulator
+targets, and `wasm32-unknown-unknown`.
+
 ## SDK (embedders)
 
 ```toml
 [dependencies]
-grapheme-sdk = { version = "0.7", default-features = false, features = ["full"] }
+grapheme-sdk = { version = "0.7.1", default-features = false, features = ["full"] }
 ```
 
 Per-module opt-in:
 
 ```toml
-grapheme-sdk = { version = "0.7", default-features = false, features = ["data", "pdf"] }
+grapheme-sdk = { version = "0.7.1", default-features = false, features = ["data", "pdf"] }
 ```
 
 Available flags on `grapheme-sdk`:
 
 - `full` — enables all capability modules, WASIX runtime, and matching compiler/signatures/runtime flags
+- `slim` — core/json compiler and runtime only; no host stack, AOT container, or Wasix
+- `host` — enables the stdlib host capability profile
+- `stage-b` — enables Stage B AOT helpers and the AOT container dependency
 - `data` — Polars-native dataframe ops (`read_csv`, `filter`, `group_by`, `aggregate`, `schema`, `to_json`)
 - `pdf` — PDF generate/extract (Wasm path when bound; stdlib scaffold fallback)
 - `image` — resize/convert/metadata (Wasm path)
@@ -58,7 +78,7 @@ Available flags on `grapheme-sdk`:
 - `media` — probe/transcode (native ffmpeg/ffprobe CLI bridge)
 - `wasix-runtime` — Wasm module execution backend (included in `full`)
 
-Without capability features, module discovery and compile-time verification will not include `data.*`, `pdf.*`, etc. Network/DB host modules remain available via the SDK→stdlib `host` edge.
+Without capability features, module discovery and compile-time verification will not include `data.*`, `pdf.*`, etc. The normal SDK default includes the stdlib `host` edge; the explicit `slim` profile does not.
 
 ### Hotload in embedders
 
@@ -118,7 +138,7 @@ Legacy flat JSON objects are still accepted during migration (`meta.legacy_flat`
 ## Related docs
 
 - Release plan: `docs/internal/roadmaps/release-0.6.0-extensible-platform.md`
-- 0.7.0 cut checklist: `docs/internal/release/release-0.7.0.md`
+- 0.7.1 cut checklist: `docs/internal/release/release-0.7.1.md`
 - Wasm-compilable stdlib RFC: `docs/internal/rfc/rfc-0005-wasm-compilable-stdlib-v1.md`
 - Wasm sidecar manifest: `docs/internal/runtime/wasm-module-manifest-v1.md`
 - CLI module commands: `docs/internal/cli.md`

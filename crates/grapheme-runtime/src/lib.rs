@@ -12,6 +12,7 @@ pub mod module_manifest;
 pub mod module_registry;
 pub mod policy;
 pub mod runtime;
+#[cfg(feature = "stage-b")]
 pub mod stage_b;
 pub mod state;
 #[cfg(feature = "wasix-runtime")]

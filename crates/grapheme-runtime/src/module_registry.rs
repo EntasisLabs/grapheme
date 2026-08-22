@@ -109,6 +109,20 @@ impl ModuleRegistry {
             content_hash: binding.content_hash.clone(),
         })
     }
+
+    /// Register a MirV1 host module (without a Wasm path) for capability dispatch.
+    pub fn register_host_module(&mut self, manifest: ModuleManifest) {
+        let module_id = manifest.module_id.to_lowercase();
+        self.bindings.insert(
+            module_id,
+            ModuleBinding {
+                manifest,
+                wasm_path: None,
+                generation_id: None,
+                content_hash: None,
+            },
+        );
+    }
 }
 
 fn effective_abi(binding: &ModuleBinding) -> ModuleAbi {
@@ -126,5 +140,41 @@ fn effective_abi(binding: &ModuleBinding) -> ModuleAbi {
 impl Default for ModuleRegistry {
     fn default() -> Self {
         Self::from_core_v1()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_modules_can_be_registered_and_resolved() {
+        let mut registry = ModuleRegistry::default();
+        registry.register_host_module(ModuleManifest {
+            module_id: "custom".to_string(),
+            version: "0.1.0".to_string(),
+            abi: ModuleAbi::MirV1,
+            entrypoint: "custom.host".to_string(),
+            exported_ops: vec![ExportedOp {
+                op: "run".to_string(),
+                input_schema_ref: None,
+                output_schema_ref: None,
+                effect: crate::module_manifest::EffectKind::Pure,
+            }],
+            required_capabilities: Vec::new(),
+            limits: crate::module_manifest::ResourceLimits {
+                max_cpu_ms: 1_000,
+                max_memory_mb: 16,
+                max_io_bytes: 1_024,
+                max_network_calls: 0,
+            },
+        });
+
+        let resolved = registry
+            .resolve_call(Some("CUSTOM"), "run", "custom.run")
+            .expect("custom host operation should resolve");
+        assert_eq!(resolved.module_id, "custom");
+        assert_eq!(resolved.abi, ModuleAbi::MirV1);
+        assert!(resolved.wasm_path.is_none());
     }
 }
