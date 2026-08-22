@@ -1,10 +1,10 @@
-name: Release Grapheme LSP
+name: Release Grapheme
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (for example v0.5.0). Required when publishing from manual dispatch."
+        description: "Existing release tag (for example v0.7.0). Required when publishing."
         required: false
         default: ""
       repo:
@@ -23,9 +23,74 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  build:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Validate tag, main ancestry, and versions
+        id: release
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_PUBLISH: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+          else
+            tag="$INPUT_TAG"
+          fi
+
+          if [[ -z "$tag" ]]; then
+            if [[ "$INPUT_PUBLISH" == "true" ]]; then
+              echo "Manual publishing requires a tag input" >&2
+              exit 1
+            fi
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag must look like v0.7.0 (received: $tag)" >&2
+            exit 1
+          fi
+
+          git fetch origin main --no-tags
+          tagged_commit="$(git rev-list -n 1 "$tag")"
+          if ! git merge-base --is-ancestor "$tagged_commit" origin/main; then
+            echo "Tag $tag does not point to a commit on main" >&2
+            exit 1
+          fi
+
+          tag_version="${tag#v}"
+          lsp_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' crates/grapheme-lsp/Cargo.toml | head -n 1)"
+          extension_version="$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)".*/\1/p' extensions/grapheme-vscode/package.json | head -n 1)"
+
+          if [[ "$tag_version" != "$lsp_version" || "$tag_version" != "$extension_version" ]]; then
+            echo "Tag version $tag_version does not match grapheme-lsp ($lsp_version) and grapheme-vscode ($extension_version)" >&2
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  build-lsp:
     name: Build ${{ matrix.asset }}
+    needs: validate
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -39,7 +104,7 @@ jobs:
             target: aarch64-unknown-linux-gnu
             asset: grapheme-lsp-linux-arm64
             exe: ""
-          - runner: macos-13
+          - runner: macos-15-intel
             target: x86_64-apple-darwin
             asset: grapheme-lsp-macos-x64
             exe: ""
@@ -57,72 +122,105 @@ jobs:
             exe: ".exe"
 
     steps:
-      - name: Checkout
+      - name: Checkout tagged source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
       - name: Build LSP
-        run: cargo build -p grapheme-lsp --release --target ${{ matrix.target }}
+        run: cargo build -p grapheme-lsp --release --locked --target ${{ matrix.target }}
 
       - name: Package asset
         shell: bash
-        run: |
-          cp "target/${{ matrix.target }}/release/grapheme-lsp${{ matrix.exe }}" "${{ matrix.asset }}"
+        run: cp "target/${{ matrix.target }}/release/grapheme-lsp${{ matrix.exe }}" "${{ matrix.asset }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}
+          if-no-files-found: error
+
+  build-vsix:
+    name: Build VS Code extension
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extensions/grapheme-vscode/package-lock.json
+
+      - name: Install extension dependencies
+        working-directory: extensions/grapheme-vscode
+        run: npm ci
+
+      - name: Build extension
+        working-directory: extensions/grapheme-vscode
+        run: npm run build
+
+      - name: Package VSIX
+        working-directory: extensions/grapheme-vscode
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          npx --yes @vscode/vsce package --allow-missing-repository --out "grapheme-vscode-$version.vsix"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: grapheme-vscode-vsix
+          path: extensions/grapheme-vscode/*.vsix
+          if-no-files-found: error
 
   publish:
+    name: Publish GitHub release
     if: |
       startsWith(github.ref, 'refs/tags/') ||
       (github.event_name == 'workflow_dispatch' && inputs.publish)
-    needs: build
+    needs:
+      - validate
+      - build-lsp
+      - build-vsix
     runs-on: ubuntu-latest
-
     steps:
-      - name: Download artifacts
+      - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-assets
           merge-multiple: true
 
-      - name: Resolve tag
-        id: tag
-        shell: bash
-        run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          elif [[ -n "${{ inputs.tag }}" ]]; then
-            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "Manual publish requires --tag input" >&2
-            exit 1
-          fi
-
-      - name: Create or update release
+      - name: Create GitHub release if needed
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ needs.validate.outputs.tag }}
           REPO: ${{ inputs.repo || github.repository }}
         shell: bash
         run: |
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             echo "Release $TAG already exists"
           else
-            gh release create "$TAG" --repo "$REPO" --title "$TAG" --notes "Automated grapheme-lsp binary release"
+            gh release create "$TAG" --repo "$REPO" --verify-tag --title "$TAG" --generate-notes
           fi
 
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ needs.validate.outputs.tag }}
           REPO: ${{ inputs.repo || github.repository }}
         shell: bash
         run: gh release upload "$TAG" release-assets/* --repo "$REPO" --clobber

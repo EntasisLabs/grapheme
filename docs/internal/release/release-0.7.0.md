@@ -45,11 +45,11 @@ Use with `docs/internal/release/release-gates-and-doc-versioning.md`.
 
 1. Merge version-prep PR to `main`
 2. Tag `v0.7.0` on the merge commit (`git tag -a v0.7.0 -m "v0.7.0"` + push tags)
-3. Confirm `.github/workflows/release-lsp.yml` uploads LSP assets for the tag
-4. Optional: `scripts/release-bundle.sh --tag v0.7.0`
+3. Confirm `.github/workflows/release-lsp.yml` creates the GitHub Release and uploads all LSP + VSIX assets
+4. Optional local fallback: `scripts/release-bundle.sh --tag v0.7.0`
 5. Optional: `scripts/publish-crates.sh --publish` (dry-run first)
 6. Point extension `grapheme.lsp.releaseTag` docs / users at `v0.7.0`
-7. Publish GitHub Release notes from `CHANGELOG.md` `[0.7.0]`
+7. Review/edit the automatically generated GitHub Release notes against `CHANGELOG.md` `[0.7.0]`
 
 ### Explicit non-goals for 0.7.0
 

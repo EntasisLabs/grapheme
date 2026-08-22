@@ -9,11 +9,26 @@ This repository supports both CI-based and manual release flows for:
 1. `grapheme-lsp` platform binaries
 2. `grapheme-vscode` VSIX package
 
-## CI Workflow
+## Automated tag release
 
 Workflow file:
 
 - `.github/workflows/release-lsp.yml`
+
+Pushing a version tag automatically builds all supported LSP binaries, packages
+the VS Code extension, creates a GitHub Release with generated notes, and uploads
+all seven assets. The workflow rejects tags whose commit is not on `main`, or
+whose version does not match both the LSP and extension package versions.
+
+```bash
+git switch main
+git pull --ff-only
+git tag -a v0.7.0 -m "v0.7.0"
+git push origin v0.7.0
+```
+
+Git tags do not belong to a branch, so the workflow checks that the tagged commit
+is an ancestor of `origin/main` before publishing.
 
 Expected binary asset names (used by extension auto-download logic):
 
@@ -23,6 +38,7 @@ Expected binary asset names (used by extension auto-download logic):
 - `grapheme-lsp-macos-arm64`
 - `grapheme-lsp-windows-x64.exe`
 - `grapheme-lsp-windows-arm64.exe`
+- `grapheme-vscode-<version>.vsix`
 
 ## Manual LSP Release Script
 
