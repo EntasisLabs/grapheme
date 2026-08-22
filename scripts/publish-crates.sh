@@ -29,6 +29,7 @@ Usage: scripts/publish-crates.sh [options]
 
 Publishes workspace crates to crates.io in dependency-safe order.
 Default mode is dry-run.
+Crate versions that already exist on crates.io are skipped.
 
 Options:
   --publish              Perform real publish (default: dry-run).
@@ -132,6 +133,11 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v curl >/dev/null 2>&1; then
+  echo "curl is required to check existing crates.io versions" >&2
+  exit 1
+fi
+
 if [[ $DRY_RUN -eq 0 ]] && [[ $YES -ne 1 ]]; then
   echo "Ensure you are authenticated: cargo login"
 fi
@@ -152,6 +158,32 @@ if [[ -n "$FROM_CRATE" ]]; then
   SKIP=1
 fi
 
+crate_version_is_published() {
+  local crate="$1"
+  local version="$2"
+  local status
+
+  if ! status="$(curl \
+    --silent \
+    --show-error \
+    --output /dev/null \
+    --write-out '%{http_code}' \
+    --user-agent 'grapheme-release-script (https://github.com/entasislabs/grapheme)' \
+    "https://crates.io/api/v1/crates/$crate/$version")"; then
+    echo "Failed to check crates.io for $crate $version" >&2
+    return 2
+  fi
+
+  case "$status" in
+    200) return 0 ;;
+    404) return 1 ;;
+    *)
+      echo "Unexpected crates.io response for $crate $version: HTTP $status" >&2
+      return 2
+      ;;
+  esac
+}
+
 for crate in "${PUBLISH_ORDER[@]}"; do
   if [[ $SKIP -eq 1 ]]; then
     if [[ "$crate" != "$FROM_CRATE" ]]; then
@@ -161,9 +193,28 @@ for crate in "${PUBLISH_ORDER[@]}"; do
     SKIP=0
   fi
 
+  package_id="$(cargo pkgid -p "$crate")"
+  version="${package_id##*#}"
+  version="${version##*@}"
+
+  if crate_version_is_published "$crate" "$version"; then
+    echo
+    echo "=== Skipping $crate $version (already published) ==="
+    continue
+  else
+    check_status=$?
+    if [[ $check_status -ne 1 ]]; then
+      exit "$check_status"
+    fi
+  fi
+
   echo
-  echo "=== Publishing $crate ==="
-  cargo publish -p "$crate" "${COMMON_FLAGS[@]}"
+  echo "=== Publishing $crate $version ==="
+  if [[ ${#COMMON_FLAGS[@]} -eq 0 ]]; then
+    cargo publish -p "$crate"
+  else
+    cargo publish -p "$crate" "${COMMON_FLAGS[@]}"
+  fi
 
   if [[ $DRY_RUN -eq 0 && "$crate" != "grapheme-lsp" && "$WAIT_SECONDS" -gt 0 ]]; then
     echo "Waiting ${WAIT_SECONDS}s for crates.io index propagation..."

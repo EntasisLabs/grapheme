@@ -4,10 +4,9 @@
 //! structured output formatting, and AOT helper entrypoints.
 
 use grapheme_artifact::mir::MirFunctionKind;
-use grapheme_artifact::{
-    build_stage_b_container_from_aot, AotEnvelope, ArtifactEnvelope, CapabilityPolicy,
-    ExecutionResult,
-};
+use grapheme_artifact::{AotEnvelope, ArtifactEnvelope, CapabilityPolicy, ExecutionResult};
+#[cfg(feature = "stage-b")]
+use grapheme_artifact::build_stage_b_container_from_aot;
 use grapheme_compiler::ast::{ScalarKind, TypeRef};
 use grapheme_compiler::hir::HirExecutableKind;
 use grapheme_compiler::verifier::LintWarning;
@@ -180,6 +179,15 @@ impl GraphemeEngineBuilder {
         self
     }
 
+    /// Configure the runtime module registry before building the engine.
+    pub fn configure_module_registry(
+        mut self,
+        configure: impl FnOnce(&mut grapheme_runtime::ModuleRegistry),
+    ) -> Self {
+        configure(&mut self.runtime_options.module_registry);
+        self
+    }
+
     /// Hydrate module manager/registry state from `.grapheme/modules/hotload.json` when present.
     pub fn with_default_hotload_store(mut self) -> Self {
         if let Ok(Some(store)) = load_hotload_store(&default_hotload_store_path()) {
@@ -272,6 +280,20 @@ impl GraphemeEngine {
         self.execute_compiled(&compiled)
     }
 
+    /// Compile and execute source with an optional per-call `state.current` seed.
+    pub fn execute_source_with_initial_state(
+        &self,
+        source: &str,
+        initial_state_current: Option<JsonValue>,
+    ) -> Result<ExecuteResultPayload, GraphemeSdkError> {
+        let compiled = Compiler::compile_source(source, self.compiler_options.clone())?;
+        self.execute_artifact_with_lints_and_state(
+            &compiled.artifact,
+            compiled.compilation.lint_warnings.clone(),
+            initial_state_current,
+        )
+    }
+
     /// Compile source into a Stage A AOT envelope.
     pub fn compile_source_to_aot(&self, source: &str) -> Result<AotEnvelope, GraphemeSdkError> {
         let compiled = Compiler::compile_source_to_aot(source, self.compiler_options.clone())?;
@@ -279,6 +301,7 @@ impl GraphemeEngine {
     }
 
     /// Compile source into Stage B AOT using provided workflow bytes/imports.
+    #[cfg(feature = "stage-b")]
     pub fn compile_source_to_aot_stage_b(
         &self,
         source: &str,
@@ -291,6 +314,7 @@ impl GraphemeEngine {
     }
 
     /// Compile source into Stage B AOT using the default workflow-container wasm.
+    #[cfg(feature = "stage-b")]
     pub fn compile_source_to_aot_stage_b_default(
         &self,
         source: &str,
@@ -357,11 +381,23 @@ impl GraphemeEngine {
         artifact: &ArtifactEnvelope,
         lint_warnings: Vec<LintWarning>,
     ) -> Result<ExecuteResultPayload, GraphemeSdkError> {
+        self.execute_artifact_with_lints_and_state(artifact, lint_warnings, None)
+    }
+
+    fn execute_artifact_with_lints_and_state(
+        &self,
+        artifact: &ArtifactEnvelope,
+        lint_warnings: Vec<LintWarning>,
+        initial_state_current: Option<JsonValue>,
+    ) -> Result<ExecuteResultPayload, GraphemeSdkError> {
         let mut options = self.runtime_options.clone();
         for (module, path) in &self.module_bindings {
             options
                 .module_registry
                 .set_wasm_path(module.as_str(), path.clone());
+        }
+        if let Some(state) = initial_state_current {
+            options.initial_state_current = Some(state);
         }
 
         let runtime = RuntimeEngine::new(options);
@@ -1883,7 +1919,9 @@ mod tests {
     use super::*;
     use grapheme_artifact::Capability;
     use grapheme_artifact::ExecutionOutcome;
-    use grapheme_runtime::{CompatibilityMode, ModuleAbi, ModuleLifecycleEventKind, PolicyGuard};
+    use grapheme_runtime::{CompatibilityMode, ModuleAbi, ModuleLifecycleEventKind};
+    #[cfg(feature = "host")]
+    use grapheme_runtime::PolicyGuard;
     use std::fs;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
@@ -2013,6 +2051,7 @@ mod tests {
         }));
     }
 
+    #[cfg(feature = "host")]
     #[test]
     fn modules_info_payload_groups_ops_and_compacts_null_schema_refs() {
         let payload = modules_info_payload("web").expect("web module payload");
@@ -2026,7 +2065,7 @@ mod tests {
                 .get("op_summary")
                 .and_then(|v| v.get("total_ops"))
                 .and_then(|v| v.as_u64()),
-            Some(5)
+            Some(7)
         );
 
         let groups = payload
@@ -2088,6 +2127,7 @@ mod tests {
         assert!(first.get("output_schema_ref").is_none());
     }
 
+    #[cfg(feature = "host")]
     #[test]
     fn modules_types_payload_reports_type_summary_and_compacts_null_schema_refs() {
         let payload = modules_types_payload("web").expect("web module payload");
@@ -2108,7 +2148,7 @@ mod tests {
             .get("types")
             .and_then(|v| v.as_array())
             .expect("types array");
-        assert_eq!(types.len(), 5);
+        assert_eq!(types.len(), 7);
         assert!(types
             .iter()
             .all(|row| row.get("output_type").and_then(|v| v.as_str()) == Some("object")));
@@ -2365,6 +2405,33 @@ query Hello {
                 .and_then(|v| v.get("message"))
                 .and_then(|v| v.as_str()),
             Some("hello from sdk")
+        );
+    }
+
+    #[test]
+    fn execute_source_with_initial_state_uses_per_call_seed() {
+        let source = r#"import core from "grapheme/core"
+
+query Seeded {
+  core.echo(message: $state.existing)
+}
+"#;
+
+        let engine = GraphemeEngine::builder().build();
+        let result = engine
+            .execute_source_with_initial_state(
+                source,
+                Some(serde_json::json!({ "existing": true })),
+            )
+            .expect("execution should succeed");
+
+        assert_eq!(
+            result
+                .final_state
+                .get("current")
+                .and_then(|value| value.get("message"))
+                .and_then(|value| value.as_str()),
+            Some("true")
         );
     }
 
@@ -2795,6 +2862,7 @@ query SqlDenied {
             .contains("sql module is disabled"));
     }
 
+    #[cfg(feature = "host")]
     #[test]
     fn sql_runtime_flow_succeeds_when_connection_allowlisted() {
         let source = r#"import sql from "grapheme/sql"
@@ -2858,6 +2926,7 @@ query SurrealDenied {
             .contains("surreal module is disabled"));
     }
 
+    #[cfg(feature = "host")]
     #[test]
     fn surreal_runtime_flow_reaches_module_when_connection_allowlisted() {
         let source = r#"import surreal from "grapheme/surreal"
@@ -2958,6 +3027,7 @@ query HelloAot {
         assert!(json.contains("\"stage\": \"stage_a\""));
     }
 
+    #[cfg(feature = "stage-b")]
     #[test]
     fn compile_source_to_aot_stage_b_emits_container_metadata() {
         let source = r#"import core from "grapheme/core"
@@ -3017,6 +3087,7 @@ query HelloAot {
         assert!(err.to_string().contains("outside host interface boundary"));
     }
 
+    #[cfg(feature = "stage-b")]
     #[test]
     fn execute_aot_stage_b_routes_through_runtime_stage_b_path() {
         let source = r#"import core from "grapheme/core"
@@ -3090,6 +3161,7 @@ query HelloAot {
         assert!(host_event_found);
     }
 
+    #[cfg(feature = "stage-b")]
     #[test]
     fn execute_aot_stage_b_strict_mode_uses_in_process_container() {
         let source = r#"import core from "grapheme/core"
@@ -3129,6 +3201,7 @@ query HelloAot {
         }));
     }
 
+    #[cfg(feature = "stage-b")]
     fn assert_stage_a_stage_b_current_parity(
         stage_a: &ExecuteResultPayload,
         stage_b: &ExecuteResultPayload,
@@ -3154,6 +3227,7 @@ query HelloAot {
         );
     }
 
+    #[cfg(feature = "stage-b")]
     #[test]
     fn stage_a_vs_stage_b_core_transform_current_parity() {
         let source = r#"import core from "grapheme/core"
@@ -3186,6 +3260,7 @@ query HelloParity {
             .contains("stage_b container executed in-process"));
     }
 
+    #[cfg(feature = "stage-b")]
     #[test]
     fn stage_a_vs_stage_b_host_capability_current_parity() {
         let source = r#"import http from "grapheme/http"

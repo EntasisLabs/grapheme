@@ -261,7 +261,6 @@ fn manifest_path_for_wasm(wasm_path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
 
     fn write_file(path: &Path, contents: &str) {
         if let Some(parent) = path.parent() {

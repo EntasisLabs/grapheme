@@ -52,7 +52,7 @@ pub fn failure(error: impl Into<String>) -> JsonValue {
 }
 
 /// Read the primary payload from either envelope or legacy flat JSON.
-pub fn data<'a>(value: &'a JsonValue) -> &'a JsonValue {
+pub fn data(value: &JsonValue) -> &JsonValue {
     if is_envelope(value) {
         return value.get("data").unwrap_or(value);
     }

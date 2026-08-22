@@ -5,6 +5,49 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-08-22
+
+**Slim embedded SDK release** — upstreams the host-integration seams needed by
+embedded products and adds a dependency-light core profile for iOS and Wasm.
+
+### Added
+
+- **Slim SDK profile** — `grapheme-sdk` can be built with
+  `default-features = false, features = ["slim"]`; it keeps the core/json
+  compiler and runtime while excluding the host capability stack, AOT
+  container, and Wasix runtime.
+- **Host module registration** — embedders can register MirV1 host manifests
+  with `ModuleRegistry::register_host_module` and configure the registry from
+  `GraphemeEngineBuilder`.
+- **Per-call initial state** — `execute_source_with_initial_state` seeds
+  `state.current` without mutating the engine's reusable runtime options.
+
+### Changed
+
+- **Optional Stage B** — AOT/Stage B support is behind the `stage-b` feature;
+  default SDK/compiler/runtime builds retain the existing host + Stage B
+  behavior, while slim builds omit it.
+- **Target coverage** — the slim SDK is checked for `aarch64-apple-ios`, both
+  iOS simulator architectures, and `wasm32-unknown-unknown`.
+
+### Crate versions (this release)
+
+All workspace language crates ship at **0.7.1** except `grapheme-artifact`,
+which remains at **0.3.0**. The release tag is **v0.7.1**.
+
+| Crate | Version |
+| --- | --- |
+| `grapheme-signatures` | 0.7.1 |
+| `grapheme-stdlib` | 0.7.1 |
+| `grapheme-aot-container` | 0.7.1 |
+| `grapheme-runtime` | 0.7.1 |
+| `grapheme-compiler` | 0.7.1 |
+| `grapheme-sdk` | 0.7.1 |
+| `grapheme-cli` | 0.7.1 |
+| `grapheme-lsp` | 0.7.1 |
+| VS Code extension | 0.7.1 |
+| `grapheme-artifact` | 0.3.0 |
+
 ## [0.7.0] - 2026-08-21
 
 **Language + Stage B release** — executable parameters / tagged variables (RFC-0004) and a Wasm-compilable Stage B AOT path (RFC-0005). See `docs/internal/rfc/rfc-0004-params-and-tagged-vars-v1.md` and `docs/internal/rfc/rfc-0005-wasm-compilable-stdlib-v1.md`.
@@ -29,7 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Crate versions (this release)
 
-All workspace language crates ship at **0.7.0** except `grapheme-artifact` (unchanged at 0.2.0). The release tag is **v0.7.0**.
+All workspace language crates ship at **0.7.0** except `grapheme-artifact`, which advances to **0.3.0** for the expanded MIR contract. The release tag is **v0.7.0**.
 
 | Crate | Version |
 | --- | --- |
@@ -42,11 +85,12 @@ All workspace language crates ship at **0.7.0** except `grapheme-artifact` (unch
 | `grapheme-cli` | 0.7.0 |
 | `grapheme-lsp` | 0.7.0 |
 | VS Code extension | 0.7.0 |
-| `grapheme-artifact` | 0.2.0 (unchanged) |
+| `grapheme-artifact` | 0.3.0 |
 
 ### Notes
 
 - Last published Git tag before this cut was **v0.4.0**; Cargo already carried 0.5.x/0.6.x trains without matching tags. **v0.7.0** is the aligned language + Stage B cut.
+- `grapheme-artifact` 0.3.0 carries the breaking MIR additions for executable parameters and scoped `using` instructions required by the 0.7.0 crates.
 - Build the Stage B wasm asset before Wasix sandbox runs: `./scripts/build-aot-container.sh`.
 - RFC-0004 Phases 3+ (tag-typed parameters as the full call-edge model, `uses` sugar) remain follow-ups beyond this release.
 

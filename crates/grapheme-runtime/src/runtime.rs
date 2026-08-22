@@ -18,7 +18,7 @@ use crate::module_manager::{
 };
 use crate::module_manifest::ModuleAbi;
 use crate::module_registry::ModuleRegistry;
-#[cfg(feature = "wasix-runtime")]
+#[cfg(all(feature = "stage-b", feature = "wasix-runtime"))]
 use crate::module_registry::ResolvedModuleCall;
 use crate::policy::PolicyGuard;
 use crate::state::{AgentState, StepContext, TracePolicy};
@@ -101,6 +101,7 @@ fn parse_bool_env(var: &str) -> Option<bool> {
     }
 }
 
+#[cfg(feature = "stage-b")]
 #[cfg_attr(not(feature = "wasix-runtime"), allow(dead_code))]
 enum StageBContainerExecution {
     ExecutedHost(crate::stage_b::StageBHostExecution),
@@ -465,10 +466,16 @@ impl RuntimeEngine {
 
         match aot.stage {
             AotStage::StageA => self.execute_artifact(&aot.base_artifact, host),
+            #[cfg(feature = "stage-b")]
             AotStage::StageB => self.execute_stage_b_scaffold(aot, host),
+            #[cfg(not(feature = "stage-b"))]
+            AotStage::StageB => Err(GraphemeError::ArtifactCompatibilityError(
+                "stage_b execution is disabled; enable the `stage-b` feature".to_string(),
+            )),
         }
     }
 
+    #[cfg(feature = "stage-b")]
     fn execute_stage_b_scaffold(
         &self,
         aot: &AotEnvelope,
@@ -535,6 +542,7 @@ impl RuntimeEngine {
         }
     }
 
+    #[cfg(feature = "stage-b")]
     fn finalize_stage_b_host_execution(
         &self,
         aot: &AotEnvelope,
@@ -555,6 +563,7 @@ impl RuntimeEngine {
     }
 }
 
+#[cfg(feature = "stage-b")]
 fn stage_b_container_event(container: &grapheme_artifact::AotWorkflowWasmContainer) -> JsonValue {
     serde_json::json!({
         "kind": "aot.stage_b.container_routed",
@@ -565,7 +574,7 @@ fn stage_b_container_event(container: &grapheme_artifact::AotWorkflowWasmContain
     })
 }
 
-#[cfg(feature = "wasix-runtime")]
+#[cfg(all(feature = "stage-b", feature = "wasix-runtime"))]
 impl RuntimeEngine {
     fn try_execute_stage_b_wasix_rounds(
         &self,
@@ -659,7 +668,7 @@ impl RuntimeEngine {
     }
 }
 
-#[cfg(not(feature = "wasix-runtime"))]
+#[cfg(all(feature = "stage-b", not(feature = "wasix-runtime")))]
 impl RuntimeEngine {
     fn try_execute_stage_b_wasix_rounds(
         &self,
@@ -2054,10 +2063,13 @@ mod tests {
     use super::*;
     use crate::module_manager::{CompatibilityMode, LoadModuleRequest};
     use grapheme_artifact::{
-        build_aot_from_artifact, build_artifact_from_mir, build_stage_b_container_from_aot,
-        Capability, MirBlock, MirFunction, MirFunctionKind, MirInst, MirIntentConfig,
-        MirLoopConfig, MirLoopMergeMode, MirProgram, MirTerminator,
+        build_artifact_from_mir, Capability, MirBlock, MirFunction, MirFunctionKind, MirInst,
+        MirIntentConfig, MirLoopConfig, MirLoopMergeMode, MirProgram, MirTerminator,
     };
+    #[cfg(feature = "stage-b")]
+    use grapheme_artifact::build_aot_from_artifact;
+    #[cfg(feature = "stage-b")]
+    use grapheme_artifact::build_stage_b_container_from_aot;
     use serde_json::{json, Map, Value as JsonValue};
     use std::fs;
     use std::path::PathBuf;
@@ -2099,6 +2111,7 @@ mod tests {
             .join("module-lifecycle-events.snapshot.json")
     }
 
+    #[cfg(feature = "stage-b")]
     #[cfg_attr(feature = "wasix-runtime", allow(dead_code))]
     #[allow(dead_code)]
     fn stage_b_strict_mode_snapshot_path() -> PathBuf {
@@ -2937,6 +2950,7 @@ mod tests {
         assert!(!missing.contains(&"post".to_string()));
     }
 
+    #[cfg(feature = "stage-b")]
     #[test]
     fn execute_aot_stage_b_records_container_routing_event() {
         let artifact = loop_artifact(1, MirLoopMergeMode::Replace);
@@ -2986,6 +3000,7 @@ mod tests {
         assert!(host_event.is_some());
     }
 
+    #[cfg(feature = "stage-b")]
     #[test]
     fn execute_aot_stage_b_strict_mode_uses_in_process_container() {
         let artifact = loop_artifact(1, MirLoopMergeMode::Replace);
@@ -3021,6 +3036,7 @@ mod tests {
         assert!(host_event.is_some());
     }
 
+    #[cfg(feature = "stage-b")]
     #[test]
     fn execute_aot_stage_b_fulfills_host_capability_rounds() {
         let capability = Capability::from_module_op("http", "get");
@@ -3090,7 +3106,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "wasix-runtime")]
+    #[cfg(all(feature = "stage-b", feature = "wasix-runtime"))]
     #[test]
     fn execute_aot_stage_b_direct_path_with_wasix_feature() {
         let workflow_wasm = wat::parse_str(
@@ -3136,7 +3152,7 @@ mod tests {
                 == Some("aot.stage_b.host_fulfilled")));
     }
 
-    #[cfg(feature = "wasix-runtime")]
+    #[cfg(all(feature = "stage-b", feature = "wasix-runtime"))]
     #[test]
     fn execute_aot_stage_b_wasix_multi_round_host_fulfillments() {
         let Ok(workflow_wasm) = grapheme_aot_container::load_workflow_wasm() else {

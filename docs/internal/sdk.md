@@ -13,24 +13,35 @@ This path is for Rust embedders building Grapheme into services, agents, or inte
 
 Crate:
 
-- `crates/grapheme-sdk` (version **0.7.0**)
+- `crates/grapheme-sdk` (version **0.7.1**)
 
-## Feature flags (0.6.0+)
+## Feature flags (0.7.1+)
 
-The SDK ships with **no default features**. Enable capabilities explicitly:
+The normal SDK default preserves the host + Stage B runtime. For iOS, Wasm,
+and other embedded targets, use the explicit slim profile:
 
 ```toml
 [dependencies]
-grapheme-sdk = { version = "0.7", default-features = false, features = ["full"] }
+grapheme-sdk = { version = "0.7.1", default-features = false, features = ["slim"] }
+```
+
+The slim profile contains the core/json compiler and runtime only. It excludes
+the host capability stack, transforms, AOT container, and Wasix runtime.
+
+For a full host build, enable capabilities explicitly:
+
+```toml
+[dependencies]
+grapheme-sdk = { version = "0.7.1", default-features = false, features = ["full"] }
 ```
 
 Per-module opt-in:
 
 ```toml
-grapheme-sdk = { version = "0.7", default-features = false, features = ["data", "pdf"] }
+grapheme-sdk = { version = "0.7.1", default-features = false, features = ["data", "pdf"] }
 ```
 
-Available flags: `data`, `pdf`, `image`, `plot`, `media`, `wasix-runtime`, `full`.
+Available flags: `slim`, `host`, `stage-b`, `data`, `pdf`, `image`, `plot`, `media`, `wasix-runtime`, `full`.
 
 See `docs/internal/sdk-feature-flags.md` for CLI vs SDK defaults and envelope shape.
 
@@ -114,6 +125,34 @@ query Hello {
     let result = engine.execute_source(source).expect("execute source");
     println!("{}", result.final_state);
 }
+```
+
+## Embedded host integration
+
+An embedding application can add host-backed MirV1 modules without supplying a
+Wasm sidecar. Configure the registry before building the engine:
+
+```rust
+use grapheme_runtime::ModuleRegistry;
+use grapheme_sdk::GraphemeEngine;
+
+fn build_engine(manifest: grapheme_runtime::ModuleManifest) -> GraphemeEngine {
+    GraphemeEngine::builder()
+        .configure_module_registry(|registry: &mut ModuleRegistry| {
+            registry.register_host_module(manifest);
+        })
+        .build()
+}
+```
+
+For request-scoped state, use `execute_source_with_initial_state`. The supplied
+JSON value seeds `state.current` for that execution only; it does not alter a
+later call made through the same engine:
+
+```rust
+let result = engine
+    .execute_source_with_initial_state(source, Some(serde_json::json!({ "tenant": "ios" })))
+    .expect("execute source");
 ```
 
 ## Structured Output

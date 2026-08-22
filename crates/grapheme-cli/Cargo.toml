@@ -1,6 +1,6 @@
 [package]
 name = "grapheme-cli"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2024"
 rust-version = "1.92"
 description = "Grapheme CLI for parsing, compiling, and running .gr workflows"
@@ -26,9 +26,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
 toml = "0.8"
-grapheme-compiler = { path = "../grapheme-compiler", version = "0.7.0", default-features = false, features = ["full"] }
-grapheme-runtime = { path = "../grapheme-runtime", version = "0.7.0", default-features = false, features = ["wasix-runtime", "full"] }
-grapheme-artifact = { path = "../grapheme-artifact", version = "0.2.0" }
-grapheme-aot-container = { path = "../grapheme-aot-container", version = "0.7.0" }
-grapheme-stdlib = { path = "../grapheme-stdlib", version = "0.7.0", features = ["full"] }
-grapheme-sdk = { path = "../grapheme-sdk", version = "0.7.0", default-features = false, features = ["full"] }
+grapheme-compiler = { path = "../grapheme-compiler", version = "0.7.1", default-features = false, features = ["full"] }
+grapheme-runtime = { path = "../grapheme-runtime", version = "0.7.1", default-features = false, features = ["wasix-runtime", "full"] }
+grapheme-artifact = { path = "../grapheme-artifact", version = "0.3.0" }
+grapheme-aot-container = { path = "../grapheme-aot-container", version = "0.7.1" }
+grapheme-stdlib = { path = "../grapheme-stdlib", version = "0.7.1", features = ["full"] }
+grapheme-sdk = { path = "../grapheme-sdk", version = "0.7.1", default-features = false, features = ["full"] }

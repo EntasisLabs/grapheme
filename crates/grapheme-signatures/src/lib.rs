@@ -1016,6 +1016,7 @@ const SURREAL_HEALTH_ARGS: &[ArgSpec] = &[
     },
 ];
 
+#[cfg(feature = "data")]
 const DATA_READ_CSV_ARGS: &[ArgSpec] = &[
     ArgSpec {
         name: "path",
@@ -1028,11 +1029,13 @@ const DATA_READ_CSV_ARGS: &[ArgSpec] = &[
         required: false,
     },
 ];
+#[cfg(feature = "data")]
 const DATA_FRAME_ARGS: &[ArgSpec] = &[ArgSpec {
     name: "frame",
     ty: ArgType::Object,
     required: true,
 }];
+#[cfg(feature = "data")]
 const DATA_FILTER_ARGS: &[ArgSpec] = &[
     ArgSpec {
         name: "frame",
@@ -1050,6 +1053,7 @@ const DATA_FILTER_ARGS: &[ArgSpec] = &[
         required: true,
     },
 ];
+#[cfg(feature = "data")]
 const DATA_AGGREGATE_ARGS: &[ArgSpec] = &[
     ArgSpec {
         name: "frame",
@@ -1062,6 +1066,7 @@ const DATA_AGGREGATE_ARGS: &[ArgSpec] = &[
         required: true,
     },
 ];
+#[cfg(feature = "data")]
 const DATA_GROUP_BY_ARGS: &[ArgSpec] = &[
     ArgSpec {
         name: "frame",
@@ -1074,6 +1079,7 @@ const DATA_GROUP_BY_ARGS: &[ArgSpec] = &[
         required: true,
     },
 ];
+#[cfg(feature = "pdf")]
 const PDF_GENERATE_ARGS: &[ArgSpec] = &[
     ArgSpec {
         name: "title",
@@ -1086,6 +1092,7 @@ const PDF_GENERATE_ARGS: &[ArgSpec] = &[
         required: false,
     },
 ];
+#[cfg(feature = "pdf")]
 const PDF_EXTRACT_ARGS: &[ArgSpec] = &[
     ArgSpec {
         name: "path",
@@ -1098,6 +1105,7 @@ const PDF_EXTRACT_ARGS: &[ArgSpec] = &[
         required: false,
     },
 ];
+#[cfg(feature = "image")]
 const IMAGE_RESIZE_ARGS: &[ArgSpec] = &[
     ArgSpec {
         name: "width",
@@ -1110,11 +1118,13 @@ const IMAGE_RESIZE_ARGS: &[ArgSpec] = &[
         required: true,
     },
 ];
+#[cfg(feature = "image")]
 const IMAGE_CONVERT_ARGS: &[ArgSpec] = &[ArgSpec {
     name: "format",
     ty: ArgType::String,
     required: true,
 }];
+#[cfg(feature = "image")]
 const IMAGE_METADATA_ARGS: &[ArgSpec] = &[
     ArgSpec {
         name: "path",
@@ -1127,21 +1137,25 @@ const IMAGE_METADATA_ARGS: &[ArgSpec] = &[
         required: false,
     },
 ];
+#[cfg(feature = "plot")]
 const PLOT_SERIES_ARGS: &[ArgSpec] = &[ArgSpec {
     name: "series",
     ty: ArgType::Array,
     required: true,
 }];
+#[cfg(feature = "plot")]
 const PLOT_SCATTER_ARGS: &[ArgSpec] = &[ArgSpec {
     name: "points",
     ty: ArgType::Array,
     required: true,
 }];
+#[cfg(feature = "media")]
 const MEDIA_PROBE_ARGS: &[ArgSpec] = &[ArgSpec {
     name: "path",
     ty: ArgType::String,
     required: true,
 }];
+#[cfg(feature = "media")]
 const MEDIA_TRANSCODE_ARGS: &[ArgSpec] = &[
     ArgSpec {
         name: "input",
