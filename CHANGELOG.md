@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Toolchain** — Rust edition **2024** / **rust-version 1.92+** required.
 - **Strict Stage B** — in-process container walker is the primary path; Wasix is opt-in; parity fallback still available when not strict.
 - **CI** — conformance gates for Wasm stdlib check, Stage B container, parity tests, and Wasix multi-round (builds container artifact first).
+- **Docs / examples** — onboarding covers params, tags/`using`, and Stage B; canonical demos `examples/params-call-bind.gr` and `examples/tag-using-scope.gr`; author extract `docs/internal/language/params-and-tags-v1.md`.
 
 ### Crate versions (this release)
 

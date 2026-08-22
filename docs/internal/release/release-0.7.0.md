@@ -23,6 +23,16 @@ Use with `docs/internal/release/release-gates-and-doc-versioning.md`.
 - [x] `CHANGELOG.md` `[0.7.0]` entry
 - [x] `scripts/publish-crates.sh` includes `grapheme-aot-container` (after stdlib)
 
+### Docs / examples currency
+
+- [x] Language contract updated for params/tags (no longer says binding is unfinished)
+- [x] Quickstart / getting-started / language-tour cover params, tags, Stage B
+- [x] CLI docs: `--args-json`, Stage B env vars, container build script
+- [x] SDK docs: `with_entrypoint_args`, Stage B compile/execute helpers
+- [x] Canonical examples: `examples/params-call-bind.gr`, `examples/tag-using-scope.gr`
+- [x] Normative extract: `docs/internal/language/params-and-tags-v1.md`
+- [ ] Final human skim of product FAQ / tutorials before tag
+
 ### Gates (fill at cut time)
 
 - [ ] `conformance` green on release PR / `main`

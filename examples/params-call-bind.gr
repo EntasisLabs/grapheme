@@ -1,0 +1,13 @@
+import core from "grapheme/core"
+
+// Executable parameters (RFC-0004 Phase 1): named args on query/iterator,
+// defaults, and call-site binding. Override at the CLI with:
+//   grapheme run examples/params-call-bind.gr --args-json '{"label":"grapheme"}'
+
+query ParamsCallBind($label: String = "world") {
+  call Greet(label: $label)
+}
+
+iterator Greet($label: String) on Any {
+  core.echo(message: "hello {$label}")
+}

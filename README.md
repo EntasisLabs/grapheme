@@ -12,7 +12,9 @@ Write workflows in `.gr`, compile them into verified MIR artifacts, and run them
 
 - Operational runbooks that branch and recover safely (`if`, `match`, `@loop`, `@retry`, `@timeout`).
 - Data and integration pipelines with explicit state transitions (`set`, `transition`, typed state machines).
+- **Reusable callables (0.7.0):** executable `$param` lists, tagged ambient vars, and scoped `using`.
 - Policy-scoped automations that call HTTP, SQL, SMTP, secrets, TCP, memory, and custom modules.
+- **Stage B AOT (0.7.0):** Wasm-safe workflow containers with host capability fulfillment.
 - **Capability pipelines (0.6.0+):** Polars CSV ingest (`data`), Wasm PDF/image/plot plugins, ffmpeg probe/transcode (`media`).
 - Developer workflows with built-in CLI + LSP + VS Code support.
 
@@ -36,6 +38,8 @@ cargo check --workspace
 cargo run -- parse examples/hello-world.gr
 cargo run -- compile examples/hello-world.gr --emit artifact
 cargo run -- run examples/hello-world.gr
+cargo run -- run examples/params-call-bind.gr --args-json '{"label":"grapheme"}'
+cargo run -- run examples/tag-using-scope.gr
 ```
 
 Project default entrypoint:
@@ -110,6 +114,18 @@ grapheme run examples/media-probe.gr
 ```
 
 Hotload state persists under `.grapheme/modules/hotload.json` across `modules activate`, `modules rollback`, and `grapheme run`. See `docs/internal/cli.md` and `docs/internal/sdk-feature-flags.md`.
+
+### Language + Stage B (0.7.0)
+
+```bash
+cargo run -- run examples/params-call-bind.gr --args-json '{"label":"grapheme"}' --json
+cargo run -- run examples/tag-using-scope.gr --json
+./scripts/build-aot-container.sh
+cargo run -- build examples/hello-world.gr --aot-stage stage_b --json
+cargo run -- run examples/hello-world.gr --aot-stage stage_b --json
+```
+
+Author extract: `docs/internal/language/params-and-tags-v1.md`. Cut checklist: `docs/internal/release/release-0.7.0.md`.
 
 ## Copy-Paste Examples
 

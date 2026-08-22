@@ -15,10 +15,13 @@ Think in three layers:
 ## Building Blocks
 
 - Imports: declare module capabilities.
-- Executables: define named workflow entry points.
+- Executables: define named workflow entry points (`query`, `mutation`, `iterator`, …).
+- **Parameters (0.7.0):** named `$param` lists with defaults; bind via `call` or CLI `--args-json`.
+- **Tags / `using` (0.7.0):** ambient tagged bindings activated for a scoped block.
 - Operations: call module functions.
 - State transitions: evolve structured data through steps.
 - Control flow: branch and iterate with explicit intent.
+- **Stage B AOT (0.7.0):** compile/run workflows through the Wasm container path (`grapheme build` defaults to `stage_b`).
 
 ## Authoring Style
 
@@ -47,9 +50,14 @@ In practice, that means your workflow logic and operational permissions stay sep
 
 Use these examples to see core language patterns:
 
+- `examples/hello-world.gr`
+- `examples/params-call-bind.gr` (executable parameters)
+- `examples/tag-using-scope.gr` (tags + scoped `using`)
 - `examples/core-merge.gr`
 - `examples/core-filter.gr`
 - `examples/resilience-composition.gr`
 - `examples/mutation-state-machine-apply.gr`
+
+Author extract: `docs/internal/language/params-and-tags-v1.md`.
 
 Then progress to scenario playbooks in `playbooks.md`.

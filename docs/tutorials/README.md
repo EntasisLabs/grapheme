@@ -7,10 +7,10 @@ If you complete this sequence, you should be able to design, run, govern, and op
 ## Curriculum
 
 1. `01-first-value.md`
-2. `02-language-core.md`
+2. `02-language-core.md` (includes 0.7.0 params + tags)
 3. `03-control-flow-and-state.md`
 4. `04-integrations-and-policy.md`
-5. `05-debugging-and-operations.md`
+5. `05-debugging-and-operations.md` (includes Stage B AOT checks)
 6. `06-realworld-scenarios.md`
 7. `07-adoption-playbook.md`
 8. `08-weekly-kpi-build-along.md`
