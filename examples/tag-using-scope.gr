@@ -1,0 +1,15 @@
+import core from "grapheme/core"
+
+// Tagged variables + scoped using (RFC-0004 Phase 2a).
+// `$token` is readable only inside the `using auth(...)` block.
+
+tag auth {
+  $token: String
+}
+
+query TagUsingScope {
+  using auth(token: "secret") {
+    core.echo(message: "token={$token}")
+  }
+  |> core.echo(message: "after")
+}

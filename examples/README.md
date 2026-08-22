@@ -19,6 +19,16 @@ Run these first:
 - `main.gr` (project default entrypoint from `grapheme.toml`)
 
 - `hello-world.gr`
+
+### 0.7.0 language (params + tags)
+
+- `params-call-bind.gr` — executable parameters + `call` bind; try `--args-json '{"label":"grapheme"}'`
+- `tag-using-scope.gr` — `tag` schema + scoped `using`
+
+Author extract: `docs/internal/language/params-and-tags-v1.md`.
+
+### Core / control flow
+
 - `core-merge.gr`
 - `core-filter.gr`
 - `core-validate-schema.gr`
@@ -26,8 +36,12 @@ Run these first:
 - `mutation-state-machine-apply.gr`
 - `resilience-composition.gr`
 - `subscription-heartbeat-readable.gr`
+
+### Host I/O and search
+
 - `http-get.gr`
 - `request-transform-output.gr`
+- `websearch-basic.gr`
 - `websearch-materials.gr`
 - `websearch-report.gr`
 - `web-provider-catalog.gr`
@@ -39,10 +53,14 @@ Run these first:
 - `memory-roundtrip.gr`
 - `tcp-connect.gr`
 - `smtp-send.gr`
+- `email-smtp.gr`
 - `secrets-handle.gr`
 - `secrets-sign.gr`
+
+### SQL / Surreal
+
 - `sql-query.gr`
-- `sql-query-params.gr`
+- `sql-query-params.gr` (SQL `?` bind params — not RFC-0004 executable params)
 - `sql-transaction.gr`
 - `sql-transaction-rollback.gr`
 - `surreal-select.gr`
@@ -53,6 +71,9 @@ Run these first:
 - `surreal-create.gr`
 - `surreal-update.gr`
 - `surreal-delete.gr`
+
+### Capability modules (0.6.0+, still current)
+
 - `data-read-csv.gr` (requires CLI/SDK `full` or `data` feature)
 - `data-filter.gr` (requires CLI/SDK `full` or `data` feature)
 - `pdf-generate.gr` (requires `modules/pdf.wasm`; build with `plugins/build-plugins.sh`)
@@ -105,7 +126,17 @@ Project config (`grapheme.toml`) declares these example namespaces:
 cargo run -- run examples/<file>.gr --native-modules
 ```
 
-0.6.0 capability examples:
+0.7.0 language + Stage B:
+
+```bash
+cargo run -- run examples/params-call-bind.gr --args-json '{"label":"grapheme"}' --json
+cargo run -- run examples/tag-using-scope.gr --json
+./scripts/build-aot-container.sh
+cargo run -- build examples/hello-world.gr --aot-stage stage_b --json
+cargo run -- run examples/hello-world.gr --aot-stage stage_b --json
+```
+
+Capability modules (0.6.0+, still current):
 
 ```bash
 bash plugins/build-plugins.sh

@@ -22,6 +22,24 @@ Grapheme is specialized for governed automation workflows and capability-driven 
 
 Use docs under `docs/internal/` for compiler/runtime internals, release workflows, and deep implementation detail.
 
+## How do I pass entrypoint parameters?
+
+Declare `$param` lists on `query` / `mutation` / `iterator` / `subscription`, then bind at the CLI:
+
+```bash
+grapheme run examples/params-call-bind.gr --args-json '{"label":"grapheme"}'
+```
+
+In the SDK, use `with_entrypoint_args`. See `docs/internal/language/params-and-tags-v1.md`.
+
+## What are tags and `using`?
+
+A `tag` declares ambient bindings; a block `using` activates them for nested code only. Example: `examples/tag-using-scope.gr`.
+
+## What is Stage B?
+
+Stage B is the AOT workflow-container path: MIR walks inside a Wasm-safe container, and host-only capabilities are fulfilled across rounds. `grapheme build` defaults to `stage_b`. Build the container asset with `./scripts/build-aot-container.sh`. Details: `docs/internal/cli.md` and `docs/internal/release/release-0.7.0.md`.
+
 ## What if policy blocks my workflow?
 
 That is expected behavior for side-effecting capabilities. Configure allow-list environment variables for the capability you intend to use.

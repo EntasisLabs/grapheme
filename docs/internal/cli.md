@@ -13,7 +13,11 @@ grapheme plugins build [all|core|docs|io|http|memory|tcp|smtp|secrets ...]
 grapheme examples [list] [--yaml|--json] [--query q] [--tag tag] [--complexity level] [--native-only]
 grapheme examples show <name> [--summary] [--raw] [--yaml|--json]
 grapheme examples init [--out dir]
-grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules] [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--strict-stage-b] [--allow-stage-b-fallback] [--stream-steps]
+grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules]
+                    [--state-json '<json>' | --state-file path.json]
+                    [--args-json '<json-object>']
+                    [--aot-stage stage_a|stage_b] [--type-policy warn|strict]
+                    [--strict-stage-b] [--allow-stage-b-fallback] [--stream-steps]
                     [--trace-profile lean|debug] [--trace-steps N]
                     [--trace-projection minimal|full] [--trace-max-string-bytes N]
 grapheme modules [--yaml|--json]
@@ -55,6 +59,7 @@ cargo run -- compile examples/hello-world.gr --emit aot --aot-stage stage_b --js
 Notes:
 
 - `--aot-stage` is only valid with `--emit aot`.
+- Default Stage B emission uses the workflow container from `scripts/build-aot-container.sh` when present (placeholder metadata otherwise).
 - `--type-policy warn` is the default and preserves compatibility-mode lint behavior.
 - `--type-policy strict` enables strict mutation-boundary enforcement at compile time.
 - For `compile`, default emit target is `mir`.
@@ -129,11 +134,28 @@ cargo run -- run examples/hello-world.gr --aot-stage stage_a --json
 cargo run -- run examples/hello-world.gr --aot-stage stage_b --json
 ```
 
+Build the Stage B WASI container asset before relying on Wasix sandbox execution or default emission bytes:
+
+```bash
+./scripts/build-aot-container.sh
+# -> crates/grapheme-aot-container/assets/grapheme-aot-container.wasm
+```
+
 Stage B strict/fallback behavior:
 
-- Stage B runs default to strict container-first mode.
-- `--strict-stage-b` forces strict mode explicitly.
+- Stage B runs default to strict container-first mode (in-process walker + host fulfillment).
+- `--strict-stage-b` forces strict mode explicitly (`GRAPHEME_STRICT_STAGE_B=1`).
 - `--allow-stage-b-fallback` opts out of strict mode for Stage B runs and allows parity fallback.
+- Optional Wasix multi-round sandbox: set `GRAPHEME_PREFER_STAGE_B_WASIX=1` (requires `wasix-runtime` and the built container wasm).
+
+Entrypoint parameters and initial state (0.7.0):
+
+```bash
+cargo run -- run examples/params-call-bind.gr --args-json '{"label":"grapheme"}' --json
+cargo run -- run examples/hello-world.gr --state-json '{"seed":1}' --json
+```
+
+`--args-json` must be a JSON object whose keys match the entrypoint parameter names.
 
 Trace tuning:
 
@@ -416,6 +438,11 @@ Runtime policy env vars consumed by CLI:
 - `GRAPHEME_ALLOWED_TCP_TARGETS` (comma-separated host:port entries)
 - `GRAPHEME_ALLOWED_SMTP_DOMAINS` (comma-separated domains)
 - `GRAPHEME_ALLOWED_SECRETS` (comma-separated secret names)
+
+Stage B / AOT env vars:
+
+- `GRAPHEME_STRICT_STAGE_B` (`1|true|yes|on` / `0|false|no|off`) — override strict Stage B default
+- `GRAPHEME_PREFER_STAGE_B_WASIX` — prefer Wasix multi-round Stage B when the feature is enabled
 
 Telemetry env vars:
 
