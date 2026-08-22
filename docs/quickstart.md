@@ -4,6 +4,8 @@ Goal: run your first Grapheme workflow and understand what success looks like.
 
 Estimated time: 10 minutes.
 
+Requires Rust **1.92+** / edition **2024** when building from source (`rust-toolchain.toml`).
+
 ## Install Paths
 
 ### Path A: Use the CLI directly (recommended)
@@ -49,6 +51,34 @@ Expected outcome:
 
 If you see those two signals, your Grapheme runtime path is healthy.
 
+## 0.7.0 language path (params + tags)
+
+Pass named entrypoint parameters:
+
+```bash
+grapheme run examples/params-call-bind.gr --args-json '{"label":"grapheme"}' --json
+```
+
+Activate a tagged ambient binding with scoped `using`:
+
+```bash
+grapheme run examples/tag-using-scope.gr --json
+```
+
+Author notes: `docs/internal/language/params-and-tags-v1.md`.
+
+## Stage B AOT path (0.7.0)
+
+`grapheme build` defaults to Stage B. For a quick smoke:
+
+```bash
+./scripts/build-aot-container.sh   # once per checkout (Wasix / emission asset)
+grapheme build examples/hello-world.gr --aot-stage stage_b --json
+grapheme run examples/hello-world.gr --aot-stage stage_b --json
+```
+
+Details: `docs/internal/cli.md`, `docs/internal/release/release-0.7.0.md`.
+
 ## Discover What You Can Do
 
 List modules:
@@ -70,7 +100,7 @@ grapheme modules examples core
 grapheme modules examples data
 ```
 
-## 0.6.0 capability quick path
+## Capability modules (0.6.0+, still current)
 
 Build Wasm plugins, scan, activate, and run the platform demo:
 
@@ -89,7 +119,7 @@ grapheme run examples/data-read-csv.gr
 grapheme run examples/media-probe.gr   # requires ffmpeg/ffprobe on PATH
 ```
 
-See `docs/internal/sdk-feature-flags.md` and `CHANGELOG.md` for the full 0.6.0 release notes.
+See `docs/internal/sdk-feature-flags.md` and [CHANGELOG.md](../CHANGELOG.md#070---2026-08-21) for the **0.7.0** release notes (and the 0.6.0 capability train beneath it).
 
 ## Next Step
 

@@ -10,10 +10,10 @@ Estimated time: 10 minutes.
 
 ## Choose Your Path
 
-- Language author: start here, then read `docs/language-contract.md`, then `docs/cli.md`.
-- Runtime operator: start here, then read `docs/runtime-policy.md`, `docs/modules.md`, and `docs/native-modules.md`.
-- SDK embedder (Rust): skim this page, then read `docs/sdk.md`, `docs/sdk-feature-flags.md`, and `docs/architecture.md`.
-- Editor user: use `docs/lsp/quickstart.md` and `extensions/grapheme-vscode/README.md`.
+- Language author: start here, then read `docs/internal/language-contract.md`, then `docs/internal/cli.md`.
+- Runtime operator: start here, then read `docs/internal/runtime-policy.md`, `docs/internal/modules.md`, and `docs/internal/native-modules.md`.
+- SDK embedder (Rust): skim this page, then read `docs/internal/sdk.md`, `docs/internal/sdk-feature-flags.md`, and `docs/internal/architecture.md`.
+- Editor user: use `docs/internal/lsp/quickstart.md` and `extensions/grapheme-vscode/README.md`.
 
 ## Prerequisites
 
@@ -72,7 +72,31 @@ Expected outcome:
 
 - A module list is printed (for example: `core`, `io`, `http`, `sql`, `websearch`, and with `full` build: `data`, `pdf`, `image`, `plot`, `media`).
 
-## Step 5 (optional): 0.6.0 Capability Path
+## Step 5: Parameters, Tags, and Stage B (0.7.0)
+
+Executable parameters and entrypoint args:
+
+```bash
+cargo run -- run examples/params-call-bind.gr --args-json '{"label":"grapheme"}' --json
+```
+
+Tagged variables with scoped `using`:
+
+```bash
+cargo run -- run examples/tag-using-scope.gr --json
+```
+
+Stage B AOT smoke (build the container asset once per checkout):
+
+```bash
+./scripts/build-aot-container.sh
+cargo run -- build examples/hello-world.gr --aot-stage stage_b --json
+cargo run -- run examples/hello-world.gr --aot-stage stage_b --json
+```
+
+Author notes: `docs/internal/language/params-and-tags-v1.md`. Cut checklist: `docs/internal/release/release-0.7.0.md`.
+
+## Step 6 (optional): Capability Path (0.6.0+)
 
 Build Wasm capability plugins and run the platform demo:
 
@@ -141,9 +165,10 @@ cargo run -- modules
 The `examples/` directory includes:
 
 - core operations (`core-merge.gr`, `core-filter.gr`, `core-validate-schema.gr`)
+- **0.7.0 language:** `params-call-bind.gr`, `tag-using-scope.gr`
 - io/http/tcp/smtp/secrets demos
 - basic memory roundtrip demo (`memory-roundtrip.gr`)
-- **0.6.0 capabilities:** `data-read-csv.gr`, `pdf-generate.gr`, `image-metadata.gr`, `plot-line.gr`, `media-probe.gr`, `platform-release-060.gr`
+- **0.6.0+ capabilities:** `data-read-csv.gr`, `pdf-generate.gr`, `image-metadata.gr`, `plot-line.gr`, `media-probe.gr`, `platform-release-060.gr`
 
 ## Generate JSON Output for Automation
 
@@ -166,12 +191,14 @@ High-frequency issues covered there include:
 
 ## Next Steps
 
-- Language contract: `docs/language-contract.md`
-- Embedded SDK guide: `docs/sdk.md`
-- SDK feature flags (0.6.0): `docs/sdk-feature-flags.md`
-- Architecture overview: `docs/architecture.md`
-- CLI command reference: `docs/cli.md`
-- Runtime policy guardrails: `docs/runtime-policy.md`
-- Troubleshooting: `docs/troubleshooting.md`
-- Scenario playbook pack: `docs/quality/scenario-playbooks-v1.md`
+- Language contract: `docs/internal/language-contract.md`
+- Params / tags extract: `docs/internal/language/params-and-tags-v1.md`
+- Embedded SDK guide: `docs/internal/sdk.md`
+- SDK feature flags (0.7.0): `docs/internal/sdk-feature-flags.md`
+- Architecture overview: `docs/internal/architecture.md`
+- CLI command reference: `docs/internal/cli.md`
+- Runtime policy guardrails: `docs/internal/runtime-policy.md`
+- Troubleshooting: `docs/internal/troubleshooting.md`
+- 0.7.0 cut checklist: `docs/internal/release/release-0.7.0.md`
+- Scenario playbook pack: `docs/internal/quality/scenario-playbooks-v1.md`
 - Full docs index: `docs/README.md`

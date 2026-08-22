@@ -34,6 +34,67 @@ Available flags: `data`, `pdf`, `image`, `plot`, `media`, `wasix-runtime`, `full
 
 See `docs/internal/sdk-feature-flags.md` for CLI vs SDK defaults and envelope shape.
 
+## Entrypoint parameters (0.7.0)
+
+Bind named executable parameters before run:
+
+```rust
+use grapheme_sdk::GraphemeEngine;
+use serde_json::json;
+
+fn main() {
+    let engine = GraphemeEngine::builder()
+        .with_entrypoint_args(json!({ "label": "grapheme" }))
+        .build();
+
+    let source = r#"import core from "grapheme/core"
+
+query ParamsCallBind($label: String = "world") {
+  call Greet(label: $label)
+}
+
+iterator Greet($label: String) on Any {
+  core.echo(message: "hello {$label}")
+}
+"#;
+
+    let result = engine.execute_source(source).expect("execute");
+    println!("{:?}", result.execution.outcome);
+}
+```
+
+Canonical example: `examples/params-call-bind.gr`. Author extract: `docs/internal/language/params-and-tags-v1.md`.
+
+## Stage B AOT helpers (0.7.0)
+
+```rust
+use grapheme_sdk::GraphemeEngine;
+
+fn main() {
+    let engine = GraphemeEngine::builder()
+        .with_strict_stage_b_container_execution(true)
+        // .with_prefer_stage_b_wasix(true)  // optional Wasix multi-round
+        .build();
+
+    let source = r#"import core from "grapheme/core"
+
+query Hello {
+  core.echo(message: "hello") { state { current } }
+}
+"#;
+
+    let stage_a = engine.compile_source_to_aot(source).expect("stage_a");
+    let stage_b = engine
+        .compile_source_to_aot_stage_b_default(source)
+        .expect("stage_b");
+
+    let _ = engine.execute_aot(&stage_a).expect("run stage_a");
+    let _ = engine.execute_aot(&stage_b).expect("run stage_b");
+}
+```
+
+Build the container wasm when you need real Stage B emission / Wasix bytes: `./scripts/build-aot-container.sh`.
+
 ## Basic Execution
 
 ```rust

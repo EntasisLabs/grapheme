@@ -96,16 +96,46 @@ At compile and runtime layers today, query/mutation/subscription are structurall
 
 They differ today mainly by function kind metadata and source intent.
 
-## Variables and Defaults
+## Executable Parameters and Tagged Variables (0.7.0)
 
-Variable definitions parse and are represented in AST.
+Shipped under RFC-0004 Phases 1–2a. Normative author extract:
+`docs/internal/language/params-and-tags-v1.md`.
 
-Current runtime substitution behavior is limited:
+### Executable parameters
 
-- Variables used in values are lowered as string placeholders like `$name`.
-- Automatic runtime binding/substitution of variable values is not fully implemented.
+`query` / `mutation` / `iterator` / `subscription` may declare named parameter lists with optional defaults. Parameters lower to MIR frame locals and bind at call sites or at the entrypoint:
 
-Treat variable interpolation as provisional until full binding semantics are introduced.
+```gr
+query Hello($label: String = "world") {
+  call Greet(label: $label)
+}
+```
+
+Entrypoint binding:
+
+```bash
+grapheme run examples/params-call-bind.gr --args-json '{"label":"grapheme"}'
+```
+
+SDK: `with_entrypoint_args(json!({ "label": "grapheme" }))`.
+
+### Tags and scoped `using`
+
+`tag` schemas declare ambient bindings. Block `using` activates them for nested code only:
+
+```gr
+tag auth { $token: String }
+
+query Demo {
+  using auth(token: "secret") {
+    core.echo(message: "token={$token}")
+  }
+}
+```
+
+Out of 0.7.0: tag-typed parameters as the fundamental call-edge model, and `uses` sugar (RFC-0004 Phase 3+).
+
+Canonical examples: `examples/params-call-bind.gr`, `examples/tag-using-scope.gr`.
 
 ## State Contract
 
@@ -168,7 +198,7 @@ Not implemented as fully finalized language/runtime guarantees yet:
 - unbounded recursion without runtime policy bounds
 - transactional mutations
 - native streaming subscriptions
-- complete variable binding model
+- RFC-0004 Phase 3+ (tag-typed parameters as fundamental call-edge; `uses` sugar)
 
 Current control-flow capabilities now include iterator/node loops, iterator/node invocation, and branch dispatch (`flow.branch`) lowered through compiler-to-MIR.
 
