@@ -8,6 +8,7 @@ PUBLISH_ORDER=(
   "grapheme-signatures"
   "grapheme-artifact"
   "grapheme-stdlib"
+  "grapheme-aot-container"
   "grapheme-runtime"
   "grapheme-compiler"
   "grapheme-sdk"
