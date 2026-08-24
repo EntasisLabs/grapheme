@@ -19,6 +19,7 @@ As of RFC-0005, `grapheme-stdlib` also layers **host** vs **wasm** profiles so S
 | `grapheme-runtime` | 0.7.1 | `stage-b` | Execution engine + AOT support |
 | `grapheme-compiler` | 0.7.1 | `stage-b` | Compiler pipeline + AOT support |
 | `grapheme-aot-container` | 0.7.1 | Wasm-safe walker | Stage B WASI binary |
+| `grapheme-wasm` | 0.7.1 | compiler + runtime (no Wasix) | Runtime-in-Wasm WASI binary |
 | `grapheme-artifact` | 0.3.0 | — | MIR envelope (independent semver) |
 
 ## Stdlib host vs Wasm profiles
@@ -51,6 +52,27 @@ grapheme-sdk = { version = "0.7.1", default-features = false, features = ["slim"
 The slim graph excludes the host capability stack, transforms, AOT container,
 and Wasix runtime. It is suitable for `aarch64-apple-ios`, iOS simulator
 targets, and `wasm32-unknown-unknown`.
+
+## Runtime-in-Wasm (RFC-0006)
+
+To **run Grapheme inside Wasm** (WASI / edge), use `grapheme-wasm` rather than
+enabling `wasix-runtime` on the native runtime crate. Wasix is a host that
+*runs* Wasm plugins; it cannot and should not compile to Wasm.
+
+```bash
+# Crates already compile:
+cargo check -p grapheme-runtime --target wasm32-wasip1
+cargo check -p grapheme-compiler --no-default-features --target wasm32-unknown-unknown
+cargo check -p grapheme-sdk --no-default-features --features slim --target wasm32-wasip1
+
+# Product entrypoint (compiler + RuntimeEngine + wasm stdlib):
+cargo test -p grapheme-wasm
+bash scripts/build-runtime-wasm.sh
+```
+
+Do **not** pass `--features wasix-runtime` on a Wasm target (`aws-lc-sys` / Wasmer).
+
+See `docs/internal/rfc/rfc-0006-runtime-in-wasm-v1.md` and `crates/grapheme-wasm/README.md`.
 
 ## SDK (embedders)
 
@@ -140,6 +162,7 @@ Legacy flat JSON objects are still accepted during migration (`meta.legacy_flat`
 - Release plan: `docs/internal/roadmaps/release-0.6.0-extensible-platform.md`
 - 0.7.1 cut checklist: `docs/internal/release/release-0.7.1.md`
 - Wasm-compilable stdlib RFC: `docs/internal/rfc/rfc-0005-wasm-compilable-stdlib-v1.md`
+- Runtime-in-Wasm RFC: `docs/internal/rfc/rfc-0006-runtime-in-wasm-v1.md`
 - Wasm sidecar manifest: `docs/internal/runtime/wasm-module-manifest-v1.md`
 - CLI module commands: `docs/internal/cli.md`
 - SDK API overview: `docs/internal/sdk.md`

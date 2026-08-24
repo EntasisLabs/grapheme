@@ -22,8 +22,16 @@ Grapheme is structured around a strict compile/execute split:
 - `grapheme-compiler`: parser + AST/HIR/MIR lowering + compilation API.
 - `grapheme-artifact`: artifact schema and execution result contracts.
 - `grapheme-runtime`: execution engine and governance layer.
-- `grapheme`: CLI wrapper over compiler/runtime.
+- `grapheme-wasm`: WASI compile+execute engine so the runtime can run *in* Wasm (RFC-0006).
+- `grapheme-aot-container`: Stage B workflow walker compiled *to* Wasm (RFC-0005).
+- `grapheme-cli`: CLI wrapper over compiler/runtime.
 - `grapheme-lsp`: language server implementation for `.gr`.
+
+Wasm axes (do not collapse these):
+
+1. **Wasix plugins** — native runtime hosts Wasm capability modules (`wasix-runtime`; host-only).
+2. **Stage B containers** — a workflow MIR walker compiled to Wasm (`grapheme-aot-container`).
+3. **Runtime-in-Wasm** — `RuntimeEngine` + compiler compiled to Wasm (`grapheme-wasm`).
 
 ## Runtime Execution Path
 

@@ -16,10 +16,21 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-wasip1
+          targets: wasm32-wasip1,wasm32-unknown-unknown
 
       - name: Cargo Cache
         uses: Swatinem/rust-cache@v2
+
+      - name: Runtime-in-Wasm compile gates (RFC-0006)
+        run: |
+          cargo check -p grapheme-runtime --target wasm32-wasip1
+          cargo check -p grapheme-runtime --no-default-features --target wasm32-unknown-unknown
+          cargo check -p grapheme-compiler --no-default-features --target wasm32-wasip1
+          cargo check -p grapheme-compiler --no-default-features --target wasm32-unknown-unknown
+          cargo check -p grapheme-sdk --no-default-features --features slim --target wasm32-wasip1
+          cargo check -p grapheme-sdk --no-default-features --features slim --target wasm32-unknown-unknown
+          cargo check -p grapheme-wasm --target wasm32-wasip1
+          cargo test -p grapheme-wasm
 
       - name: Stdlib Wasm profile check (RFC-0005)
         run: |

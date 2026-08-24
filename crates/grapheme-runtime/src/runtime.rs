@@ -8,6 +8,7 @@ use grapheme_signatures::module_ops;
 use serde_json::{json, Map, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 use std::time::Instant;
 
 use crate::error::RuntimeError as GraphemeError;
@@ -98,6 +99,35 @@ fn parse_bool_env(var: &str) -> Option<bool> {
         "1" | "true" | "yes" | "on" => Some(true),
         "0" | "false" | "no" | "off" => Some(false),
         _ => None,
+    }
+}
+
+/// Wall-clock source for `@timeout`. WASI and native have `Instant`;
+/// `wasm32-unknown-unknown` panics in `Instant::now()` without a JS time
+/// import, so timeout checks are skipped there (step budget still applies).
+struct TimeoutClock {
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    started: Instant,
+}
+
+impl TimeoutClock {
+    fn start() -> Self {
+        Self {
+            #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+            started: Instant::now(),
+        }
+    }
+
+    fn exceeded(&self, timeout_ms: u32) -> bool {
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+        {
+            let _ = timeout_ms;
+            false
+        }
+        #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+        {
+            self.started.elapsed().as_millis() >= timeout_ms as u128
+        }
     }
 }
 
@@ -882,7 +912,7 @@ impl RuntimeEngine {
             .as_ref()
             .and_then(|cfg| cfg.risk.clone());
         let mut loop_frame = LoopFrame::new(function, state, locals);
-        let timeout_started = Instant::now();
+        let timeout_clock = TimeoutClock::start();
 
         for iteration in 0..loop_frame.max_iterations {
             loop_frame.apply_iteration_input(state, iteration);
@@ -899,7 +929,7 @@ impl RuntimeEngine {
                     };
 
                     if let Some(timeout_cfg) = function.timeout_config.as_ref() {
-                        if timeout_started.elapsed().as_millis() >= timeout_cfg.ms as u128 {
+                        if timeout_clock.exceeded(timeout_cfg.ms) {
                             loop_frame.apply_merge(state);
                             return self.invoke_target(
                                 functions,

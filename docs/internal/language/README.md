@@ -15,6 +15,7 @@ Language design, semantics, and evolution references.
 
 1. docs/internal/rfc/rfc-0004-params-and-tagged-vars-v1.md — executable parameters + tagged ambient variables
 2. docs/internal/rfc/rfc-0005-wasm-compilable-stdlib-v1.md — Wasm-safe stdlib + Stage B container path
+3. docs/internal/rfc/rfc-0006-runtime-in-wasm-v1.md — compile the runtime itself to run *in* Wasm
 
 ## Use With
 

@@ -11,6 +11,7 @@ PUBLISH_ORDER=(
   "grapheme-aot-container"
   "grapheme-runtime"
   "grapheme-compiler"
+  "grapheme-wasm"
   "grapheme-sdk"
   "grapheme-cli"
   "grapheme-lsp"

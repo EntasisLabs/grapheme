@@ -13,6 +13,7 @@ Use this section for runtime behavior, contracts, and policy references.
 1. docs/runtime/wit-contract-v1.5.md
 2. docs/runtime/loop-state-contract-v1.5.md
 3. docs/runtime/wasix-plugin-contract-v1.md
+4. docs/internal/rfc/rfc-0006-runtime-in-wasm-v1.md
 
 ## Policy and Operations
 
