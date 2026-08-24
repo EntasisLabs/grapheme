@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Runtime-in-Wasm (RFC-0006)** — `grapheme-wasm` WASI crate embeds `RuntimeEngine` + compiler + the wasm-safe stdlib profile so Grapheme can *run inside* Wasm (not only host Wasm plugins or Stage B workflow containers). Wasix stays host-only.
+- CI compile gates for `grapheme-runtime` / `grapheme-compiler` / slim SDK on `wasm32-wasip1` and `wasm32-unknown-unknown`, plus `grapheme-wasm` WASI check.
+
+### Changed
+
+- `@timeout` no longer calls `Instant::now()` on `wasm32-unknown-unknown` (that target panics without a JS clock); step budget still applies. WASI/native clocks are unchanged.
+
 ## [0.7.1] - 2026-08-22
 
 **Slim embedded SDK release** — upstreams the host-integration seams needed by

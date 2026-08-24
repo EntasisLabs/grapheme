@@ -2607,6 +2607,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "grapheme-wasm"
+version = "0.7.1"
+dependencies = [
+ "grapheme-artifact",
+ "grapheme-compiler",
+ "grapheme-runtime",
+ "grapheme-stdlib",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "group"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

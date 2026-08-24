@@ -212,6 +212,7 @@ GRAPHEME_ALLOWED_HTTP_DOMAINS=example.com \
 - `crates/grapheme-compiler`: parse + lower (AST/HIR/MIR) + verify.
 - `crates/grapheme-artifact`: artifact envelope and MIR contracts.
 - `crates/grapheme-runtime`: execution engine + policy enforcement + Wasix path.
+- `crates/grapheme-wasm`: WASI binary that runs the runtime *inside* Wasm (RFC-0006).
 - `crates/grapheme-cli`: `grapheme` commands (`parse`, `compile`, `build`, `run`, `modules`).
 - `crates/grapheme-lsp`: language server for `.gr` authoring.
 - `extensions/grapheme-vscode`: VS Code extension.
