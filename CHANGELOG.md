@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `@timeout` no longer calls `Instant::now()` on `wasm32-unknown-unknown` (that target panics without a JS clock); step budget still applies. WASI/native clocks are unchanged.
+- CLI AOT build-manifest golden no longer pins rustc-dependent `aot_id` hashes (redacts to `aot-<derived>` and checks the `aot-<16 hex>` shape). This was already failing on main after 0.7.1.
 
 ## [0.7.1] - 2026-08-22
 

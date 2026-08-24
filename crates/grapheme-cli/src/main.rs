@@ -3294,11 +3294,21 @@ query Hello {
             AotStageSelection::StageB,
             &stage_b,
         );
+        assert!(
+            manifest.aot_id.starts_with("aot-")
+                && manifest.aot_id.len() == 20
+                && manifest.aot_id[4..]
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit()),
+            "aot_id should be aot-<16 hex chars>, got {}",
+            manifest.aot_id
+        );
+
         let rendered =
             serde_json::to_string_pretty(&manifest).expect("serialize build manifest snapshot");
         let expected = include_str!("../tests/golden/aot-build-manifest.snapshot.json");
         assert_eq!(
-            normalized(&rendered).trim_end(),
+            normalized(&rendered.replace(&manifest.aot_id, "aot-<derived>")).trim_end(),
             normalized(expected).trim_end()
         );
     }
