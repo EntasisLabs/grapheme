@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { page } from '$app/state';
 	import { replaceState } from '$app/navigation';
 	import { highlightGr, highlightJson } from '$lib/highlight';
 	import { SNIPPETS, snippetById } from '$lib/snippets';
@@ -39,7 +38,7 @@
 	const current = $derived((result?.final_state as { current?: unknown } | undefined)?.current);
 	const outcome = $derived(result?.execution?.outcome ?? (result && !result.ok ? 'failed' : null));
 
-	function load(id: string) {
+	function load(id: string, updateUrl = true) {
 		const s = snippetById(id);
 		if (!s) return;
 		activeId = s.id;
@@ -47,7 +46,7 @@
 		argsJson = s.args ? JSON.stringify(s.args, null, 2) : '';
 		result = null;
 		elapsed = null;
-		syncUrl();
+		if (updateUrl) syncUrl();
 	}
 
 	function encodeShare(): string {
@@ -63,23 +62,45 @@
 		}
 	}
 
+	function safeReplace(url: URL) {
+		try {
+			replaceState(url, {});
+		} catch {
+			history.replaceState(history.state, '', url);
+		}
+	}
+
 	function syncUrl() {
 		if (typeof window === 'undefined') return;
 		const url = new URL(window.location.href);
 		url.hash = '';
 		if (activeId) url.searchParams.set('example', activeId);
 		else url.searchParams.delete('example');
-		replaceState(url, {});
+		safeReplace(url);
 	}
 
 	async function share() {
 		const url = new URL(window.location.href);
 		url.searchParams.delete('example');
 		url.hash = `code=${encodeShare()}`;
-		await navigator.clipboard.writeText(url.toString());
-		replaceState(url, {});
+		try {
+			await navigator.clipboard.writeText(url.toString());
+		} catch {
+			// clipboard may be unavailable; URL still updates below
+		}
+		safeReplace(url);
 		copied = true;
 		setTimeout(() => (copied = false), 1600);
+	}
+
+	async function checkWasm() {
+		try {
+			const res = await fetch('/grapheme-wasm.wasm', { method: 'HEAD' });
+			if (!res.ok) throw new Error(`grapheme-wasm.wasm missing (${res.status})`);
+			wasmReady = true;
+		} catch (e) {
+			wasmError = e instanceof Error ? e.message : String(e);
+		}
 	}
 
 	async function run() {
@@ -130,27 +151,22 @@
 		}
 	}
 
-	onMount(async () => {
-		const hash = window.location.hash.replace(/^#code=/, '');
-		if (window.location.hash.startsWith('#code=')) {
-			const decoded = decodeShare(hash);
+	onMount(() => {
+		void checkWasm();
+
+		const hash = window.location.hash;
+		if (hash.startsWith('#code=')) {
+			const decoded = decodeShare(hash.slice('#code='.length));
 			if (decoded) {
 				source = decoded.s;
 				argsJson = decoded.a ?? '';
 				activeId = null;
 			}
-		} else {
-			const ex = page.url.searchParams.get('example');
-			if (ex && snippetById(ex)) load(ex);
+			return;
 		}
 
-		try {
-			const res = await fetch('/grapheme-wasm.wasm', { method: 'HEAD' });
-			if (!res.ok) throw new Error(`grapheme-wasm.wasm missing (${res.status})`);
-			wasmReady = true;
-		} catch (e) {
-			wasmError = e instanceof Error ? e.message : String(e);
-		}
+		const ex = new URLSearchParams(window.location.search).get('example');
+		if (ex && snippetById(ex)) load(ex, false);
 	});
 
 	function shapeOf(v: unknown): string {
@@ -242,6 +258,7 @@
 						class="args-editor"
 						bind:value={argsJson}
 						spellcheck="false"
+						autocomplete="off"
 						placeholder={'{ "label": "grapheme" }'}
 						aria-label="Entrypoint args JSON"
 					></textarea>
@@ -296,7 +313,9 @@
 							{#each pipeline as p (p.index)}
 								<li class:fail={!p.ok} style={`--depth:${p.call_depth ?? 0}`}>
 									<span class="idx mono">{String(p.index + 1).padStart(2, '0')}</span>
-									<span class="fn">{p.function_name}</span>
+									<span class="fn" class:internal={p.function_name.startsWith('__inline')}>
+										{p.function_name.startsWith('__inline') ? 'inline' : p.function_name}
+									</span>
 									<span class="op mono">{p.op}</span>
 									<span class="shape mono">{shapeOf(p.output)}</span>
 									{#if p.iteration_index != null}<span class="iter mono">#{p.iteration_index}</span>{/if}
@@ -798,6 +817,12 @@
 		font-family: var(--font-display);
 		font-weight: 600;
 		color: var(--sage-deep);
+	}
+
+	.trace .fn.internal {
+		color: var(--ink-soft);
+		font-weight: 400;
+		font-style: italic;
 	}
 
 	.trace .op {

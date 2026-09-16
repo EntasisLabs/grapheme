@@ -36,7 +36,7 @@
 			const fs = res.final_state as { current?: unknown; pipeline?: Step[] } | undefined;
 			steps = (fs?.pipeline ?? []).map((p) => ({
 				index: p.index,
-				function_name: p.function_name,
+				function_name: p.function_name.startsWith('__inline') ? 'inline' : p.function_name,
 				op: p.op,
 				ok: p.ok
 			}));
@@ -126,10 +126,15 @@
 <style>
 	.live {
 		display: grid;
-		grid-template-columns: 1.15fr 0.85fr;
+		grid-template-columns: minmax(0, 1.15fr) minmax(16rem, 0.85fr);
 		gap: 0;
+		min-width: 0;
 		border: 1px solid color-mix(in srgb, var(--sage-deep) 40%, transparent);
 		box-shadow: 0 30px 80px var(--shadow);
+	}
+
+	.src {
+		min-width: 0;
 	}
 
 	.src :global(.code) {
@@ -140,6 +145,7 @@
 	.run {
 		display: flex;
 		flex-direction: column;
+		min-width: 0;
 		background: color-mix(in srgb, var(--mist) 92%, white);
 		border-left: 1px solid var(--line);
 		font-family: var(--font-mono);
@@ -148,9 +154,10 @@
 
 	.run-head {
 		display: flex;
+		flex-wrap: wrap;
 		justify-content: space-between;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.3rem 0.75rem;
 		padding: 0.6rem 0.9rem;
 		border-bottom: 1px solid var(--line);
 	}
@@ -303,7 +310,7 @@
 		font-weight: 500;
 	}
 
-	@media (max-width: 900px) {
+	@media (max-width: 760px) {
 		.live {
 			grid-template-columns: 1fr;
 		}

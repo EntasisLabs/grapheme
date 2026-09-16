@@ -372,6 +372,7 @@ GRAPHEME_ALLOWED_SECRETS=deploy-token \\
 		grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
 		gap: clamp(1.5rem, 4vw, 3.5rem);
 		align-items: center;
+		overflow: hidden;
 		padding: clamp(2.5rem, 7vh, 5rem) clamp(1rem, 4vw, 3rem) clamp(3rem, 8vh, 5rem);
 		opacity: 0;
 		transform: translateY(10px);
@@ -398,10 +399,14 @@ GRAPHEME_ALLOWED_SECRETS=deploy-token \\
 		font-family: var(--font-display);
 	}
 
+	.hero-copy {
+		min-width: 0;
+	}
+
 	.word {
 		display: block;
 		font-weight: 800;
-		font-size: clamp(3.4rem, 8vw, 6rem);
+		font-size: clamp(3rem, 6.5vw, 5.6rem);
 		line-height: 0.9;
 		letter-spacing: -0.06em;
 		color: var(--sage-deep);
@@ -737,8 +742,18 @@ GRAPHEME_ALLOWED_SECRETS=deploy-token \\
 		font-size: clamp(1.8rem, 3.6vw, 2.8rem);
 	}
 
+	@media (max-width: 1280px) {
+		.hero {
+			grid-template-columns: 1fr;
+			align-items: start;
+		}
+
+		.word {
+			font-size: clamp(3.2rem, 10vw, 6rem);
+		}
+	}
+
 	@media (max-width: 1000px) {
-		.hero,
 		.thesis-grid,
 		.policy,
 		.caps-grid {
