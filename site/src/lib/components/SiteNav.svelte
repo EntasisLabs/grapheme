@@ -9,6 +9,7 @@
 </script>
 
 <header class="nav" class:compact>
+	<div class="inner">
 	<a class="brand" href="/" aria-label="Grapheme home">
 		<span class="mark" aria-hidden="true">|&gt;</span>
 		<span class="name">grapheme</span>
@@ -32,6 +33,7 @@
 			>GitHub</a
 		>
 	</nav>
+	</div>
 </header>
 
 <style>
@@ -39,14 +41,19 @@
 		position: sticky;
 		top: 0;
 		z-index: 40;
+		background: var(--paper);
+		border-bottom: 1px solid var(--line);
+	}
+
+	.inner {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 1rem;
 		height: var(--nav-h);
-		padding: 0 clamp(1rem, 3vw, 2.5rem);
-		background: var(--paper);
-		border-bottom: 1px solid var(--line);
+		max-width: 76rem;
+		margin: 0 auto;
+		padding: 0 clamp(1rem, 4vw, 3rem);
 	}
 
 	.brand {
@@ -62,11 +69,11 @@
 	.mark {
 		display: inline-grid;
 		place-items: center;
-		width: 1.7rem;
-		height: 1.7rem;
-		border-radius: 0.35rem;
-		background: var(--sage-deep);
-		color: var(--signal-bright);
+		width: 1.5rem;
+		height: 1.5rem;
+		border-radius: var(--radius);
+		background: var(--ink);
+		color: var(--paper);
 		font-family: var(--font-mono);
 		font-size: 0.7rem;
 		font-weight: 700;
@@ -74,21 +81,26 @@
 	}
 
 	.name {
-		font-size: 1.05rem;
-		color: var(--sage-deep);
+		font-size: 1rem;
+		color: var(--ink);
 	}
 
 	nav {
 		display: flex;
 		align-items: center;
-		gap: 1.4rem;
+		gap: 1.5rem;
 		font-family: var(--font-display);
 		font-weight: 600;
-		font-size: 0.95rem;
+		font-size: 0.88rem;
+		color: var(--ink-soft);
 	}
 
 	nav a {
 		text-decoration: none;
+	}
+
+	nav a:hover {
+		color: var(--ink);
 	}
 
 	.external::after {
@@ -100,8 +112,8 @@
 	.menu {
 		display: none;
 		border: 1px solid var(--line);
-		background: var(--mist);
-		padding: 0.4rem 0.75rem;
+		background: transparent;
+		padding: 0.35rem 0.7rem;
 		border-radius: var(--radius);
 		cursor: pointer;
 		font-family: var(--font-display);

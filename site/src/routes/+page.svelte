@@ -10,28 +10,20 @@
 <Seo />
 
 <section class="hero wrap">
-	<p class="kicker mono">v0.7 · Apache-2.0 · Rust</p>
-	<h1>
-		A typed workflow language. Side effects are capabilities the host grants. Every step is
-		recorded.
-	</h1>
+	<h1>A typed workflow language with capability-gated side effects.</h1>
 	<p class="lede">
-		Grapheme compiles <code>.gr</code> programs to a verified artifact and executes them one step
-		at a time. A step can only call a module the host has granted; the runtime refuses the rest.
-		The compiler and runtime below are the real ones, built to Wasm and running in this tab.
+		Programs compile to a verified artifact and run one step at a time, each step recorded. A
+		step can only call what the host has granted. Below: the real compiler and runtime, in Wasm,
+		in this tab.
 	</p>
 	<div class="cta">
 		<a class="btn" href="/playground">Open the playground</a>
-		<a class="quiet" href="/docs/quickstart">or install the CLI →</a>
+		<a class="quiet" href="/docs/quickstart">Install the CLI →</a>
 	</div>
 </section>
 
-<section class="demo wrap" aria-label="Live demo">
+<section class="demo wrap" aria-label="Live run">
 	<LiveRun snippet={HERO_SNIPPET} file="release.gr" />
-	<p class="caption mono">
-		<code>struct Release</code> is the state. <code>@loop(max: 10)</code> is the budget. The right
-		pane is the trace: one row per step, then the final state and the artifact id.
-	</p>
 </section>
 
 <section class="refusal wrap">
@@ -40,10 +32,9 @@
 		<h2>Call a module the host did not grant, and the run stops at that step.</h2>
 		<p>
 			<code>http</code>, <code>sql</code>, <code>smtp</code>, secrets: each is a capability the
-			host provides to a program, not something a program takes. In this tab the host grants only
-			the Wasm stdlib (<code>core</code>, <code>json</code>, <code>csv</code>, <code>yaml</code>,
-			<code>html</code>). This program compiles, gets an artifact id, and is refused at step 01
-			with the runtime's own message.
+			host provides to a program. In this tab the host grants only the Wasm stdlib
+			(<code>core</code>, <code>json</code>, <code>csv</code>, <code>yaml</code>,
+			<code>html</code>). This program compiles, gets an artifact id, and is refused at step 01.
 		</p>
 	</div>
 	<LiveRun snippet={POLICY_SNIPPET} file="needs-http.gr" autorun="visible" stack />
@@ -53,14 +44,14 @@
 	<h2>Next: change <code>release.gr</code> and run it.</h2>
 	<a class="btn" href="/playground?example={HERO_SNIPPET.id}">Open the playground</a>
 	<p class="install mono">
-		Or on your machine: <code>{install}</code>
+		On your machine: <code>{install}</code>
 		<a href="/docs/quickstart">Quickstart →</a>
 	</p>
 </section>
 
 <style>
 	.wrap {
-		max-width: 78rem;
+		max-width: 76rem;
 		margin: 0 auto;
 		padding-left: clamp(1rem, 4vw, 3rem);
 		padding-right: clamp(1rem, 4vw, 3rem);
@@ -71,17 +62,15 @@
 	}
 
 	code {
-		font-size: 0.92em;
-		color: var(--sage-deep);
+		font-size: 0.9em;
 	}
 
-	.kicker,
 	.eyebrow {
-		margin: 0 0 1rem;
-		font-size: 0.74rem;
+		margin: 0 0 0.9rem;
+		font-size: 0.7rem;
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
-		color: var(--signal);
+		color: var(--ink-soft);
 	}
 
 	h1,
@@ -89,30 +78,30 @@
 		margin: 0;
 		font-family: var(--font-display);
 		font-weight: 700;
-		letter-spacing: -0.03em;
-		line-height: 1.12;
-		color: var(--sage-deep);
+		letter-spacing: -0.025em;
+		line-height: 1.1;
+		color: var(--ink);
 	}
 
 	h1 {
-		font-size: clamp(1.75rem, 3.3vw, 2.7rem);
-		max-width: 30ch;
+		font-size: clamp(1.7rem, 3vw, 2.5rem);
+		max-width: 24ch;
 	}
 
 	h2 {
-		font-size: clamp(1.4rem, 2.4vw, 1.9rem);
-		max-width: 30ch;
+		font-size: clamp(1.3rem, 2.1vw, 1.7rem);
+		max-width: 28ch;
 	}
 
 	.hero {
-		padding-top: clamp(2.5rem, 7vh, 5rem);
-		padding-bottom: clamp(1.75rem, 4vh, 2.5rem);
+		padding-top: clamp(2.5rem, 7vh, 4.5rem);
+		padding-bottom: clamp(1.5rem, 3.5vh, 2.25rem);
 	}
 
 	.lede {
-		margin: 1.2rem 0 1.6rem;
-		max-width: 58ch;
-		font-size: 1.08rem;
+		margin: 1.1rem 0 1.5rem;
+		max-width: 56ch;
+		font-size: 1.05rem;
 		color: var(--ink-soft);
 	}
 
@@ -126,45 +115,35 @@
 	.btn {
 		display: inline-flex;
 		align-items: center;
-		padding: 0.85rem 1.3rem;
+		padding: 0.7rem 1.1rem;
 		border-radius: var(--radius);
-		background: var(--sage);
-		color: var(--mist);
+		background: var(--ink);
+		color: var(--paper);
 		font-family: var(--font-display);
 		font-weight: 700;
+		font-size: 0.95rem;
 		text-decoration: none;
 	}
 
 	.btn:hover {
 		background: var(--sage-deep);
-		color: var(--mist);
+		color: var(--paper);
 	}
 
 	.quiet {
 		font-family: var(--font-display);
 		font-weight: 600;
-		font-size: 0.95rem;
-		color: var(--sage-deep);
+		font-size: 0.9rem;
+		color: var(--ink-soft);
 		text-decoration: none;
 	}
 
 	.quiet:hover {
-		text-decoration: underline;
+		color: var(--ink);
 	}
 
 	.demo {
 		padding-bottom: clamp(3rem, 8vh, 5.5rem);
-	}
-
-	.caption {
-		margin: 0.8rem 0 0;
-		max-width: 70ch;
-		font-size: 0.76rem;
-		color: var(--ink-soft);
-	}
-
-	.caption code {
-		font-size: 1em;
 	}
 
 	.refusal {
@@ -180,39 +159,35 @@
 	.refusal-copy p:last-child {
 		margin: 1rem 0 0;
 		color: var(--ink-soft);
-		max-width: 44ch;
+		max-width: 46ch;
 	}
 
 	.next {
 		display: grid;
-		gap: 1.4rem;
+		gap: 1.3rem;
 		justify-items: start;
 		padding-top: clamp(2.5rem, 6vh, 4rem);
 		padding-bottom: clamp(3rem, 8vh, 5.5rem);
 		border-top: 1px solid var(--line);
 	}
 
-	.next h2 {
-		max-width: 24ch;
-	}
-
 	.install {
 		margin: 0;
 		max-width: 100%;
-		font-size: 0.76rem;
+		font-size: 0.74rem;
 		color: var(--ink-soft);
 		overflow-wrap: anywhere;
 	}
 
 	.install code {
 		font-size: 1em;
+		color: var(--ink);
 	}
 
 	.install a {
 		margin-left: 0.4rem;
-		color: var(--sage);
+		color: var(--ink);
 		text-decoration: none;
-		font-weight: 500;
 	}
 
 	@media (max-width: 1000px) {
@@ -223,7 +198,7 @@
 
 	@media (max-width: 600px) {
 		.hero {
-			padding-top: 1.8rem;
+			padding-top: 1.75rem;
 		}
 
 		.lede {

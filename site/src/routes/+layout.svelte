@@ -37,7 +37,7 @@
 			<a href="https://github.com/EntasisLabs/grapheme" rel="noreferrer">GitHub ↗</a>
 		</div>
 	</div>
-	<p class="fine mono">grapheme-wasm · runtime-in-wasm · RFC-0006 — the playground on this site executes without a server.</p>
+	<p class="fine mono">v0.7 · Apache-2.0 · the playground on this site runs grapheme-wasm (RFC-0006) without a server.</p>
 </footer>
 
 <style>
@@ -46,11 +46,12 @@
 	}
 
 	.foot {
+		max-width: 76rem;
+		margin: 0 auto;
 		padding: 2.5rem clamp(1rem, 4vw, 3rem) 2rem;
 		border-top: 1px solid var(--line);
-		background: color-mix(in srgb, var(--paper-deep) 55%, transparent);
 		color: var(--ink-soft);
-		font-size: 0.92rem;
+		font-size: 0.9rem;
 	}
 
 	.cols {
@@ -65,7 +66,7 @@
 		font-weight: 700;
 		font-size: 1.05rem;
 		letter-spacing: -0.03em;
-		color: var(--sage-deep);
+		color: var(--ink);
 	}
 
 	.brand-col p {
@@ -79,7 +80,7 @@
 		font-size: 0.7rem;
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
-		color: var(--signal);
+		color: var(--ink-soft);
 	}
 
 	.cols a {
@@ -90,7 +91,7 @@
 	}
 
 	.cols a:hover {
-		color: var(--sage);
+		color: var(--ink);
 	}
 
 	.fine {
