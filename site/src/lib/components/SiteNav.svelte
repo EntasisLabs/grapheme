@@ -45,19 +45,18 @@
 		gap: 1rem;
 		height: var(--nav-h);
 		padding: 0 clamp(1rem, 3vw, 2.5rem);
-		backdrop-filter: blur(12px);
-		background: color-mix(in srgb, var(--mist) 82%, transparent);
+		background: var(--paper);
 		border-bottom: 1px solid var(--line);
 	}
 
 	.brand {
 		display: inline-flex;
-		align-items: baseline;
+		align-items: center;
 		gap: 0.55rem;
 		text-decoration: none;
 		font-family: var(--font-display);
-		font-weight: 800;
-		letter-spacing: -0.04em;
+		font-weight: 700;
+		letter-spacing: -0.03em;
 	}
 
 	.mark {
@@ -75,7 +74,8 @@
 	}
 
 	.name {
-		font-size: 1.35rem;
+		font-size: 1.05rem;
+		color: var(--sage-deep);
 	}
 
 	nav {

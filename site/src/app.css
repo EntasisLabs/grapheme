@@ -12,7 +12,6 @@
 	--ember: #b85c38;
 	--code-dark: #171614;
 	--line: color-mix(in srgb, var(--sage) 20%, transparent);
-	--shadow: color-mix(in srgb, var(--sage-deep) 22%, transparent);
 	--radius: 2px;
 	--font-display: 'Syne', sans-serif;
 	--font-body: 'Literata', Georgia, serif;
@@ -38,14 +37,6 @@ html,
 body {
 	margin: 0;
 	min-height: 100%;
-}
-
-body {
-	background:
-		radial-gradient(1100px 580px at 8% -8%, color-mix(in srgb, var(--signal) 22%, transparent), transparent 58%),
-		radial-gradient(900px 520px at 100% 0%, color-mix(in srgb, var(--sage-deep) 10%, transparent), transparent 55%),
-		linear-gradient(180deg, var(--mist), var(--paper) 42%, var(--paper-deep));
-	background-attachment: fixed;
 }
 
 a {

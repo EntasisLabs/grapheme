@@ -62,9 +62,9 @@
 
 	.brand {
 		font-family: var(--font-display);
-		font-weight: 800;
-		font-size: 1.3rem;
-		letter-spacing: -0.04em;
+		font-weight: 700;
+		font-size: 1.05rem;
+		letter-spacing: -0.03em;
 		color: var(--sage-deep);
 	}
 
