@@ -59,6 +59,24 @@ a:hover {
 	color: var(--sage);
 }
 
+/* External link mark: an inline SVG mask in currentColor, so it can never fall back to an emoji glyph. */
+.ext::after {
+	content: '';
+	display: inline-block;
+	width: 0.62em;
+	height: 0.62em;
+	margin-left: 0.28em;
+	vertical-align: 0.08em;
+	background: currentColor;
+	opacity: 0.7;
+	-webkit-mask: var(--ext-icon) center / contain no-repeat;
+	mask: var(--ext-icon) center / contain no-repeat;
+}
+
+:root {
+	--ext-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 9 9 3M4.5 3H9v4.5'/%3E%3C/svg%3E");
+}
+
 code,
 pre,
 .mono,

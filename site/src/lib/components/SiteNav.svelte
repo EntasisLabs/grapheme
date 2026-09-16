@@ -29,7 +29,7 @@
 		<a href="/docs/why-grapheme">Docs</a>
 		<a href="/docs/tutorials">Tutorials</a>
 		<a href="/playground">Playground</a>
-		<a class="external" href="https://github.com/EntasisLabs/grapheme" rel="noreferrer" target="_blank"
+		<a class="ext" href="https://github.com/EntasisLabs/grapheme" rel="noreferrer" target="_blank"
 			>GitHub</a
 		>
 	</nav>
@@ -99,12 +99,6 @@
 
 	nav a:hover {
 		color: var(--ink);
-	}
-
-	.external::after {
-		content: ' ↗';
-		font-size: 0.8em;
-		opacity: 0.7;
 	}
 
 	.menu {

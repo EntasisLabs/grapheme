@@ -24,8 +24,8 @@
 		<p class="section">Reference</p>
 		<ul>
 			<li><a href="/playground">Playground</a></li>
-			<li><a href="https://github.com/EntasisLabs/grapheme/tree/main/docs/internal" rel="noreferrer">Internals ↗</a></li>
-			<li><a href="https://github.com/EntasisLabs/grapheme/blob/main/CHANGELOG.md" rel="noreferrer">Changelog ↗</a></li>
+			<li><a class="ext" href="https://github.com/EntasisLabs/grapheme/tree/main/docs/internal" rel="noreferrer">Internals</a></li>
+			<li><a class="ext" href="https://github.com/EntasisLabs/grapheme/blob/main/CHANGELOG.md" rel="noreferrer">Changelog</a></li>
 		</ul>
 	</aside>
 	<article class="doc">

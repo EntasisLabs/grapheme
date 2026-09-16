@@ -30,7 +30,7 @@
 			</a>
 		{/if}
 	</div>
-	<a class="edit" href={data.editUrl} rel="noreferrer" target="_blank">Edit this page on GitHub ↗</a>
+	<a class="edit ext" href={data.editUrl} rel="noreferrer" target="_blank">Edit this page on GitHub</a>
 </footer>
 
 <style>

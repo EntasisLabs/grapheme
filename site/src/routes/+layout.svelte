@@ -26,15 +26,15 @@
 		<div>
 			<p class="h">Use</p>
 			<a href="/playground">Playground</a>
-			<a href="https://github.com/EntasisLabs/grapheme/tree/main/examples" rel="noreferrer">Examples ↗</a>
-			<a href="https://github.com/EntasisLabs/grapheme/tree/main/extensions/grapheme-vscode" rel="noreferrer">VS Code ↗</a>
-			<a href="https://github.com/EntasisLabs/grapheme/blob/main/CHANGELOG.md" rel="noreferrer">Changelog ↗</a>
+			<a class="ext" href="https://github.com/EntasisLabs/grapheme/tree/main/examples" rel="noreferrer">Examples</a>
+			<a class="ext" href="https://github.com/EntasisLabs/grapheme/tree/main/extensions/grapheme-vscode" rel="noreferrer">VS Code</a>
+			<a class="ext" href="https://github.com/EntasisLabs/grapheme/blob/main/CHANGELOG.md" rel="noreferrer">Changelog</a>
 		</div>
 		<div>
 			<p class="h">Design</p>
-			<a href="https://github.com/EntasisLabs/grapheme/tree/main/docs/internal/rfc" rel="noreferrer">RFCs ↗</a>
-			<a href="https://github.com/EntasisLabs/grapheme/blob/main/docs/internal/architecture.md" rel="noreferrer">Architecture ↗</a>
-			<a href="https://github.com/EntasisLabs/grapheme" rel="noreferrer">GitHub ↗</a>
+			<a class="ext" href="https://github.com/EntasisLabs/grapheme/tree/main/docs/internal/rfc" rel="noreferrer">RFCs</a>
+			<a class="ext" href="https://github.com/EntasisLabs/grapheme/blob/main/docs/internal/architecture.md" rel="noreferrer">Architecture</a>
+			<a class="ext" href="https://github.com/EntasisLabs/grapheme" rel="noreferrer">GitHub</a>
 		</div>
 	</div>
 	<p class="fine">v0.7 · Apache-2.0 · the playground on this site runs grapheme-wasm (RFC-0006) without a server.</p>
