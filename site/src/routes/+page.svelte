@@ -401,12 +401,14 @@ GRAPHEME_ALLOWED_SECRETS=deploy-token \\
 
 	.hero-copy {
 		min-width: 0;
+		container-type: inline-size;
 	}
 
 	.word {
 		display: block;
 		font-weight: 800;
-		font-size: clamp(3rem, 6.5vw, 5.6rem);
+		/* Syne 800 'grapheme' is ~6.4em wide; keep it inside the column. */
+		font-size: clamp(2.8rem, 14.5cqw, 5.6rem);
 		line-height: 0.9;
 		letter-spacing: -0.06em;
 		color: var(--sage-deep);
@@ -749,7 +751,7 @@ GRAPHEME_ALLOWED_SECRETS=deploy-token \\
 		}
 
 		.word {
-			font-size: clamp(3.2rem, 10vw, 6rem);
+			font-size: clamp(3.2rem, 14.5cqw, 6rem);
 		}
 	}
 
