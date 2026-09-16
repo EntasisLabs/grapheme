@@ -23,6 +23,20 @@ function resolveDoc(slug: string): string | undefined {
 	return undefined;
 }
 
+/** First prose paragraph of a markdown doc, stripped of inline markup, for meta descriptions. */
+function firstParagraph(md: string): string {
+	const para = md
+		.split(/\n\s*\n/)
+		.map((p) => p.trim())
+		.find((p) => p && !/^(#|```|[-*]\s|\d+\.\s|\||>|<)/.test(p));
+	if (!para) return 'Grapheme documentation.';
+	return para
+		.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+		.replace(/[`*_]/g, '')
+		.replace(/\s+/g, ' ')
+		.slice(0, 200);
+}
+
 export const load: PageServerLoad = async ({ params }) => {
 	const slug = params.slug;
 	const source = resolveDoc(slug);
@@ -36,6 +50,7 @@ export const load: PageServerLoad = async ({ params }) => {
 	return {
 		slug,
 		title: titleFromSlug(slug),
+		description: firstParagraph(source),
 		section: DOC_NAV[idx]?.section ?? 'Docs',
 		html,
 		prev,

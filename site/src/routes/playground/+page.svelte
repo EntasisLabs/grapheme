@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { replaceState } from '$app/navigation';
+	import Seo from '$lib/components/Seo.svelte';
 	import { highlightGr, highlightJson } from '$lib/highlight';
 	import { SNIPPETS, snippetById } from '$lib/snippets';
 	import { runGrapheme, type ExecuteResponse } from '$lib/wasm/runtime';
@@ -181,13 +182,10 @@
 	}
 </script>
 
-<svelte:head>
-	<title>Playground · Grapheme</title>
-	<meta
-		name="description"
-		content="Write and run Grapheme in your browser. The compiler and runtime execute as a WASI module — no server."
-	/>
-</svelte:head>
+<Seo
+	title="Playground · Grapheme"
+	description="Write and run Grapheme in your browser. The compiler and runtime execute as a WASI module — no server."
+/>
 
 <div class="pg">
 	<aside class="rail">

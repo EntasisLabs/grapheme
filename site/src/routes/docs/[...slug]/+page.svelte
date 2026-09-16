@@ -1,10 +1,10 @@
 <script lang="ts">
+	import Seo from '$lib/components/Seo.svelte';
+
 	let { data } = $props();
 </script>
 
-<svelte:head>
-	<title>{data.title} · Grapheme Docs</title>
-</svelte:head>
+<Seo title={`${data.title} · Grapheme Docs`} description={data.description} type="article" />
 
 <header class="doc-head">
 	<p class="eyebrow">{data.section}</p>
