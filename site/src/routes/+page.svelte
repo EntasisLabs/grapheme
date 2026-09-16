@@ -155,13 +155,13 @@
 	}
 
 	.primary {
-		background: var(--ink);
+		background: var(--sage-deep);
 		color: var(--mist);
 	}
 
 	.primary:hover {
-		background: var(--signal);
-		color: white;
+		background: var(--sage);
+		color: var(--mist);
 		transform: translateY(-1px);
 	}
 
@@ -180,8 +180,8 @@
 		min-height: 22rem;
 		border: 1px solid var(--line);
 		background:
-			linear-gradient(145deg, color-mix(in srgb, var(--ink) 92%, #1a3a36), var(--ink)),
-			var(--ink);
+			linear-gradient(145deg, var(--sage), var(--sage-deep)),
+			var(--sage-deep);
 		color: var(--mist);
 		overflow: hidden;
 		box-shadow: 0 24px 60px var(--shadow);
@@ -227,7 +227,7 @@
 		align-items: flex-end;
 		font-size: 0.86rem;
 		line-height: 1.5;
-		background: linear-gradient(180deg, transparent 10%, color-mix(in srgb, var(--ink) 75%, transparent));
+		background: linear-gradient(180deg, transparent 10%, color-mix(in srgb, var(--sage-deep) 78%, transparent));
 	}
 
 	.snippet code {
@@ -265,7 +265,7 @@
 		display: grid;
 		gap: 0.45rem;
 		padding-top: 1rem;
-		border-top: 2px solid var(--ink);
+		border-top: 2px solid var(--sage);
 	}
 
 	.pillars strong {

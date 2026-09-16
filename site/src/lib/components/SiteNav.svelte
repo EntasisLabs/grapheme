@@ -65,7 +65,7 @@
 		width: 1.7rem;
 		height: 1.7rem;
 		border-radius: 0.35rem;
-		background: var(--ink);
+		background: var(--sage-deep);
 		color: var(--signal-bright);
 		font-size: 1rem;
 		line-height: 1;

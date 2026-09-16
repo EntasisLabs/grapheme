@@ -66,7 +66,7 @@
 		overflow-x: auto;
 		padding: 1rem 1.1rem;
 		border: 1px solid var(--line);
-		background: #fbfcfe;
+		background: color-mix(in srgb, var(--mist) 88%, var(--paper-deep));
 		font-size: 0.86rem;
 	}
 

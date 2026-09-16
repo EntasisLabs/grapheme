@@ -38,7 +38,7 @@ async function enhanceCodeBlocks(html: string): Promise<string> {
 		try {
 			const highlighted = await codeToHtml(code, {
 				lang: mapped,
-				theme: 'github-light'
+				theme: 'everforest-light'
 			});
 			out = out.replace(full, highlighted);
 		} catch {
