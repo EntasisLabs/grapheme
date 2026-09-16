@@ -222,6 +222,7 @@ host must provide grapheme.runtime.host.v1::call.capability`,
 ];
 
 export const HERO_SNIPPET = SNIPPETS[0]!;
+export const POLICY_SNIPPET = SNIPPETS.find((s) => s.id === 'policy')!;
 
 export function snippetById(id: string): Snippet | undefined {
 	return SNIPPETS.find((s) => s.id === id);

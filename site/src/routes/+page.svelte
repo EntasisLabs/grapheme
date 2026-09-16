@@ -1,194 +1,82 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import Seo from '$lib/components/Seo.svelte';
-	import LiveHero from '$lib/components/LiveHero.svelte';
-	import LanguageTour from '$lib/components/LanguageTour.svelte';
-	import CodeBlock from '$lib/components/CodeBlock.svelte';
-	import { GITHUB_URL } from '$lib/site';
+	import LiveRun from '$lib/components/LiveRun.svelte';
+	import { HERO_SNIPPET, POLICY_SNIPPET } from '$lib/snippets';
 
-	let reveal = $state(false);
-	onMount(() => requestAnimationFrame(() => (reveal = true)));
-
-	const install = `cargo install --git https://github.com/entasislabs/grapheme.git grapheme-cli --bin grapheme
-
-grapheme examples init --out .
-grapheme run examples/hello-world.gr --json`;
+	const install =
+		'cargo install --git https://github.com/entasislabs/grapheme.git grapheme-cli --bin grapheme';
 </script>
 
 <Seo />
 
-<section class="hero" class:reveal>
-	<div class="hero-copy">
-		<p class="kicker mono">v0.7 · Apache-2.0 · Rust · Wasm</p>
-		<h1>
-			<span class="word">grapheme</span>
-			<span class="line">A small language for<br />workflows that have to be right.</span>
-		</h1>
-		<p class="lede">Every side effect is a permission. Every step leaves a receipt.</p>
-		<div class="cta">
-			<a class="btn primary" href="/playground">Open playground</a>
-			<a class="btn ghost" href="/docs/quickstart">Install in 2 minutes</a>
-		</div>
-		<p class="proof mono">↓ compiled &amp; executed by the real runtime, in Wasm, on this page</p>
-	</div>
-
-	<div class="hero-live">
-		<LiveHero />
+<section class="hero wrap">
+	<p class="kicker mono">v0.7 · Apache-2.0 · Rust</p>
+	<h1>
+		A typed workflow language. Side effects are capabilities the host grants. Every step is
+		recorded.
+	</h1>
+	<p class="lede">
+		Grapheme compiles <code>.gr</code> programs to a verified artifact and executes them one step
+		at a time. A step can only call a module the host has granted; the runtime refuses the rest.
+		The compiler and runtime below are the real ones, built to Wasm and running in this tab.
+	</p>
+	<div class="cta">
+		<a class="btn" href="/playground">Open the playground</a>
+		<a class="quiet" href="/docs/quickstart">or install the CLI →</a>
 	</div>
 </section>
 
-<section class="band">
-	<div class="band-head">
-		<p class="eyebrow">Same runtime</p>
-		<h2>Eight programs. All of them actually ran.</h2>
-	</div>
-	<LanguageTour />
+<section class="demo wrap" aria-label="Live demo">
+	<LiveRun snippet={HERO_SNIPPET} file="release.gr" />
+	<p class="caption mono">
+		<code>struct Release</code> is the state. <code>@loop(max: 10)</code> is the budget. The right
+		pane is the trace: one row per step, then the final state and the artifact id.
+	</p>
 </section>
 
-<section class="band fit">
-	<div class="band-head">
-		<p class="eyebrow">Where it fits</p>
-		<h2>For some jobs. Not all of them.</h2>
-		<p class="support">
-			Not <a href="https://temporal.io">Temporal</a>, not
-			<a href="https://aws.amazon.com/step-functions/">Step Functions</a>, not
-			<a href="https://dagster.io">Dagster</a>, and not a replacement for a script when a script is
-			enough.
+<section class="refusal wrap">
+	<div class="refusal-copy">
+		<p class="eyebrow mono">Fails closed</p>
+		<h2>Call a module the host did not grant, and the run stops at that step.</h2>
+		<p>
+			<code>http</code>, <code>sql</code>, <code>smtp</code>, secrets: each is a capability the
+			host provides to a program, not something a program takes. In this tab the host grants only
+			the Wasm stdlib (<code>core</code>, <code>json</code>, <code>csv</code>, <code>yaml</code>,
+			<code>html</code>). This program compiles, gets an artifact id, and is refused at step 01
+			with the runtime's own message.
 		</p>
 	</div>
-	<div class="fit-grid">
-		<div class="fit-col is">
-			<h3>Reach for it when</h3>
-			<ul>
-				<li>The workflow fits on one screen but would hurt if it went wrong.</li>
-				<li>You need hosts, secrets, and databases on an allow-list — enforced, not hoped.</li>
-			</ul>
-		</div>
-		<div class="fit-col isnt">
-			<h3>Don't, yet, when</h3>
-			<ul>
-				<li>A job has to survive a crash over a weekend. There is no scheduler.</li>
-				<li>You're building an application, a data platform, or a hosted control plane.</li>
-			</ul>
-		</div>
-	</div>
+	<LiveRun snippet={POLICY_SNIPPET} file="needs-http.gr" autorun="visible" stack />
 </section>
 
-<section class="band install-band">
-	<div class="install">
-		<div class="install-copy">
-			<p class="eyebrow">Install</p>
-			<h2>Two minutes on your machine.</h2>
-		</div>
-		<CodeBlock code={install} title="terminal" compact />
-	</div>
-</section>
-
-<section class="close">
-	<h2>Write the workflow you'd want to read at 3 a.m.</h2>
-	<div class="cta">
-		<a class="btn primary" href="/playground">Try it in the browser</a>
-		<a class="btn ghost" href={GITHUB_URL}>Source on GitHub ↗</a>
-	</div>
+<section class="next wrap">
+	<h2>Next: change <code>release.gr</code> and run it.</h2>
+	<a class="btn" href="/playground?example={HERO_SNIPPET.id}">Open the playground</a>
+	<p class="install mono">
+		Or on your machine: <code>{install}</code>
+		<a href="/docs/quickstart">Quickstart →</a>
+	</p>
 </section>
 
 <style>
-	.eyebrow {
-		margin: 0 0 0.5rem;
+	.wrap {
+		max-width: 78rem;
+		margin: 0 auto;
+		padding-left: clamp(1rem, 4vw, 3rem);
+		padding-right: clamp(1rem, 4vw, 3rem);
+	}
+
+	.mono {
 		font-family: var(--font-mono);
-		font-size: 0.74rem;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--signal);
 	}
 
-	h2 {
-		margin: 0;
-		font-family: var(--font-display);
-		font-weight: 700;
-		font-size: clamp(1.6rem, 3vw, 2.3rem);
-		letter-spacing: -0.03em;
-		line-height: 1.15;
+	code {
+		font-size: 0.92em;
 		color: var(--sage-deep);
-		max-width: 26ch;
 	}
 
-	.support {
-		margin: 0.8rem 0 0;
-		max-width: 44rem;
-		color: var(--ink-soft);
-	}
-
-	.band {
-		padding: clamp(2.5rem, 6vh, 4.25rem) clamp(1rem, 4vw, 3rem);
-		border-top: 1px solid var(--line);
-	}
-
-	.band-head {
-		margin-bottom: 1.6rem;
-	}
-
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0.85rem 1.3rem;
-		border-radius: var(--radius);
-		font-family: var(--font-display);
-		font-weight: 700;
-		text-decoration: none;
-		transition:
-			transform 160ms ease,
-			background 160ms ease,
-			border-color 160ms ease;
-	}
-
-	.btn.primary {
-		background: var(--sage);
-		color: var(--mist);
-	}
-
-	.btn.primary:hover {
-		background: var(--sage-deep);
-		transform: translateY(-1px);
-	}
-
-	.btn.ghost {
-		border: 1px solid color-mix(in srgb, var(--sage) 45%, transparent);
-		color: var(--sage-deep);
-		background: color-mix(in srgb, var(--mist) 60%, transparent);
-	}
-
-	.btn.ghost:hover {
-		border-color: var(--sage);
-	}
-
-	.cta {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.75rem;
-	}
-
-	.hero {
-		display: grid;
-		grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-		gap: clamp(1.5rem, 4vw, 3.5rem);
-		align-items: center;
-		padding: clamp(2rem, 6vh, 4.5rem) clamp(1rem, 4vw, 3rem) clamp(2.5rem, 7vh, 4.5rem);
-		overflow: hidden;
-		opacity: 0;
-		transform: translateY(10px);
-		transition:
-			opacity 700ms ease,
-			transform 700ms ease;
-	}
-
-	.hero.reveal {
-		opacity: 1;
-		transform: none;
-	}
-
-	.kicker {
+	.kicker,
+	.eyebrow {
 		margin: 0 0 1rem;
 		font-size: 0.74rem;
 		letter-spacing: 0.1em;
@@ -196,162 +84,146 @@ grapheme run examples/hello-world.gr --json`;
 		color: var(--signal);
 	}
 
-	h1 {
+	h1,
+	h2 {
 		margin: 0;
 		font-family: var(--font-display);
-	}
-
-	.hero-copy {
-		min-width: 0;
-		container-type: inline-size;
-	}
-
-	.word {
-		display: block;
-		font-weight: 800;
-		font-size: clamp(2.6rem, 14.5cqw, 5.4rem);
-		line-height: 0.9;
-		letter-spacing: -0.06em;
-		color: var(--sage-deep);
-		margin-bottom: 1rem;
-	}
-
-	.line {
-		display: block;
 		font-weight: 700;
-		font-size: clamp(1.3rem, 2.4vw, 1.9rem);
-		line-height: 1.2;
-		letter-spacing: -0.025em;
-		color: var(--ink);
+		letter-spacing: -0.03em;
+		line-height: 1.12;
+		color: var(--sage-deep);
+	}
+
+	h1 {
+		font-size: clamp(1.75rem, 3.3vw, 2.7rem);
+		max-width: 30ch;
+	}
+
+	h2 {
+		font-size: clamp(1.4rem, 2.4vw, 1.9rem);
+		max-width: 30ch;
+	}
+
+	.hero {
+		padding-top: clamp(2.5rem, 7vh, 5rem);
+		padding-bottom: clamp(1.75rem, 4vh, 2.5rem);
 	}
 
 	.lede {
 		margin: 1.2rem 0 1.6rem;
-		max-width: 34rem;
+		max-width: 58ch;
 		font-size: 1.08rem;
 		color: var(--ink-soft);
 	}
 
-	.proof {
-		margin: 1.4rem 0 0;
-		font-size: 0.74rem;
-		color: var(--signal);
+	.cta {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.75rem 1.4rem;
 	}
 
-	.hero-live {
-		min-width: 0;
-	}
-
-	.fit .support a {
-		color: var(--sage-deep);
-	}
-
-	.fit-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 1.5rem;
-	}
-
-	.fit-col {
-		padding: 1.4rem 1.5rem 1.5rem;
-		border: 1px solid var(--line);
-		background: color-mix(in srgb, var(--mist) 85%, white);
-	}
-
-	.fit-col.is {
-		border-top: 3px solid var(--sage);
-	}
-
-	.fit-col.isnt {
-		border-top: 3px solid var(--ember);
-	}
-
-	.fit-col h3 {
-		margin: 0 0 0.9rem;
-		font-family: var(--font-display);
-		font-size: 1.15rem;
-		color: var(--sage-deep);
-	}
-
-	.fit-col ul {
-		margin: 0;
-		padding: 0;
-		list-style: none;
-		display: grid;
-		gap: 0.6rem;
-	}
-
-	.fit-col li {
-		padding-left: 1.1rem;
-		position: relative;
-		color: var(--ink-soft);
-		font-size: 0.98rem;
-	}
-
-	.fit-col li::before {
-		content: '';
-		position: absolute;
-		left: 0;
-		top: 0.6em;
-		width: 0.45rem;
-		height: 0.45rem;
+	.btn {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.85rem 1.3rem;
+		border-radius: var(--radius);
 		background: var(--sage);
+		color: var(--mist);
+		font-family: var(--font-display);
+		font-weight: 700;
+		text-decoration: none;
 	}
 
-	.fit-col.isnt li::before {
-		background: var(--ember);
+	.btn:hover {
+		background: var(--sage-deep);
+		color: var(--mist);
+	}
+
+	.quiet {
+		font-family: var(--font-display);
+		font-weight: 600;
+		font-size: 0.95rem;
+		color: var(--sage-deep);
+		text-decoration: none;
+	}
+
+	.quiet:hover {
+		text-decoration: underline;
+	}
+
+	.demo {
+		padding-bottom: clamp(3rem, 8vh, 5.5rem);
+	}
+
+	.caption {
+		margin: 0.8rem 0 0;
+		max-width: 70ch;
+		font-size: 0.76rem;
+		color: var(--ink-soft);
+	}
+
+	.caption code {
+		font-size: 1em;
+	}
+
+	.refusal {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+		gap: clamp(1.5rem, 4vw, 3.5rem);
+		align-items: start;
+		padding-top: clamp(2.5rem, 6vh, 4rem);
+		padding-bottom: clamp(3rem, 8vh, 5.5rem);
+		border-top: 1px solid var(--line);
+	}
+
+	.refusal-copy p:last-child {
+		margin: 1rem 0 0;
+		color: var(--ink-soft);
+		max-width: 44ch;
+	}
+
+	.next {
+		display: grid;
+		gap: 1.4rem;
+		justify-items: start;
+		padding-top: clamp(2.5rem, 6vh, 4rem);
+		padding-bottom: clamp(3rem, 8vh, 5.5rem);
+		border-top: 1px solid var(--line);
+	}
+
+	.next h2 {
+		max-width: 24ch;
 	}
 
 	.install {
-		display: grid;
-		grid-template-columns: 0.9fr 1.1fr;
-		gap: 2rem;
-		align-items: center;
+		margin: 0;
+		max-width: 100%;
+		font-size: 0.76rem;
+		color: var(--ink-soft);
+		overflow-wrap: anywhere;
 	}
 
-	.close {
-		padding: clamp(2.5rem, 7vh, 4.5rem) clamp(1rem, 4vw, 3rem);
-		border-top: 1px solid var(--line);
-		display: grid;
-		gap: 1.5rem;
-		justify-items: start;
+	.install code {
+		font-size: 1em;
 	}
 
-	.close h2 {
-		max-width: 22ch;
-		font-size: clamp(1.8rem, 3.6vw, 2.8rem);
-	}
-
-	@media (max-width: 1280px) {
-		.hero {
-			grid-template-columns: 1fr;
-			align-items: start;
-		}
-
-		.word {
-			font-size: clamp(2.6rem, 12cqw, 5.4rem);
-		}
+	.install a {
+		margin-left: 0.4rem;
+		color: var(--sage);
+		text-decoration: none;
+		font-weight: 500;
 	}
 
 	@media (max-width: 1000px) {
-		.fit-grid,
-		.install {
+		.refusal {
 			grid-template-columns: 1fr;
 		}
 	}
 
 	@media (max-width: 600px) {
 		.hero {
-			padding-top: 1.6rem;
-		}
-
-		.word {
-			font-size: clamp(1.9rem, 9cqw, 2.5rem);
-			margin-bottom: 0.7rem;
-		}
-
-		.line {
-			font-size: 1.2rem;
+			padding-top: 1.8rem;
 		}
 
 		.lede {
