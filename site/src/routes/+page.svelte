@@ -155,12 +155,12 @@
 	}
 
 	.primary {
-		background: var(--sage-deep);
+		background: var(--sage);
 		color: var(--mist);
 	}
 
 	.primary:hover {
-		background: var(--sage);
+		background: var(--sage-deep);
 		color: var(--mist);
 		transform: translateY(-1px);
 	}

@@ -251,7 +251,7 @@
 		padding: 0.65rem 1.3rem;
 		border: none;
 		border-radius: var(--radius);
-		background: var(--sage-deep);
+		background: var(--sage);
 		color: var(--mist);
 		font-family: var(--font-display);
 		font-weight: 700;
@@ -259,7 +259,7 @@
 	}
 
 	.run:hover:not(:disabled) {
-		background: var(--sage);
+		background: var(--sage-deep);
 	}
 
 	.run:disabled {

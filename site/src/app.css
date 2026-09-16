@@ -1,16 +1,16 @@
 :root {
 	/* Deep sage + cream */
-	--ink: #24352a;
-	--ink-soft: #4a5c4e;
+	--ink: #2c4535;
+	--ink-soft: #54705c;
 	--paper: #f3eee4;
 	--paper-deep: #e5ddd0;
 	--mist: #faf7f1;
-	--sage: #3d5a45;
-	--sage-deep: #1e3228;
-	--signal: #5b7a62;
-	--signal-bright: #7fa087;
+	--sage: #3f5f4a;
+	--sage-deep: #1f3528;
+	--signal: #5f8168;
+	--signal-bright: #8aab92;
 	--ember: #b85c38;
-	--line: color-mix(in srgb, var(--sage) 18%, transparent);
+	--line: color-mix(in srgb, var(--sage) 20%, transparent);
 	--shadow: color-mix(in srgb, var(--sage-deep) 22%, transparent);
 	--radius: 2px;
 	--font-display: 'Syne', sans-serif;
