@@ -10,7 +10,7 @@
 
 <header class="nav" class:compact>
 	<a class="brand" href="/" aria-label="Grapheme home">
-		<span class="mark" aria-hidden="true">ഗ</span>
+		<span class="mark" aria-hidden="true">|&gt;</span>
 		<span class="name">grapheme</span>
 	</a>
 
@@ -26,6 +26,7 @@
 
 	<nav id="site-nav" class:open>
 		<a href="/docs/why-grapheme">Docs</a>
+		<a href="/docs/tutorials">Tutorials</a>
 		<a href="/playground">Playground</a>
 		<a class="external" href="https://github.com/EntasisLabs/grapheme" rel="noreferrer" target="_blank"
 			>GitHub</a
@@ -67,7 +68,9 @@
 		border-radius: 0.35rem;
 		background: var(--sage-deep);
 		color: var(--signal-bright);
-		font-size: 1rem;
+		font-family: var(--font-mono);
+		font-size: 0.7rem;
+		font-weight: 700;
 		line-height: 1;
 	}
 

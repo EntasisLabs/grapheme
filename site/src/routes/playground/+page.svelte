@@ -1,255 +1,485 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { DEFAULT_EXAMPLE, PLAYGROUND_EXAMPLES } from '$lib/examples';
+	import { page } from '$app/state';
+	import { replaceState } from '$app/navigation';
+	import { highlightGr, highlightJson } from '$lib/highlight';
+	import { SNIPPETS, snippetById } from '$lib/snippets';
 	import { runGrapheme, type ExecuteResponse } from '$lib/wasm/runtime';
 
-	let exampleId = $state(DEFAULT_EXAMPLE.id);
-	let source = $state(DEFAULT_EXAMPLE.source);
-	let argsJson = $state(
-		DEFAULT_EXAMPLE.args ? JSON.stringify(DEFAULT_EXAMPLE.args, null, 2) : ''
-	);
-	let running = $state(false);
-	let status = $state<'idle' | 'loading-wasm' | 'running' | 'done' | 'error'>('idle');
-	let result = $state<ExecuteResponse | null>(null);
-	let errorMessage = $state('');
-	let elapsedMs = $state<number | null>(null);
-	let wasmReady = $state(false);
+	type PipelineEntry = {
+		index: number;
+		function_name: string;
+		op: string;
+		ok: boolean;
+		error?: unknown;
+		output?: unknown;
+		iteration_index?: number | null;
+		call_depth?: number;
+	};
 
-	function selectExample(id: string) {
-		const ex = PLAYGROUND_EXAMPLES.find((e) => e.id === id);
-		if (!ex) return;
-		exampleId = ex.id;
-		source = ex.source;
-		argsJson = ex.args ? JSON.stringify(ex.args, null, 2) : '';
+	let source = $state(SNIPPETS[0]!.source);
+	let argsJson = $state('');
+	let activeId = $state<string | null>(SNIPPETS[0]!.id);
+	let wasmReady = $state(false);
+	let wasmError = $state('');
+	let running = $state(false);
+	let result = $state<ExecuteResponse | null>(null);
+	let elapsed = $state<number | null>(null);
+	let tab = $state<'state' | 'trace' | 'json'>('state');
+	let copied = $state(false);
+	let editorEl = $state<HTMLTextAreaElement | null>(null);
+	let highlightEl = $state<HTMLElement | null>(null);
+
+	const highlighted = $derived(highlightGr(source) + (source.endsWith('\n') ? ' ' : ''));
+	const lineCount = $derived(source.split('\n').length);
+
+	const pipeline = $derived(
+		((result?.final_state as { pipeline?: PipelineEntry[] } | undefined)?.pipeline ?? []) as PipelineEntry[]
+	);
+	const current = $derived((result?.final_state as { current?: unknown } | undefined)?.current);
+	const outcome = $derived(result?.execution?.outcome ?? (result && !result.ok ? 'failed' : null));
+
+	function load(id: string) {
+		const s = snippetById(id);
+		if (!s) return;
+		activeId = s.id;
+		source = s.source;
+		argsJson = s.args ? JSON.stringify(s.args, null, 2) : '';
 		result = null;
-		errorMessage = '';
-		status = wasmReady ? 'idle' : 'loading-wasm';
+		elapsed = null;
+		syncUrl();
 	}
 
-	async function warmWasm() {
-		status = 'loading-wasm';
+	function encodeShare(): string {
+		const payload = JSON.stringify({ s: source, a: argsJson || undefined });
+		return btoa(unescape(encodeURIComponent(payload)));
+	}
+
+	function decodeShare(hash: string): { s: string; a?: string } | null {
 		try {
-			const res = await fetch('/grapheme-wasm.wasm', { method: 'HEAD' });
-			if (!res.ok) throw new Error(`WASM missing (${res.status})`);
-			wasmReady = true;
-			status = 'idle';
-		} catch (e) {
-			wasmReady = false;
-			status = 'error';
-			errorMessage =
-				e instanceof Error
-					? e.message
-					: 'Could not load grapheme-wasm.wasm. Build with scripts/build-runtime-wasm.sh';
+			return JSON.parse(decodeURIComponent(escape(atob(hash))));
+		} catch {
+			return null;
 		}
+	}
+
+	function syncUrl() {
+		if (typeof window === 'undefined') return;
+		const url = new URL(window.location.href);
+		url.hash = '';
+		if (activeId) url.searchParams.set('example', activeId);
+		else url.searchParams.delete('example');
+		replaceState(url, {});
+	}
+
+	async function share() {
+		const url = new URL(window.location.href);
+		url.searchParams.delete('example');
+		url.hash = `code=${encodeShare()}`;
+		await navigator.clipboard.writeText(url.toString());
+		replaceState(url, {});
+		copied = true;
+		setTimeout(() => (copied = false), 1600);
 	}
 
 	async function run() {
+		if (running || !wasmReady) return;
 		running = true;
-		status = 'running';
-		errorMessage = '';
 		result = null;
-		elapsedMs = null;
-		const started = performance.now();
+		const t0 = performance.now();
 		try {
 			let args: unknown = null;
-			if (argsJson.trim()) {
-				args = JSON.parse(argsJson);
-			}
-			const response = await runGrapheme({
-				source,
-				initial_current: {},
-				args
-			});
-			result = response;
-			elapsedMs = Math.round(performance.now() - started);
-			status = response.ok ? 'done' : 'error';
-			if (!response.ok) {
-				errorMessage = response.error?.message ?? 'Execution failed';
-			}
+			if (argsJson.trim()) args = JSON.parse(argsJson);
+			result = await runGrapheme({ source, initial_current: {}, args });
 		} catch (e) {
-			status = 'error';
-			errorMessage = e instanceof Error ? e.message : String(e);
-			elapsedMs = Math.round(performance.now() - started);
+			result = {
+				ok: false,
+				error: { code: 'CLIENT_ERROR', message: e instanceof Error ? e.message : String(e) }
+			};
 		} finally {
+			elapsed = Math.round(performance.now() - t0);
 			running = false;
+			if (result && !result.ok && result.error?.code?.startsWith('COMPILE')) tab = 'state';
 		}
 	}
 
-	onMount(() => {
-		warmWasm();
+	function onInput() {
+		activeId = null;
+	}
+
+	function onScroll() {
+		if (editorEl && highlightEl) {
+			highlightEl.scrollTop = editorEl.scrollTop;
+			highlightEl.scrollLeft = editorEl.scrollLeft;
+		}
+	}
+
+	function onKey(e: KeyboardEvent) {
+		if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+			e.preventDefault();
+			run();
+		}
+		if (e.key === 'Tab' && editorEl) {
+			e.preventDefault();
+			const start = editorEl.selectionStart;
+			const end = editorEl.selectionEnd;
+			source = source.slice(0, start) + '  ' + source.slice(end);
+			requestAnimationFrame(() => {
+				if (editorEl) editorEl.selectionStart = editorEl.selectionEnd = start + 2;
+			});
+		}
+	}
+
+	onMount(async () => {
+		const hash = window.location.hash.replace(/^#code=/, '');
+		if (window.location.hash.startsWith('#code=')) {
+			const decoded = decodeShare(hash);
+			if (decoded) {
+				source = decoded.s;
+				argsJson = decoded.a ?? '';
+				activeId = null;
+			}
+		} else {
+			const ex = page.url.searchParams.get('example');
+			if (ex && snippetById(ex)) load(ex);
+		}
+
+		try {
+			const res = await fetch('/grapheme-wasm.wasm', { method: 'HEAD' });
+			if (!res.ok) throw new Error(`grapheme-wasm.wasm missing (${res.status})`);
+			wasmReady = true;
+		} catch (e) {
+			wasmError = e instanceof Error ? e.message : String(e);
+		}
 	});
+
+	function shapeOf(v: unknown): string {
+		if (v === null || v === undefined) return 'null';
+		if (Array.isArray(v)) return `list[${v.length}]`;
+		if (typeof v === 'object') {
+			const o = v as Record<string, unknown>;
+			if (o._kind === 'object' && typeof o._keys === 'number') return `object{${o._keys}}`;
+			return `object{${Object.keys(o).length}}`;
+		}
+		return typeof v;
+	}
 </script>
 
 <svelte:head>
 	<title>Playground · Grapheme</title>
 	<meta
 		name="description"
-		content="Compile and run Grapheme workflows in your browser with the RFC-0006 WASM runtime."
+		content="Write and run Grapheme in your browser. The compiler and runtime execute as a WASI module — no server."
 	/>
 </svelte:head>
 
-<section class="play">
-	<header class="play-head">
-		<div>
+<div class="pg">
+	<aside class="rail">
+		<div class="rail-head">
 			<p class="eyebrow">Playground</p>
 			<h1>grapheme</h1>
-			<p class="lede">Client-side compile + execute via <code>grapheme-wasm</code> (WASI).</p>
+			<p class="sub">Compiler + runtime running as Wasm in this tab.</p>
 		</div>
-		<div class="meta">
-			<span class="pill" class:ok={wasmReady} class:bad={status === 'error' && !wasmReady}>
-				{#if status === 'loading-wasm'}Loading Wasm…
-				{:else if wasmReady}Wasm ready
-				{:else}Wasm unavailable{/if}
-			</span>
-			{#if elapsedMs != null}
-				<span class="pill muted">{elapsedMs} ms</span>
-			{/if}
+		<p class="rail-label">Examples</p>
+		<ul class="examples">
+			{#each SNIPPETS as s}
+				<li>
+					<button type="button" class:active={s.id === activeId} onclick={() => load(s.id)}>
+						<span>{s.label}</span>
+						<small>{s.tags.slice(0, 3).join(' · ')}</small>
+					</button>
+				</li>
+			{/each}
+		</ul>
+		<div class="rail-foot">
+			<p><strong>wasm-safe stdlib</strong><br />core · json · csv · yaml · html</p>
+			<p>Host ops (<code>http</code>, <code>sql</code>, …) fail closed here, exactly as a host without policy would.</p>
+			<a href="/docs/language-tour">Language tour →</a>
 		</div>
-	</header>
+	</aside>
 
-	<div class="toolbar">
-		<label>
-			Example
-			<select bind:value={exampleId} onchange={() => selectExample(exampleId)}>
-				{#each PLAYGROUND_EXAMPLES as ex}
-					<option value={ex.id}>{ex.label}</option>
-				{/each}
-			</select>
-		</label>
-		<button class="run" type="button" disabled={running || !wasmReady} onclick={run}>
-			{running ? 'Running…' : 'Run'}
-		</button>
-	</div>
-
-	<div class="grid">
-		<div class="pane">
-			<div class="pane-label">Source · .gr</div>
-			<textarea class="editor" bind:value={source} spellcheck="false"></textarea>
-			<div class="args">
-				<div class="pane-label">Args JSON (optional)</div>
-				<textarea
-					class="args-editor"
-					bind:value={argsJson}
-					spellcheck="false"
-					placeholder={'{}'}
-				></textarea>
+	<section class="work">
+		<div class="toolbar">
+			<div class="left">
+				<span class="pill" class:ok={wasmReady} class:bad={!!wasmError}>
+					{#if wasmError}wasm unavailable{:else if wasmReady}wasm ready{:else}loading wasm…{/if}
+				</span>
+				{#if elapsed != null}<span class="pill muted">{elapsed} ms</span>{/if}
+				{#if result?.artifact_id}<span class="pill muted mono">{result.artifact_id}</span>{/if}
+			</div>
+			<div class="right">
+				<button type="button" class="ghost" onclick={share}>{copied ? 'Copied link' : 'Share'}</button>
+				<button type="button" class="run" disabled={running || !wasmReady} onclick={run}>
+					{running ? 'Running…' : 'Run'}
+					<kbd>⌘↵</kbd>
+				</button>
 			</div>
 		</div>
-		<div class="pane">
-			<div class="pane-label">Result</div>
-			{#if errorMessage && status === 'error'}
-				<pre class="out error">{errorMessage}</pre>
-			{/if}
-			{#if result}
-				<pre class="out">{JSON.stringify(result, null, 2)}</pre>
-			{:else if status === 'running'}
-				<pre class="out muted">Compiling and executing in Wasm…</pre>
-			{:else}
-				<pre class="out muted">Run a workflow to see JSON output here.</pre>
-			{/if}
-		</div>
-	</div>
 
-	<p class="note">
-		Wasm-safe stdlib only: <code>core</code>, <code>json</code>, <code>csv</code>, <code>yaml</code>,
-		<code>html</code>. Host capabilities like <code>http</code> / <code>sql</code> fail closed — same
-		as the WASI engine outside the browser.
-	</p>
-</section>
+		<div class="split">
+			<div class="editor-wrap">
+				<div class="pane-label">
+					<span>source</span>
+					<span class="mono">{lineCount} lines</span>
+				</div>
+				<div class="editor">
+					<pre class="hl" bind:this={highlightEl} aria-hidden="true"><code>{@html highlighted}</code></pre>
+					<textarea
+						bind:this={editorEl}
+						bind:value={source}
+						spellcheck="false"
+						autocomplete="off"
+						autocapitalize="off"
+						oninput={onInput}
+						onscroll={onScroll}
+						onkeydown={onKey}
+						aria-label="Grapheme source"
+					></textarea>
+				</div>
+				<div class="args">
+					<div class="pane-label"><span>entrypoint args · json</span></div>
+					<textarea
+						class="args-editor"
+						bind:value={argsJson}
+						spellcheck="false"
+						placeholder={'{ "label": "grapheme" }'}
+						aria-label="Entrypoint args JSON"
+					></textarea>
+				</div>
+			</div>
+
+			<div class="result">
+				<div class="result-head">
+					<div class="tabs" role="tablist">
+						<button role="tab" type="button" class:active={tab === 'state'} onclick={() => (tab = 'state')}>State</button>
+						<button role="tab" type="button" class:active={tab === 'trace'} onclick={() => (tab = 'trace')}>
+							Trace{#if pipeline.length}<span class="count">{pipeline.length}</span>{/if}
+						</button>
+						<button role="tab" type="button" class:active={tab === 'json'} onclick={() => (tab = 'json')}>Raw</button>
+					</div>
+					{#if outcome}
+						<span class="outcome" class:good={outcome === 'succeeded'} class:bad={outcome !== 'succeeded'}>
+							{outcome}
+						</span>
+					{/if}
+				</div>
+
+				<div class="result-body">
+					{#if !result}
+						<div class="empty">
+							<p>Press <strong>Run</strong> (or ⌘/Ctrl + Enter).</p>
+							<p class="dim">Source is compiled to a verified MIR artifact, then executed by the runtime — all inside Wasm.</p>
+						</div>
+					{:else if !result.ok && !result.execution}
+						<div class="errbox">
+							<div class="errcode mono">{result.error?.code}</div>
+							<pre>{result.error?.message}</pre>
+						</div>
+					{:else if tab === 'state'}
+						{#if !result.ok && result.error}
+							<div class="errbox inline">
+								<div class="errcode mono">{result.error.code}</div>
+								<pre>{result.error.message}</pre>
+							</div>
+						{/if}
+						<pre class="json">{@html highlightJson(JSON.stringify(current ?? null, null, 2))}</pre>
+						{#if result.lint_warnings?.length}
+							<div class="lints">
+								<div class="pane-label"><span>lint</span></div>
+								{#each result.lint_warnings as w}
+									<pre class="lint">{JSON.stringify(w)}</pre>
+								{/each}
+							</div>
+						{/if}
+					{:else if tab === 'trace'}
+						<ol class="trace">
+							{#each pipeline as p (p.index)}
+								<li class:fail={!p.ok} style={`--depth:${p.call_depth ?? 0}`}>
+									<span class="idx mono">{String(p.index + 1).padStart(2, '0')}</span>
+									<span class="fn">{p.function_name}</span>
+									<span class="op mono">{p.op}</span>
+									<span class="shape mono">{shapeOf(p.output)}</span>
+									{#if p.iteration_index != null}<span class="iter mono">#{p.iteration_index}</span>{/if}
+								</li>
+							{/each}
+						</ol>
+					{:else}
+						<pre class="json">{@html highlightJson(JSON.stringify(result, null, 2))}</pre>
+					{/if}
+				</div>
+			</div>
+		</div>
+	</section>
+</div>
 
 <style>
-	.play {
-		padding: 1.5rem clamp(1rem, 3vw, 2.5rem) 3rem;
-	}
-
-	.play-head {
-		display: flex;
-		flex-wrap: wrap;
-		justify-content: space-between;
-		gap: 1rem;
-		margin-bottom: 1.25rem;
+	.pg {
+		display: grid;
+		grid-template-columns: 17rem minmax(0, 1fr);
+		min-height: calc(100vh - var(--nav-h));
 	}
 
 	.eyebrow {
 		margin: 0;
 		font-family: var(--font-mono);
-		font-size: 0.75rem;
-		letter-spacing: 0.08em;
+		font-size: 0.72rem;
+		letter-spacing: 0.1em;
 		text-transform: uppercase;
 		color: var(--signal);
 	}
 
-	h1 {
-		margin: 0.2rem 0;
-		font-family: var(--font-display);
-		font-weight: 800;
-		font-size: clamp(2.4rem, 6vw, 3.6rem);
-		letter-spacing: -0.05em;
-		line-height: 0.95;
+	/* rail */
+	.rail {
+		display: flex;
+		flex-direction: column;
+		border-right: 1px solid var(--line);
+		background: color-mix(in srgb, var(--mist) 60%, transparent);
 	}
 
-	.lede {
+	.rail-head {
+		padding: 1.4rem 1.2rem 1rem;
+		border-bottom: 1px solid var(--line);
+	}
+
+	.rail h1 {
+		margin: 0.15rem 0 0.3rem;
+		font-family: var(--font-display);
+		font-weight: 800;
+		font-size: 2rem;
+		letter-spacing: -0.05em;
+		line-height: 1;
+		color: var(--sage-deep);
+	}
+
+	.sub {
 		margin: 0;
+		font-size: 0.86rem;
 		color: var(--ink-soft);
 	}
 
-	.meta {
+	.rail-label {
+		margin: 1rem 1.2rem 0.4rem;
+		font-family: var(--font-mono);
+		font-size: 0.68rem;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--ink-soft);
+	}
+
+	.examples {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+
+	.examples button {
+		width: 100%;
+		display: grid;
+		gap: 0.15rem;
+		text-align: left;
+		padding: 0.6rem 1.2rem;
+		border: 0;
+		border-left: 3px solid transparent;
+		background: transparent;
+		cursor: pointer;
+		color: var(--ink);
+		font-family: var(--font-display);
+		font-weight: 600;
+		font-size: 0.9rem;
+	}
+
+	.examples small {
+		font-family: var(--font-mono);
+		font-weight: 400;
+		font-size: 0.68rem;
+		color: var(--ink-soft);
+	}
+
+	.examples button:hover {
+		background: color-mix(in srgb, var(--sage) 8%, transparent);
+	}
+
+	.examples button.active {
+		border-left-color: var(--sage);
+		background: color-mix(in srgb, var(--sage) 12%, transparent);
+		color: var(--sage-deep);
+	}
+
+	.rail-foot {
+		margin-top: auto;
+		padding: 1rem 1.2rem 1.4rem;
+		border-top: 1px solid var(--line);
+		font-size: 0.82rem;
+		color: var(--ink-soft);
+	}
+
+	.rail-foot p {
+		margin: 0 0 0.6rem;
+	}
+
+	.rail-foot strong {
+		color: var(--sage-deep);
+		font-family: var(--font-display);
+	}
+
+	.rail-foot a {
+		text-decoration: none;
+		color: var(--sage);
+		font-weight: 600;
+		font-family: var(--font-display);
+	}
+
+	/* work */
+	.work {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+
+	.toolbar {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 1rem;
+		padding: 0.7rem 1.2rem;
+		border-bottom: 1px solid var(--line);
+	}
+
+	.left,
+	.right {
 		display: flex;
 		gap: 0.5rem;
-		align-items: flex-start;
+		align-items: center;
+		flex-wrap: wrap;
 	}
 
 	.pill {
 		display: inline-flex;
 		align-items: center;
-		padding: 0.35rem 0.65rem;
+		padding: 0.3rem 0.6rem;
 		border: 1px solid var(--line);
 		background: var(--mist);
 		font-family: var(--font-mono);
-		font-size: 0.75rem;
-	}
-
-	.pill.ok {
-		border-color: color-mix(in srgb, var(--signal) 50%, var(--line));
-		color: var(--signal);
-	}
-
-	.pill.bad {
-		border-color: color-mix(in srgb, var(--ember) 50%, var(--line));
-		color: var(--ember);
-	}
-
-	.pill.muted {
+		font-size: 0.72rem;
 		color: var(--ink-soft);
 	}
 
-	.toolbar {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.75rem;
-		align-items: end;
-		margin-bottom: 1rem;
+	.pill.ok {
+		border-color: color-mix(in srgb, var(--sage) 55%, transparent);
+		color: var(--sage);
 	}
 
-	label {
-		display: grid;
-		gap: 0.3rem;
-		font-family: var(--font-display);
-		font-weight: 600;
-		font-size: 0.85rem;
-	}
-
-	select {
-		min-width: 12rem;
-		padding: 0.55rem 0.7rem;
-		border: 1px solid var(--line);
-		background: var(--mist);
-		border-radius: var(--radius);
+	.pill.bad {
+		border-color: color-mix(in srgb, var(--ember) 55%, transparent);
+		color: var(--ember);
 	}
 
 	.run {
-		padding: 0.65rem 1.3rem;
-		border: none;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.6rem;
+		padding: 0.55rem 1.1rem;
+		border: 0;
 		border-radius: var(--radius);
 		background: var(--sage);
 		color: var(--mist);
@@ -267,82 +497,361 @@
 		cursor: not-allowed;
 	}
 
-	.grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 1rem;
-		min-height: 28rem;
+	.run kbd {
+		font-family: var(--font-mono);
+		font-size: 0.68rem;
+		opacity: 0.75;
 	}
 
-	.pane {
-		display: flex;
-		flex-direction: column;
-		min-height: 0;
+	.ghost {
+		padding: 0.55rem 0.9rem;
 		border: 1px solid var(--line);
-		background: color-mix(in srgb, var(--mist) 85%, white);
+		background: transparent;
+		border-radius: var(--radius);
+		font-family: var(--font-display);
+		font-weight: 600;
+		color: var(--ink);
+		cursor: pointer;
+	}
+
+	.ghost:hover {
+		border-color: var(--sage);
+		color: var(--sage);
+	}
+
+	.split {
+		display: grid;
+		grid-template-columns: 1.1fr 0.9fr;
+		flex: 1;
+		min-height: 0;
 	}
 
 	.pane-label {
-		padding: 0.55rem 0.85rem;
+		display: flex;
+		justify-content: space-between;
+		padding: 0.5rem 1rem;
 		border-bottom: 1px solid var(--line);
 		font-family: var(--font-mono);
-		font-size: 0.72rem;
-		letter-spacing: 0.06em;
+		font-size: 0.68rem;
+		letter-spacing: 0.08em;
 		text-transform: uppercase;
 		color: var(--ink-soft);
 	}
 
-	.editor,
-	.args-editor,
-	.out {
-		flex: 1;
-		margin: 0;
-		padding: 0.9rem 1rem;
-		border: none;
-		resize: vertical;
-		background: transparent;
-		font-family: var(--font-mono);
-		font-size: 0.84rem;
-		line-height: 1.45;
-		color: var(--ink);
-		min-height: 16rem;
+	.editor-wrap {
+		display: flex;
+		flex-direction: column;
+		border-right: 1px solid var(--line);
+		min-height: 0;
 	}
+
+	.editor {
+		position: relative;
+		flex: 1;
+		min-height: 22rem;
+		background: color-mix(in srgb, var(--mist) 92%, white);
+	}
+
+	.editor .hl,
+	.editor textarea {
+		position: absolute;
+		inset: 0;
+		margin: 0;
+		padding: 1rem 1.1rem;
+		font-family: var(--font-mono);
+		font-size: 0.86rem;
+		line-height: 1.55;
+		tab-size: 2;
+		white-space: pre;
+		overflow: auto;
+		border: 0;
+	}
+
+	.editor .hl {
+		pointer-events: none;
+		color: var(--ink);
+	}
+
+	.editor .hl code {
+		white-space: pre;
+	}
+
+	.editor textarea {
+		background: transparent;
+		color: transparent;
+		caret-color: var(--sage-deep);
+		resize: none;
+		outline: none;
+	}
+
+	.editor textarea::selection {
+		background: color-mix(in srgb, var(--sage) 25%, transparent);
+	}
+
+	.hl :global(.t-kw) { color: #2f6f4a; font-weight: 500; }
+	.hl :global(.t-def) { color: #1f3528; font-weight: 600; }
+	.hl :global(.t-type) { color: #6a4f2b; }
+	.hl :global(.t-str) { color: #8a4b2a; }
+	.hl :global(.t-interp) { color: #b85c38; font-weight: 500; }
+	.hl :global(.t-var) { color: #3b5f8a; }
+	.hl :global(.t-dir) { color: #7a5a1e; }
+	.hl :global(.t-num),
+	.hl :global(.t-lit) { color: #8a4b2a; }
+	.hl :global(.t-pipe) { color: #2f6f4a; font-weight: 700; }
+	.hl :global(.t-arrow) { color: #2f6f4a; font-weight: 600; }
+	.hl :global(.t-mod) { color: #4a5c4e; }
+	.hl :global(.t-fn) { color: #1f3528; }
+	.hl :global(.t-key) { color: #4a5c4e; }
+	.hl :global(.t-cm) { color: #7a877c; font-style: italic; }
+	.hl :global(.t-p) { opacity: 0.7; }
 
 	.args {
 		border-top: 1px solid var(--line);
 	}
 
 	.args-editor {
-		min-height: 5rem;
+		display: block;
 		width: 100%;
+		min-height: 4.5rem;
+		padding: 0.7rem 1.1rem;
+		border: 0;
+		background: transparent;
+		font-family: var(--font-mono);
+		font-size: 0.8rem;
+		color: var(--ink);
+		resize: vertical;
+		outline: none;
 	}
 
-	.out {
+	/* result */
+	.result {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		background: color-mix(in srgb, var(--mist) 80%, transparent);
+	}
+
+	.result-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		border-bottom: 1px solid var(--line);
+		padding-right: 1rem;
+	}
+
+	.tabs {
+		display: flex;
+	}
+
+	.tabs button {
+		padding: 0.6rem 1rem;
+		border: 0;
+		border-bottom: 2px solid transparent;
+		background: transparent;
+		font-family: var(--font-display);
+		font-weight: 600;
+		font-size: 0.85rem;
+		color: var(--ink-soft);
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+
+	.tabs button.active {
+		color: var(--sage-deep);
+		border-bottom-color: var(--sage);
+	}
+
+	.count {
+		font-family: var(--font-mono);
+		font-size: 0.68rem;
+		padding: 0 0.35rem;
+		border: 1px solid var(--line);
+	}
+
+	.outcome {
+		font-family: var(--font-mono);
+		font-size: 0.72rem;
+		padding: 0.25rem 0.55rem;
+		border: 1px solid var(--line);
+	}
+
+	.outcome.good {
+		color: #2f7a4f;
+		border-color: color-mix(in srgb, #2f7a4f 45%, transparent);
+		background: color-mix(in srgb, #2f7a4f 8%, transparent);
+	}
+
+	.outcome.bad {
+		color: var(--ember);
+		border-color: color-mix(in srgb, var(--ember) 45%, transparent);
+		background: color-mix(in srgb, var(--ember) 8%, transparent);
+	}
+
+	.result-body {
+		flex: 1;
 		overflow: auto;
+		min-height: 22rem;
+	}
+
+	.empty {
+		padding: 1.5rem 1.2rem;
+		color: var(--ink-soft);
+	}
+
+	.empty p {
+		margin: 0 0 0.5rem;
+	}
+
+	.empty strong {
+		color: var(--sage-deep);
+	}
+
+	.dim {
+		font-size: 0.9rem;
+		opacity: 0.8;
+	}
+
+	.json {
+		margin: 0;
+		padding: 1rem 1.1rem;
+		font-family: var(--font-mono);
+		font-size: 0.82rem;
+		line-height: 1.55;
 		white-space: pre-wrap;
 		word-break: break-word;
 	}
 
-	.out.muted {
-		color: var(--ink-soft);
+	.json :global(.t-key) { color: var(--sage-deep); }
+	.json :global(.t-str) { color: #8a4b2a; }
+	.json :global(.t-num) { color: #3b5f8a; }
+	.json :global(.t-lit) { color: #6a4f2b; }
+
+	.errbox {
+		margin: 1rem 1.1rem;
+		border: 1px solid color-mix(in srgb, var(--ember) 45%, transparent);
+		border-left: 3px solid var(--ember);
+		background: color-mix(in srgb, var(--ember) 6%, var(--mist));
 	}
 
-	.out.error {
+	.errbox.inline {
+		margin-bottom: 0;
+	}
+
+	.errcode {
+		padding: 0.4rem 0.8rem;
+		font-size: 0.7rem;
+		letter-spacing: 0.08em;
 		color: var(--ember);
-		min-height: auto;
-		flex: 0;
-		border-bottom: 1px solid var(--line);
+		border-bottom: 1px dashed color-mix(in srgb, var(--ember) 35%, transparent);
 	}
 
-	.note {
-		margin: 1rem 0 0;
-		font-size: 0.9rem;
+	.errbox pre {
+		margin: 0;
+		padding: 0.75rem 0.8rem;
+		font-family: var(--font-mono);
+		font-size: 0.82rem;
+		white-space: pre-wrap;
+		color: var(--ink);
+	}
+
+	.lints {
+		border-top: 1px solid var(--line);
+	}
+
+	.lint {
+		margin: 0;
+		padding: 0.5rem 1.1rem;
+		font-family: var(--font-mono);
+		font-size: 0.74rem;
+		color: #7a5a1e;
+		white-space: pre-wrap;
+	}
+
+	.trace {
+		list-style: none;
+		margin: 0;
+		padding: 0.4rem 0;
+	}
+
+	.trace li {
+		display: grid;
+		grid-template-columns: 2.2rem 1fr auto auto auto;
+		gap: 0.7rem;
+		align-items: baseline;
+		padding: 0.3rem 1.1rem 0.3rem calc(1.1rem + var(--depth) * 0.9rem);
+		font-size: 0.82rem;
+		border-bottom: 1px dashed var(--line);
+	}
+
+	.trace li.fail {
+		background: color-mix(in srgb, var(--ember) 8%, transparent);
+	}
+
+	.trace .idx {
 		color: var(--ink-soft);
+		font-size: 0.72rem;
 	}
 
-	@media (max-width: 900px) {
-		.grid {
+	.trace .fn {
+		font-family: var(--font-display);
+		font-weight: 600;
+		color: var(--sage-deep);
+	}
+
+	.trace .op {
+		color: var(--ink-soft);
+		font-size: 0.76rem;
+	}
+
+	.trace .shape,
+	.trace .iter {
+		font-size: 0.7rem;
+		color: var(--signal);
+	}
+
+	.mono {
+		font-family: var(--font-mono);
+	}
+
+	@media (max-width: 1000px) {
+		.pg {
 			grid-template-columns: 1fr;
+		}
+
+		.rail {
+			border-right: 0;
+			border-bottom: 1px solid var(--line);
+		}
+
+		.rail-foot {
+			display: none;
+		}
+
+		.examples {
+			display: flex;
+			overflow-x: auto;
+			padding: 0 0.6rem 0.6rem;
+		}
+
+		.examples button {
+			border-left: 0;
+			border-bottom: 3px solid transparent;
+			white-space: nowrap;
+		}
+
+		.examples button.active {
+			border-bottom-color: var(--sage);
+		}
+
+		.split {
+			grid-template-columns: 1fr;
+		}
+
+		.editor-wrap {
+			border-right: 0;
+			border-bottom: 1px solid var(--line);
 		}
 	}
 </style>
