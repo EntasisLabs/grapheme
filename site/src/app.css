@@ -1,26 +1,37 @@
 :root {
-	/* Deep sage + cream */
-	--ink: #2c4535;
-	--ink-soft: #54705c;
-	--paper: #f3eee4;
-	--paper-deep: #e5ddd0;
-	--mist: #faf7f1;
+	/* Paper */
+	--ink: #171c18;
+	--ink-soft: #545e57;
+	--paper: #f4f2ec;
+	--paper-deep: #e8e5dc;
+	--mist: #fbfaf7;
+	--line: rgba(23, 28, 24, 0.12);
+
+	/* Sage accents */
 	--sage: #3f5f4a;
 	--sage-deep: #1f3528;
 	--signal: #5f8168;
 	--signal-bright: #8aab92;
 	--ember: #b85c38;
-	--code-dark: #171614;
-	--line: color-mix(in srgb, var(--sage) 20%, transparent);
+	--ember-light: #e8a07a;
+
+	/* Dark instrument */
+	--panel: #171614;
+	--panel-2: #1e1d1a;
+	--panel-line: rgba(255, 255, 255, 0.09);
+	--panel-fg: #ece8df;
+	--panel-muted: #8e9a91;
+	--panel-dim: #626c65;
+
 	--radius: 2px;
 	--font-display: 'Syne', sans-serif;
 	--font-body: 'Literata', Georgia, serif;
 	--font-mono: 'IBM Plex Mono', ui-monospace, monospace;
-	--nav-h: 4rem;
+	--nav-h: 3.5rem;
 	color: var(--ink);
 	background: var(--paper);
 	font-family: var(--font-body);
-	font-size: 1.05rem;
+	font-size: 1rem;
 	line-height: 1.55;
 	font-synthesis: none;
 	text-rendering: optimizeLegibility;
@@ -46,7 +57,7 @@ a {
 }
 
 a:hover {
-	color: var(--signal);
+	color: var(--sage);
 }
 
 code,

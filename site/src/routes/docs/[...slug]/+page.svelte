@@ -98,7 +98,7 @@
 	}
 
 	.prose :global(pre.gr) {
-		background: var(--code-dark) !important;
+		background: var(--panel) !important;
 		color: #ece8df;
 		border-color: #2c2a27;
 	}

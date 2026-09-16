@@ -105,7 +105,7 @@
 		return () => io.disconnect();
 	});
 
-	const visibleSteps = $derived(steps.slice(Math.max(0, shown - 7), shown));
+	const visibleSteps = $derived(steps.slice(Math.max(0, shown - 10), shown));
 	const settled = $derived((phase === 'ok' || phase === 'refused') && shown >= steps.length);
 	const failedAt = $derived(steps.find((s) => !s.ok));
 </script>
@@ -115,21 +115,20 @@
 		<CodeBlock code={snippet.source} title={file} />
 	</div>
 	<div class="run">
-		<div class="run-head">
-			<span class="status">
+		<div class="head">
+			<span class="status" class:bad={phase === 'refused' || phase === 'error'}>
 				{#if phase === 'idle'}
-					<i class="dot"></i> ready
+					ready
 				{:else if phase === 'loading'}
-					<i class="dot pulse"></i> loading runtime
+					loading runtime
 				{:else if phase === 'running'}
-					<i class="dot pulse"></i> compiling · verifying · executing
+					compiling · executing
 				{:else if phase === 'ok'}
-					<i class="dot ok"></i> executed in your browser
+					ok
 				{:else if phase === 'refused'}
-					<i class="dot bad"></i> runtime refused at step
-					{String((failedAt?.index ?? 0) + 1).padStart(2, '0')}
+					refused · step {String((failedAt?.index ?? 0) + 1).padStart(2, '0')}
 				{:else}
-					<i class="dot bad"></i> failed
+					failed
 				{/if}
 			</span>
 			{#if phase === 'ok' || phase === 'refused'}
@@ -149,38 +148,35 @@
 					<li class:failed={!s.ok}>
 						<span class="idx">{String(s.index + 1).padStart(2, '0')}</span>
 						<span class="fn">{s.function_name}</span>
-						<span class="op">{s.ok ? s.op : `${s.op} ✕`}</span>
+						<span class="op">{s.op}</span>
 					</li>
 				{/each}
-				{#if phase === 'loading' || phase === 'running'}
-					<li class="ghost"><span class="idx">··</span><span class="fn">waiting</span></li>
-				{/if}
 			</ol>
 
-			<div class="state" class:bad={phase === 'refused'}>
-				<div class="label">{phase === 'refused' ? 'runtime message' : 'final state'}</div>
+			<div class="state">
+				<div class="label">{phase === 'refused' ? 'runtime' : 'final state'}</div>
 				{#if settled && phase === 'ok'}
 					<pre>{@html highlightJson(finalState)}</pre>
 				{:else if settled && phase === 'refused'}
-					<pre>{message}</pre>
+					<pre class="bad">{message}</pre>
 				{:else}
 					<pre class="dim">{snippet.output}</pre>
 				{/if}
 			</div>
-
-			{#if artifactId}
-				<div class="receipt">
-					<span class="label">artifact</span>
-					<span class="id">{artifactId}</span>
-				</div>
-			{/if}
 		{/if}
 
-		<div class="run-foot">
-			<button type="button" onclick={go} disabled={phase === 'running' || phase === 'loading'}>
-				Run again
-			</button>
-			<a href={`/playground?example=${snippet.id}`}>Edit in playground →</a>
+		<div class="foot">
+			{#if artifactId}
+				<span class="artifact"><span class="label">artifact</span> {artifactId}</span>
+			{:else}
+				<span></span>
+			{/if}
+			<span class="actions">
+				<button type="button" onclick={go} disabled={phase === 'running' || phase === 'loading'}>
+					run again
+				</button>
+				<a href={`/playground?example=${snippet.id}`}>edit in playground →</a>
+			</span>
 		</div>
 	</div>
 </div>
@@ -189,18 +185,15 @@
 	.live {
 		display: grid;
 		grid-template-columns: minmax(0, 1.45fr) minmax(17rem, 0.8fr);
-		gap: 0;
 		min-width: 0;
-		border: 1px solid var(--sage-deep);
+		background: var(--panel);
+		color: var(--panel-fg);
+		border-radius: var(--radius);
+		overflow: hidden;
 	}
 
 	.live.stack {
 		grid-template-columns: minmax(0, 1fr);
-	}
-
-	.live.stack .run {
-		border-left: 0;
-		border-top: 1px solid var(--line);
 	}
 
 	.src {
@@ -208,7 +201,6 @@
 	}
 
 	.src :global(.code) {
-		border: 0;
 		height: 100%;
 	}
 
@@ -216,203 +208,176 @@
 		display: flex;
 		flex-direction: column;
 		min-width: 0;
-		background: var(--mist);
-		border-left: 1px solid var(--line);
+		background: var(--panel-2);
+		border-left: 1px solid var(--panel-line);
 		font-family: var(--font-mono);
-		font-size: 0.78rem;
+		font-size: 0.76rem;
+		line-height: 1.5;
 	}
 
-	.run-head {
+	.live.stack .run {
+		border-left: 0;
+		border-top: 1px solid var(--panel-line);
+	}
+
+	.head {
 		display: flex;
 		flex-wrap: wrap;
 		justify-content: space-between;
-		align-items: center;
-		gap: 0.3rem 0.75rem;
-		padding: 0.6rem 0.9rem;
-		border-bottom: 1px solid var(--line);
+		gap: 0.2rem 1rem;
+		padding: 0.55rem 1.1rem;
+		border-bottom: 1px solid var(--panel-line);
+		font-size: 0.7rem;
+		letter-spacing: 0.06em;
 	}
 
 	.status {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.5rem;
-		color: var(--ink);
+		color: #a8d5b3;
+	}
+
+	.status.bad {
+		color: var(--ember-light);
 	}
 
 	.meta {
-		color: var(--ink-soft);
-	}
-
-	.dot {
-		width: 0.55rem;
-		height: 0.55rem;
-		border-radius: 50%;
-		background: var(--signal);
-		display: inline-block;
-	}
-
-	.dot.pulse {
-		animation: pulse 1s ease-in-out infinite;
-	}
-
-	.dot.ok {
-		background: #3f8f5f;
-	}
-
-	.dot.bad {
-		background: var(--ember);
-	}
-
-	@keyframes pulse {
-		0%,
-		100% {
-			opacity: 0.35;
-		}
-		50% {
-			opacity: 1;
-		}
+		color: var(--panel-muted);
 	}
 
 	.trace {
 		list-style: none;
 		margin: 0;
-		padding: 0.5rem 0;
-		min-height: 3.2rem;
-		border-bottom: 1px solid var(--line);
+		padding: 0.6rem 0 0.5rem;
+		min-height: 2.6rem;
 	}
 
 	.trace li {
 		display: grid;
-		grid-template-columns: 2rem 1fr auto;
-		gap: 0.6rem;
-		padding: 0.18rem 0.9rem;
-		animation: slide 220ms ease;
-	}
-
-	.trace .ghost {
-		opacity: 0.4;
-	}
-
-	.trace .failed .op {
-		color: var(--ember);
+		grid-template-columns: 1.6rem 1fr auto;
+		gap: 0.75rem;
+		padding: 0.12rem 1.1rem;
+		animation: slide 200ms ease;
 	}
 
 	@keyframes slide {
 		from {
-			transform: translateY(4px);
+			transform: translateY(3px);
 			opacity: 0;
 		}
 	}
 
 	.idx {
-		color: var(--ink-soft);
-		opacity: 0.7;
+		color: var(--panel-dim);
 	}
 
 	.fn {
-		color: var(--sage-deep);
-		font-weight: 500;
+		color: var(--panel-fg);
 	}
 
 	.op {
-		color: var(--ink-soft);
+		color: var(--panel-muted);
+	}
+
+	.failed .op {
+		color: var(--ember-light);
 	}
 
 	.state {
 		flex: 1;
-		padding: 0.6rem 0.9rem 0.8rem;
-	}
-
-	.state.bad {
-		border-left: 3px solid var(--ember);
+		padding: 0.8rem 1.1rem 1rem;
+		border-top: 1px solid var(--panel-line);
 	}
 
 	.label {
-		font-size: 0.68rem;
+		font-size: 0.66rem;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
-		color: var(--signal);
-		margin-bottom: 0.35rem;
+		color: var(--panel-dim);
 	}
 
-	.state pre {
+	.state .label {
+		margin-bottom: 0.4rem;
+	}
+
+	.state pre,
+	.err {
 		margin: 0;
-		font-size: 0.8rem;
-		line-height: 1.5;
+		font-size: 0.78rem;
+		line-height: 1.55;
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
-	}
-
-	.state.bad pre {
-		color: var(--ember);
 	}
 
 	.state pre.dim {
-		opacity: 0.35;
+		opacity: 0.3;
 	}
 
-	.state :global(.t-key) { color: var(--sage-deep); }
-	.state :global(.t-str) { color: #8a4b2a; }
-	.state :global(.t-num) { color: #3b5f8a; }
-	.state :global(.t-lit) { color: #6a4f2b; }
-
-	.receipt {
-		display: flex;
-		align-items: baseline;
-		gap: 0.6rem;
-		padding: 0.5rem 0.9rem;
-		border-top: 1px solid var(--line);
-	}
-
-	.receipt .label {
-		margin: 0;
-	}
-
-	.receipt .id {
-		color: var(--ink-soft);
-		overflow-wrap: anywhere;
+	.state pre.bad,
+	.err {
+		color: var(--ember-light);
 	}
 
 	.err {
-		margin: 0;
-		padding: 0.9rem;
-		color: var(--ember);
-		white-space: pre-wrap;
+		flex: 1;
+		padding: 0.8rem 1.1rem;
 	}
 
-	.run-foot {
+	.state :global(.t-key) { color: #cfe0d3; }
+	.state :global(.t-str) { color: #f0b48a; }
+	.state :global(.t-num) { color: #9ec9f5; }
+	.state :global(.t-lit) { color: #e8c38f; }
+
+	.foot {
 		display: flex;
+		flex-wrap: wrap;
 		justify-content: space-between;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.6rem 0.9rem;
-		border-top: 1px solid var(--line);
+		align-items: baseline;
+		gap: 0.3rem 1rem;
+		padding: 0.55rem 1.1rem;
+		border-top: 1px solid var(--panel-line);
+		font-size: 0.7rem;
 	}
 
-	.run-foot button,
-	.run-foot a {
+	.artifact {
+		color: var(--panel-muted);
+		overflow-wrap: anywhere;
+	}
+
+	.artifact .label {
+		margin-right: 0.35rem;
+	}
+
+	.actions {
+		display: inline-flex;
+		gap: 1.1rem;
 		white-space: nowrap;
 	}
 
-	.run-foot button {
-		border: 1px solid var(--line);
-		background: transparent;
-		padding: 0.3rem 0.65rem;
+	.actions button {
+		border: 0;
+		padding: 0;
+		background: none;
 		cursor: pointer;
-		font-family: var(--font-mono);
-		font-size: 0.75rem;
-		color: var(--ink);
+		font: inherit;
+		color: var(--panel-fg);
+		text-decoration: underline;
+		text-decoration-color: var(--panel-dim);
+		text-underline-offset: 0.2em;
 	}
 
-	.run-foot button:hover:not(:disabled) {
-		border-color: var(--sage);
-		color: var(--sage);
-	}
-
-	.run-foot a {
+	.actions button:disabled {
+		color: var(--panel-dim);
+		cursor: default;
 		text-decoration: none;
-		color: var(--sage);
-		font-weight: 500;
+	}
+
+	.actions button:hover:not(:disabled),
+	.actions a:hover {
+		color: #a8d5b3;
+	}
+
+	.actions a {
+		color: var(--panel-fg);
+		text-decoration: none;
 	}
 
 	@media (max-width: 760px) {
@@ -422,7 +387,7 @@
 
 		.run {
 			border-left: 0;
-			border-top: 1px solid var(--line);
+			border-top: 1px solid var(--panel-line);
 		}
 	}
 </style>
