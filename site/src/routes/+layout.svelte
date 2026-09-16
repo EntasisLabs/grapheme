@@ -48,7 +48,7 @@
 	.foot {
 		padding: 2.5rem clamp(1rem, 4vw, 3rem) 2rem;
 		border-top: 1px solid var(--line);
-		background: color-mix(in srgb, var(--paper-deep) 55%, transparent);
+		background: var(--paper);
 		color: var(--ink-soft);
 		font-size: 0.92rem;
 	}
@@ -61,10 +61,10 @@
 	}
 
 	.brand {
-		font-family: var(--font-display);
-		font-weight: 800;
-		font-size: 1.3rem;
-		letter-spacing: -0.04em;
+		font-family: var(--font-mono);
+		font-weight: 700;
+		font-size: 1.05rem;
+		letter-spacing: -0.02em;
 		color: var(--sage-deep);
 	}
 

@@ -3,12 +3,12 @@
 	import { highlightJson } from '$lib/highlight';
 	import { SNIPPETS } from '$lib/snippets';
 
-	let active = $state(SNIPPETS[0]!.id);
+	let active = $state(SNIPPETS[1]!.id);
 	const current = $derived(SNIPPETS.find((s) => s.id === active) ?? SNIPPETS[0]!);
 </script>
 
 <div class="tour">
-	<div class="tabs" role="tablist" aria-label="Language tour">
+	<div class="tabs" role="tablist" aria-label="More programs">
 		{#each SNIPPETS as s}
 			<button
 				role="tab"
@@ -26,15 +26,10 @@
 		<div class="copy">
 			<h3>{current.title}</h3>
 			<p>{current.blurb}</p>
-			<ul class="chips">
-				{#each current.tags as t}
-					<li>{t}</li>
-				{/each}
-			</ul>
 			<a class="open" href={`/playground?example=${current.id}`}>Open in playground →</a>
 		</div>
 		<div class="code">
-			<CodeBlock code={current.source} title={`${current.id}.gr`} dark={false} compact />
+			<CodeBlock code={current.source} title={`${current.id}.gr`} compact />
 			<div class="out" class:bad={current.id === 'policy'}>
 				<div class="out-label">
 					{current.id === 'policy' ? 'runtime refused' : 'final state'}
@@ -48,57 +43,47 @@
 </div>
 
 <style>
-	.tour {
-		border: 1px solid var(--line);
-		background: color-mix(in srgb, var(--mist) 70%, transparent);
-	}
-
 	.tabs {
 		display: flex;
 		flex-wrap: wrap;
+		gap: 0 1.4rem;
 		border-bottom: 1px solid var(--line);
 	}
 
 	.tabs button {
-		flex: 1 1 auto;
-		padding: 0.75rem 0.9rem;
+		padding: 0.55rem 0 0.6rem;
+		margin-bottom: -1px;
 		border: 0;
-		border-right: 1px solid var(--line);
+		border-bottom: 2px solid transparent;
 		background: transparent;
-		font-family: var(--font-display);
-		font-weight: 600;
-		font-size: 0.85rem;
+		font-family: var(--font-mono);
+		font-size: 0.82rem;
 		color: var(--ink-soft);
 		cursor: pointer;
 		white-space: nowrap;
 	}
 
-	.tabs button:last-child {
-		border-right: 0;
-	}
-
 	.tabs button.active {
-		background: var(--sage);
-		color: var(--mist);
+		color: var(--sage-deep);
+		border-bottom-color: var(--sage-deep);
 	}
 
 	.tabs button:hover:not(.active) {
 		color: var(--sage-deep);
-		background: color-mix(in srgb, var(--sage) 8%, transparent);
 	}
 
 	.panel {
 		display: grid;
-		grid-template-columns: 0.8fr 1.2fr;
-		gap: 1.5rem;
-		padding: 1.5rem;
+		grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+		gap: 2.5rem;
+		padding-top: 1.5rem;
 	}
 
 	.copy h3 {
-		margin: 0 0 0.6rem;
-		font-family: var(--font-display);
-		font-size: 1.35rem;
-		letter-spacing: -0.02em;
+		margin: 0 0 0.5rem;
+		font-size: 1.25rem;
+		font-weight: 600;
+		letter-spacing: -0.01em;
 		color: var(--sage-deep);
 	}
 
@@ -107,59 +92,29 @@
 		color: var(--ink-soft);
 	}
 
-	.chips {
-		list-style: none;
-		margin: 0 0 1.2rem;
-		padding: 0;
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.4rem;
-	}
-
-	.chips li {
-		font-family: var(--font-mono);
-		font-size: 0.72rem;
-		padding: 0.2rem 0.5rem;
-		border: 1px solid var(--line);
-		color: var(--sage-deep);
-		background: color-mix(in srgb, var(--mist) 80%, white);
-	}
-
 	.open {
-		font-family: var(--font-display);
-		font-weight: 700;
+		font-family: var(--font-mono);
+		font-size: 0.85rem;
 		text-decoration: none;
 		color: var(--sage);
 	}
 
-	.code {
-		display: grid;
-		gap: 0;
-	}
-
 	.out {
-		border: 1px solid var(--line);
-		border-top: 0;
-		background: color-mix(in srgb, var(--mist) 95%, white);
-		padding: 0.7rem 0.95rem 0.9rem;
+		border-top: 1px solid var(--line);
+		padding: 0.7rem 0 0;
 		font-family: var(--font-mono);
 		font-size: 0.8rem;
 	}
 
-	.out.bad {
-		border-left: 3px solid var(--ember);
-	}
-
 	.out-label {
-		font-size: 0.68rem;
-		letter-spacing: 0.08em;
+		font-size: 0.7rem;
+		letter-spacing: 0.06em;
 		text-transform: uppercase;
-		color: var(--signal);
+		color: var(--ink-soft);
 		margin-bottom: 0.4rem;
 	}
 
 	.out-label span {
-		color: var(--ink-soft);
 		text-transform: none;
 		letter-spacing: 0;
 		margin-left: 0.3rem;
@@ -182,7 +137,8 @@
 
 	@media (max-width: 900px) {
 		.panel {
-			grid-template-columns: 1fr;
+			grid-template-columns: minmax(0, 1fr);
+			gap: 1.2rem;
 		}
 	}
 </style>

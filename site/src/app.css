@@ -10,13 +10,13 @@
 	--signal: #5f8168;
 	--signal-bright: #8aab92;
 	--ember: #b85c38;
-	--line: color-mix(in srgb, var(--sage) 20%, transparent);
+	--line: color-mix(in srgb, var(--sage) 22%, transparent);
 	--shadow: color-mix(in srgb, var(--sage-deep) 22%, transparent);
 	--radius: 2px;
-	--font-display: 'Syne', sans-serif;
-	--font-body: 'Literata', Georgia, serif;
-	--font-mono: 'IBM Plex Mono', ui-monospace, monospace;
-	--nav-h: 4rem;
+	--font-display: 'Source Serif 4', Georgia, serif;
+	--font-body: 'Source Serif 4', Georgia, serif;
+	--font-mono: 'JetBrains Mono', ui-monospace, monospace;
+	--nav-h: 3.75rem;
 	color: var(--ink);
 	background: var(--paper);
 	font-family: var(--font-body);
@@ -40,11 +40,7 @@ body {
 }
 
 body {
-	background:
-		radial-gradient(1100px 580px at 8% -8%, color-mix(in srgb, var(--signal) 22%, transparent), transparent 58%),
-		radial-gradient(900px 520px at 100% 0%, color-mix(in srgb, var(--sage-deep) 10%, transparent), transparent 55%),
-		linear-gradient(180deg, var(--mist), var(--paper) 42%, var(--paper-deep));
-	background-attachment: fixed;
+	background: var(--paper);
 }
 
 a {
@@ -59,8 +55,12 @@ a:hover {
 
 code,
 pre,
-.mono {
+.mono,
+textarea {
 	font-family: var(--font-mono);
+	/* Show operators as written: `|>` must not render as a ligature glyph. */
+	font-variant-ligatures: none;
+	font-feature-settings: 'liga' 0, 'calt' 0;
 }
 
 button,

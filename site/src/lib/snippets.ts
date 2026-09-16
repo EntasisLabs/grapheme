@@ -61,7 +61,7 @@ mutation Advance on Release -> Release @core_default {
 		label: 'Params & call',
 		title: 'Executables take parameters',
 		blurb:
-			'Named `$params` with defaults on any executable. Bind them at the call site, from the CLI with --args-json, or from the SDK.',
+			'Named $params with defaults on any executable. Bind them at the call site, from the CLI with --args-json, or from the SDK.',
 		source: `import core from "grapheme/core"
 
 query ParamsCallBind($label: String = "world") {
@@ -84,7 +84,7 @@ iterator Greet($label: String) on Any {
 		label: 'Tags & using',
 		title: 'Ambient context, explicitly scoped',
 		blurb:
-			'A `tag` declares ambient bindings such as auth or session. `using` activates them for one block only — read `$token` outside and the compiler stops you.',
+			'A tag declares ambient bindings such as auth or session. using activates them for one block only — read $token outside and the compiler stops you.',
 		source: `import core from "grapheme/core"
 
 tag auth {
@@ -109,7 +109,7 @@ query TagUsingScope {
 		label: 'Data pipeline',
 		title: 'Shape data in the open',
 		blurb:
-			'Parse, filter, project. Every step is a visible transformation over `$state`, and every step lands in the execution trace.',
+			'Parse, filter, project. Every step is a visible transformation over $state, and every step lands in the execution trace.',
 		source: `import core from "grapheme/core"
 import csv from "grapheme/csv"
 

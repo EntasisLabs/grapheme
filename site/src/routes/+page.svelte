@@ -1,342 +1,119 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import Seo from '$lib/components/Seo.svelte';
 	import LiveHero from '$lib/components/LiveHero.svelte';
 	import LanguageTour from '$lib/components/LanguageTour.svelte';
-	import CodeBlock from '$lib/components/CodeBlock.svelte';
 	import { GITHUB_URL } from '$lib/site';
-
-	let reveal = $state(false);
-	onMount(() => requestAnimationFrame(() => (reveal = true)));
-
-	const wasmSafe = ['core', 'json', 'csv', 'yaml', 'html'];
-	const hostOnly = ['http', 'sql', 'smtp', 'secrets', 'tcp', 'memory', 'data', 'pdf', 'image', 'plot', 'media'];
-
-	const install = `cargo install --git https://github.com/entasislabs/grapheme.git grapheme-cli --bin grapheme
-
-grapheme examples init --out .
-grapheme run examples/hello-world.gr --json`;
-
-	const policy = `GRAPHEME_ALLOWED_HTTP_DOMAINS=api.internal \\
-GRAPHEME_ALLOWED_SECRETS=deploy-token \\
-  grapheme run release.gr --native-modules --json`;
-
-	const compare = [
-		{
-			name: 'Plain scripts',
-			sub: 'Python / TypeScript',
-			good: 'Fastest to start. Full ecosystem.',
-			gap: 'No perimeter around side effects, no trace, control flow buried in code.'
-		},
-		{
-			name: 'Temporal',
-			sub: 'durable execution',
-			good: 'Survives crashes over days; retries and history built in.',
-			gap: 'Needs a cluster and SDK; workflow logic is ordinary code in a big language.'
-		},
-		{
-			name: 'Step Functions',
-			sub: 'AWS state machines',
-			good: 'Managed, visual, deeply wired into AWS.',
-			gap: 'Verbose JSON definitions; one cloud only; hard to run locally or embed.'
-		},
-		{
-			name: 'Dagster',
-			sub: 'data orchestration',
-			good: 'Assets, schedules, lineage for data teams.',
-			gap: 'Built for pipelines and Python; heavy for a rollout gate or an agent loop.'
-		}
-	];
+	import rawCli from '$lib/raw-cli.txt?raw';
 </script>
 
 <Seo />
 
-<!-- ───────────────────────── HERO ───────────────────────── -->
-<section class="hero" class:reveal>
-	<div class="hero-copy">
-		<p class="kicker mono">v0.7 · Apache-2.0 · Rust · Wasm</p>
+<section class="hero">
+	<div class="copy">
 		<h1>
 			<span class="word">grapheme</span>
-			<span class="line">A small language for<br />workflows that have to be right.</span>
+			<span class="line">A small language for workflows that must not go wrong quietly.</span>
 		</h1>
 		<p class="lede">
-			Write the steps. Grapheme checks the types, keeps every side effect behind a permission you
-			grant, and records what happened. It compiles once and runs on a server, at the edge, or in
-			your browser.
+			You declare the state, chain steps with <code>|&gt;</code>, branch with <code>match</code>,
+			loop with a budget. The compiler checks the shape of your data. The runtime refuses any host,
+			database, or secret you didn't allow-list, and hands back a trace of every step. The program next
+			to this text is being compiled and run by that runtime, in Wasm, in this tab.
 		</p>
 		<div class="cta">
-			<a class="btn primary" href="/playground">Open playground</a>
-			<a class="btn ghost" href="/docs/quickstart">Install in 2 minutes</a>
+			<a class="btn" href="/playground">Open the playground</a>
+			<a class="quiet" href="/docs/quickstart">or install the CLI</a>
 		</div>
-		<p class="proof mono">↓ compiled &amp; executed by the real runtime, in Wasm, on this page</p>
 	</div>
-
-	<div class="hero-live">
+	<div class="live">
 		<LiveHero />
 	</div>
 </section>
 
-<!-- ───────────────────────── USE CASE ───────────────────────── -->
-<section class="usecase">
-	<div class="uc-head">
-		<p class="eyebrow">What that program above is doing</p>
-		<h2>A deployment rollout, written the way you'd explain it.</h2>
-	</div>
-	<ol class="uc-steps">
-		<li>
-			<span class="n">1</span>
-			<div>
-				<h3>Say what the state looks like</h3>
-				<p>
-					<code>struct Release</code> declares a service, a step counter, and a status. Misspell a
-					field anywhere and the compiler stops you before anything runs.
-				</p>
-			</div>
-		</li>
-		<li>
-			<span class="n">2</span>
-			<div>
-				<h3>Loop with a budget, branch on status</h3>
-				<p>
-					<code>Ramp</code> runs at most ten times (<code>@loop(max: 10)</code>) and reads like a
-					checklist: if we're <code>complete</code>, stop; otherwise advance. No runaway loops, no
-					hidden goto.
-				</p>
-			</div>
-		</li>
-		<li>
-			<span class="n">3</span>
-			<div>
-				<h3>Get a receipt</h3>
-				<p>
-					Every step lands in a trace — who ran, which operation, what came out. The panel on the
-					right of the hero is that trace. Swap the counter for a canary health check and an
-					<code>http</code> call and you have a real release gate.
-				</p>
-			</div>
-		</li>
-	</ol>
-	<p class="uc-foot">
-		The same shape fits a data clean-up job, an approval flow, or an agent that must not call the
-		outside world without permission.
-	</p>
-</section>
-
-<!-- ───────────────────────── TOUR ───────────────────────── -->
-<section class="band">
-	<div class="band-head">
-		<p class="eyebrow">Language at a glance</p>
-		<h2>Eight small programs. All of them actually ran.</h2>
-		<p class="support">
-			Outputs below are the real results from <code>grapheme-wasm</code>. Open any of them in the
-			playground and break it.
+<section class="who">
+	<h2>Who this is for</h2>
+	<div class="prose">
+		<p>
+			Most automation starts as a script and ends as a liability. Somebody wrote a Python file that
+			deploys the service, calls three APIs, and reads a token from an environment variable, and now
+			nobody wants to touch it. The usual fix is a workflow platform, and the platform trades the
+			liability for a cluster, a vendor, and a lot of JSON.
+		</p>
+		<p>
+			Grapheme is the other fix. It is deliberately small. There is no scheduler, no UI, no
+			general-purpose standard library. What you get is a language whose control flow you can read
+			in one sitting, a type check on your state, a capability perimeter that fails closed, and an
+			execution trace you can diff. It compiles to one artifact that runs from a CLI, inside a
+			container, or in a browser.
+		</p>
+		<p>
+			Use it for the release gate, the nightly data clean-up, the approval flow, the agent that
+			shouldn't be allowed to call the internet without asking. The workflow fits on a screen but
+			would hurt if it went wrong.
+		</p>
+		<p>
+			Don't use it when a job has to survive a crash over a weekend. That is <a
+				href="https://temporal.io">Temporal</a
+			>'s problem and we don't solve it. Don't use it for a data platform with lineage and backfills;
+			that's <a href="https://dagster.io">Dagster</a>. If you live entirely in AWS and like <a
+				href="https://aws.amazon.com/step-functions/">Step Functions</a
+			>, keep them. And if you're really building an application, write the application.
+		</p>
+		<p class="status">
+			Where it stands: version 0.7.1, ten crates, 47 example programs, a VS Code extension, a
+			conformance suite in CI, one GitHub star, and no production adopters that we know of. It is
+			early. The runtime is real, which is why it is on this page as a program instead of a diagram.
 		</p>
 	</div>
+</section>
+
+<section class="more">
+	<h2>More programs <span>every one of these was run through the same Wasm binary; outputs are unedited</span></h2>
 	<LanguageTour />
 </section>
 
-<!-- ───────────────────────── FIT ───────────────────────── -->
-<section class="band fit">
-	<div class="band-head">
-		<p class="eyebrow">Where it fits</p>
-		<h2>Grapheme is for some jobs. Not all of them.</h2>
-	</div>
-	<div class="fit-grid">
-		<div class="fit-col is">
-			<h3>Reach for it when</h3>
-			<ul>
-				<li>The workflow is short enough to read in one sitting but important enough to audit.</li>
-				<li>You need to say which hosts, secrets, and databases a run may touch — and have that enforced.</li>
-				<li>Humans write it, agents run it, or the other way round. Same source either way.</li>
-				<li>You want it to run without a control plane: a CLI, a container, an edge function, a browser tab.</li>
-			</ul>
-		</div>
-		<div class="fit-col isnt">
-			<h3>Don't, yet, when</h3>
-			<ul>
-				<li>You need durable execution across process crashes over days. There is no persistence layer or scheduler.</li>
-				<li>You're building a general application. It's a workflow language, not a replacement for your stack.</li>
-				<li>Your problem is a data platform with lineage, backfills, and hundreds of assets.</li>
-				<li>You need a hosted UI, alerting, or a marketplace of integrations today.</li>
-			</ul>
-		</div>
-	</div>
-	<div class="compare">
-		{#each compare as c}
-			<div class="cmp">
-				<div class="cmp-name">
-					<strong>{c.name}</strong>
-					<span class="mono">{c.sub}</span>
-				</div>
-				<p class="good">{c.good}</p>
-				<p class="gap">{c.gap}</p>
-			</div>
-		{/each}
-	</div>
+<section class="raw">
+	<h2>What the CLI prints <span>one run of <code>examples/hello-world.gr</code>, pasted as-is</span></h2>
+	<pre class="dump">{rawCli}</pre>
 </section>
 
-<!-- ───────────────────────── UNDER THE HOOD ───────────────────────── -->
-<section class="band hood">
-	<div class="band-head">
-		<p class="eyebrow">Under the hood</p>
-		<h2>Modules are the standard library. Policy is the perimeter.</h2>
-		<p class="support">
-			Source is parsed, type-checked, and lowered to a verified artifact; one runtime executes it
-			natively, inside WASI, or in the browser. Pure transforms run anywhere. Anything that touches
-			the outside world is a host capability behind an explicit allow-list.
-		</p>
-	</div>
-	<div class="caps-strip">
-		<div class="caps-row">
-			<span class="badge ok">wasm-safe</span>
-			<span class="mods">{#each wasmSafe as m, i}<code>{m}</code>{#if i < wasmSafe.length - 1}<i>·</i>{/if}{/each}</span>
-			<span class="caps-note">pure transforms — run in this browser tab</span>
-		</div>
-		<div class="caps-row">
-			<span class="badge host">host</span>
-			<span class="mods">{#each hostOnly as m, i}<code>{m}</code>{#if i < hostOnly.length - 1}<i>·</i>{/if}{/each}</span>
-			<span class="caps-note">side effects — refused unless <code>GRAPHEME_ALLOWED_*</code> says otherwise</span>
-		</div>
-	</div>
-	<div class="policy">
-		<div>
-			<h3>Grant, don't hope.</h3>
-			<p>
-				Policy lives outside the source. The same <code>release.gr</code> runs in CI with one
-				perimeter and in production with another — no code change.
-			</p>
-		</div>
-		<CodeBlock code={policy} title="shell" compact />
-	</div>
-</section>
-
-<!-- ───────────────────────── NUMBERS + INSTALL ───────────────────────── -->
-<section class="band numbers">
-	<div class="band-head">
-		<p class="eyebrow">By the numbers</p>
-		<h2>Early, and measurable.</h2>
-		<p class="support">
-			No adopter logos yet. These are the signals we can stand behind today, taken from the
-			repository and from this page.
-		</p>
-	</div>
-	<ul class="stats">
-		<li>
-			<strong>~16 ms</strong>
-			<span>to compile, verify, and run a 5,000-step loop inside Wasm (Node 22, warm). The hero above reports its own time on every load.</span>
-		</li>
-		<li>
-			<strong>47</strong>
-			<span>example programs in <code>examples/</code>, from hello-world to Stage B containers.</span>
-		</li>
-		<li>
-			<strong>10 crates</strong>
-			<span>at 0.7.1 plus a VS Code extension, gated by a conformance workflow on every push.</span>
-		</li>
-		<li>
-			<strong>3 targets</strong>
-			<span>one runtime: native CLI, WASI module, and <code>wasm32-unknown-unknown</code> for embedding.</span>
-		</li>
-	</ul>
-	<div class="install">
-		<div class="install-copy">
-			<h3>Install</h3>
-			<p>
-				CLI with <code>parse</code>, <code>compile</code>, <code>run</code>, and JSON output on
-				everything. LSP and VS Code extension ship with each release. Rust SDK for embedding,
-				including a slim profile for iOS and Wasm.
-			</p>
-		</div>
-		<CodeBlock code={install} title="terminal" compact />
-	</div>
-</section>
-
-<!-- ───────────────────────── CLOSE ───────────────────────── -->
-<section class="close">
-	<h2>Write the workflow you'd want to read at 3 a.m.</h2>
-	<div class="cta">
-		<a class="btn primary" href="/playground">Try it in the browser</a>
-		<a class="btn ghost" href="/docs/why-grapheme">Why Grapheme</a>
-		<a class="btn ghost" href={GITHUB_URL}>Source on GitHub ↗</a>
-	</div>
+<section class="install">
+	<h2>Install</h2>
+	<pre class="cmd">cargo install --git https://github.com/entasislabs/grapheme.git grapheme-cli --bin grapheme</pre>
+	<p>
+		Then <a href="/docs/quickstart">the quickstart</a>, <a href="/docs/language-tour">the language tour</a>,
+		or <a href={GITHUB_URL}>the source</a>. Apache-2.0.
+	</p>
 </section>
 
 <style>
-	/* shared */
-	.eyebrow {
-		margin: 0 0 0.5rem;
-		font-family: var(--font-mono);
-		font-size: 0.74rem;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--signal);
+	section {
+		padding: 0 clamp(1rem, 4vw, 3rem);
 	}
 
 	h2 {
-		margin: 0;
-		font-family: var(--font-display);
-		font-weight: 700;
-		font-size: clamp(1.6rem, 3vw, 2.3rem);
-		letter-spacing: -0.03em;
-		line-height: 1.15;
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 0.4rem 1rem;
+		margin: 0 0 1.4rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--sage-deep);
+		font-size: 1.05rem;
+		font-weight: 600;
+		letter-spacing: 0;
 		color: var(--sage-deep);
-		max-width: 26ch;
 	}
 
-	.support {
-		margin: 0.8rem 0 0;
-		max-width: 44rem;
+	h2 span {
+		font-family: var(--font-mono);
+		font-size: 0.74rem;
+		font-weight: 400;
 		color: var(--ink-soft);
 	}
 
-	.band {
-		padding: clamp(2.5rem, 6vh, 4.25rem) clamp(1rem, 4vw, 3rem);
-		border-top: 1px solid var(--line);
-	}
-
-	.band-head {
-		margin-bottom: 1.6rem;
-	}
-
-	.btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0.85rem 1.3rem;
-		border-radius: var(--radius);
-		font-family: var(--font-display);
-		font-weight: 700;
-		text-decoration: none;
-		transition:
-			transform 160ms ease,
-			background 160ms ease,
-			border-color 160ms ease;
-	}
-
-	.btn.primary {
-		background: var(--sage);
-		color: var(--mist);
-	}
-
-	.btn.primary:hover {
-		background: var(--sage-deep);
-		transform: translateY(-1px);
-	}
-
-	.btn.ghost {
-		border: 1px solid color-mix(in srgb, var(--sage) 45%, transparent);
-		color: var(--sage-deep);
-		background: color-mix(in srgb, var(--mist) 60%, transparent);
-	}
-
-	.btn.ghost:hover {
-		border-color: var(--sage);
-	}
-
-	.cta {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.75rem;
+	h2 span code {
+		font-size: inherit;
 	}
 
 	/* hero */
@@ -344,457 +121,181 @@ GRAPHEME_ALLOWED_SECRETS=deploy-token \\
 		display: grid;
 		grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
 		gap: clamp(1.5rem, 4vw, 3.5rem);
-		align-items: center;
-		padding: clamp(2rem, 6vh, 4.5rem) clamp(1rem, 4vw, 3rem) clamp(2.5rem, 7vh, 4.5rem);
-		overflow: hidden;
-		opacity: 0;
-		transform: translateY(10px);
-		transition:
-			opacity 700ms ease,
-			transform 700ms ease;
+		align-items: start;
+		padding-top: clamp(2rem, 6vh, 4rem);
+		padding-bottom: clamp(2.5rem, 6vh, 4rem);
 	}
 
-	.hero.reveal {
-		opacity: 1;
-		transform: none;
-	}
-
-	.kicker {
-		margin: 0 0 1rem;
-		font-size: 0.74rem;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--signal);
-	}
-
-	h1 {
-		margin: 0;
-		font-family: var(--font-display);
-	}
-
-	.hero-copy {
+	.copy {
 		min-width: 0;
 		container-type: inline-size;
 	}
 
+	h1 {
+		margin: 0;
+	}
+
 	.word {
 		display: block;
-		font-weight: 800;
-		/* Syne 800 'grapheme' is ~6.4em wide; keep it inside the column. */
-		font-size: clamp(2.6rem, 14.5cqw, 5.4rem);
-		line-height: 0.9;
-		letter-spacing: -0.06em;
+		font-family: var(--font-mono);
+		font-weight: 700;
+		font-size: clamp(2rem, 9cqw, 3.4rem);
+		letter-spacing: -0.04em;
+		line-height: 1;
 		color: var(--sage-deep);
-		margin-bottom: 1rem;
+		margin-bottom: 1.1rem;
+	}
+
+	.word::before {
+		content: '|> ';
+		color: var(--signal);
+		font-weight: 500;
 	}
 
 	.line {
 		display: block;
-		font-weight: 700;
-		font-size: clamp(1.3rem, 2.4vw, 1.9rem);
-		line-height: 1.2;
-		letter-spacing: -0.025em;
+		font-weight: 600;
+		font-size: clamp(1.35rem, 2.2vw, 1.75rem);
+		line-height: 1.25;
+		letter-spacing: -0.015em;
 		color: var(--ink);
+		max-width: 22ch;
 	}
 
 	.lede {
 		margin: 1.2rem 0 1.6rem;
-		max-width: 34rem;
-		font-size: 1.08rem;
+		max-width: 36rem;
 		color: var(--ink-soft);
 	}
 
-	.proof {
-		margin: 1.4rem 0 0;
-		font-size: 0.74rem;
-		color: var(--signal);
+	.lede code {
+		font-size: 0.88em;
+		color: var(--sage-deep);
 	}
 
-	.hero-live {
+	.cta {
+		display: flex;
+		align-items: center;
+		gap: 1.2rem;
+		flex-wrap: wrap;
+	}
+
+	.btn {
+		display: inline-block;
+		padding: 0.8rem 1.25rem;
+		background: var(--sage-deep);
+		color: var(--mist);
+		font-weight: 600;
+		text-decoration: none;
+	}
+
+	.btn:hover {
+		background: var(--sage);
+		color: var(--mist);
+	}
+
+	.quiet {
+		color: var(--ink-soft);
+	}
+
+	.live {
 		min-width: 0;
 	}
 
-	/* use case */
-	.usecase {
-		padding: clamp(2.5rem, 6vh, 4.25rem) clamp(1rem, 4vw, 3rem);
-		background: var(--sage-deep);
-		color: var(--mist);
+	/* who */
+	.who {
+		padding-bottom: clamp(2.5rem, 6vh, 4rem);
 	}
 
-	.usecase .eyebrow {
-		color: var(--signal-bright);
-	}
-
-	.usecase h2 {
-		color: var(--mist);
-		max-width: 24ch;
-	}
-
-	.uc-head {
-		margin-bottom: 2rem;
-	}
-
-	.uc-steps {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		display: grid;
-		grid-template-columns: repeat(3, 1fr);
-		gap: 2rem;
-	}
-
-	.uc-steps li {
-		display: grid;
-		grid-template-columns: 2.2rem 1fr;
-		gap: 0.9rem;
-		align-items: start;
-	}
-
-	.uc-steps .n {
-		display: grid;
-		place-items: center;
-		width: 2.2rem;
-		height: 2.2rem;
-		border: 1px solid var(--signal-bright);
-		color: var(--signal-bright);
-		font-family: var(--font-mono);
-		font-size: 0.85rem;
-	}
-
-	.uc-steps h3 {
-		margin: 0.2rem 0 0.45rem;
-		font-family: var(--font-display);
+	.prose {
+		max-width: 44rem;
 		font-size: 1.1rem;
-		letter-spacing: -0.01em;
+		line-height: 1.6;
 	}
 
-	.uc-steps p {
-		margin: 0;
-		color: color-mix(in srgb, var(--mist) 78%, transparent);
-		font-size: 0.98rem;
+	.prose p {
+		margin: 0 0 1.1rem;
 	}
 
-	.usecase code {
-		font-family: var(--font-mono);
-		font-size: 0.86em;
-		color: var(--signal-bright);
-	}
-
-	.uc-foot {
-		margin: 1.8rem 0 0;
-		max-width: 46rem;
-		padding-left: 1rem;
-		border-left: 2px solid var(--signal-bright);
-		color: color-mix(in srgb, var(--mist) 85%, transparent);
-	}
-
-	/* fit */
-	.fit-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 1.5rem;
-		margin-bottom: 1.5rem;
-	}
-
-	.fit-col {
-		padding: 1.4rem 1.5rem 1.5rem;
-		border: 1px solid var(--line);
-		background: color-mix(in srgb, var(--mist) 85%, white);
-	}
-
-	.fit-col.is {
-		border-top: 3px solid var(--sage);
-	}
-
-	.fit-col.isnt {
-		border-top: 3px solid var(--ember);
-	}
-
-	.fit-col h3 {
-		margin: 0 0 0.9rem;
-		font-family: var(--font-display);
-		font-size: 1.15rem;
+	.prose a {
 		color: var(--sage-deep);
 	}
 
-	.fit-col ul {
-		margin: 0;
-		padding: 0;
-		list-style: none;
-		display: grid;
-		gap: 0.6rem;
-	}
-
-	.fit-col li {
-		padding-left: 1.1rem;
-		position: relative;
-		color: var(--ink-soft);
-		font-size: 0.98rem;
-	}
-
-	.fit-col li::before {
-		content: '';
-		position: absolute;
-		left: 0;
-		top: 0.6em;
-		width: 0.45rem;
-		height: 0.45rem;
-		background: var(--sage);
-	}
-
-	.fit-col.isnt li::before {
-		background: var(--ember);
-	}
-
-	.compare {
-		display: grid;
-		grid-template-columns: repeat(4, 1fr);
-		gap: 1px;
-		background: var(--line);
-		border: 1px solid var(--line);
-	}
-
-	.cmp {
-		padding: 1.1rem 1.2rem 1.3rem;
-		background: color-mix(in srgb, var(--mist) 85%, white);
-		display: grid;
-		gap: 0.5rem;
-		align-content: start;
-	}
-
-	.cmp-name {
-		display: grid;
-		gap: 0.15rem;
-		margin-bottom: 0.3rem;
-	}
-
-	.cmp-name strong {
-		font-family: var(--font-display);
-		font-size: 1.05rem;
-		color: var(--sage-deep);
-	}
-
-	.cmp-name span {
-		font-size: 0.7rem;
-		color: var(--signal);
-	}
-
-	.cmp p {
-		margin: 0;
-		font-size: 0.9rem;
-		line-height: 1.45;
-	}
-
-	.cmp .good {
-		color: var(--ink);
-	}
-
-	.cmp .gap {
-		color: var(--ink-soft);
-		padding-left: 0.7rem;
-		border-left: 2px solid color-mix(in srgb, var(--ember) 55%, transparent);
-	}
-
-	/* hood */
-	.caps-strip {
-		display: grid;
-		gap: 1px;
-		background: var(--line);
-		border: 1px solid var(--line);
-		margin-bottom: 2rem;
-	}
-
-	.caps-row {
-		display: grid;
-		grid-template-columns: 6.5rem 1fr auto;
-		gap: 1rem;
-		align-items: center;
-		padding: 0.75rem 1rem;
-		background: color-mix(in srgb, var(--mist) 85%, white);
-	}
-
-	.mods {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.25rem 0.4rem;
-		font-family: var(--font-mono);
-		font-size: 0.86rem;
-		color: var(--sage-deep);
-	}
-
-	.mods i {
-		color: var(--ink-soft);
-		opacity: 0.6;
-		font-style: normal;
-	}
-
-	.caps-note {
-		font-family: var(--font-mono);
-		font-size: 0.72rem;
-		color: var(--ink-soft);
-		text-align: right;
-	}
-
-	.caps-note code {
-		color: var(--ember);
-	}
-
-	.badge {
-		justify-self: start;
-		padding: 0.15rem 0.5rem;
-		font-size: 0.68rem;
-		letter-spacing: 0.06em;
-		text-transform: uppercase;
-	}
-
-	.badge.ok {
-		background: var(--sage);
-		color: var(--mist);
-	}
-
-	.badge.host {
-		background: color-mix(in srgb, var(--ember) 15%, var(--mist));
-		color: var(--ember);
-		border: 1px solid color-mix(in srgb, var(--ember) 40%, transparent);
-	}
-
-	.policy {
-		display: grid;
-		grid-template-columns: 0.9fr 1.1fr;
-		gap: 2rem;
-		align-items: center;
-	}
-
-	.policy h3,
-	.install-copy h3 {
-		margin: 0 0 0.5rem;
-		font-family: var(--font-display);
-		font-size: 1.4rem;
-		color: var(--sage-deep);
-	}
-
-	.policy p,
-	.install-copy p {
-		margin: 0;
-		color: var(--ink-soft);
-	}
-
-	/* numbers */
-	.stats {
-		list-style: none;
-		margin: 0 0 2rem;
-		padding: 0;
-		display: grid;
-		grid-template-columns: repeat(4, 1fr);
-		gap: 1.5rem;
-	}
-
-	.stats li {
-		display: grid;
-		gap: 0.4rem;
-		padding-top: 0.9rem;
-		border-top: 2px solid var(--sage);
-	}
-
-	.stats strong {
-		font-family: var(--font-display);
-		font-weight: 800;
-		font-size: 2rem;
-		letter-spacing: -0.04em;
-		line-height: 1;
-		color: var(--sage-deep);
-	}
-
-	.stats span {
-		font-size: 0.92rem;
-		color: var(--ink-soft);
-	}
-
-	.install {
-		display: grid;
-		grid-template-columns: 0.9fr 1.1fr;
-		gap: 2rem;
-		align-items: center;
-	}
-
-	/* close */
-	.close {
-		padding: clamp(2.5rem, 7vh, 4.5rem) clamp(1rem, 4vw, 3rem);
+	.status {
+		padding-top: 1rem;
 		border-top: 1px solid var(--line);
-		display: grid;
-		gap: 1.5rem;
-		justify-items: start;
+		color: var(--ink-soft);
 	}
 
-	.close h2 {
-		max-width: 22ch;
-		font-size: clamp(1.8rem, 3.6vw, 2.8rem);
+	/* more */
+	.more {
+		padding-bottom: clamp(2.5rem, 6vh, 4rem);
+	}
+
+	/* raw */
+	.raw {
+		padding-bottom: clamp(2.5rem, 6vh, 4rem);
+	}
+
+	.dump {
+		margin: 0;
+		padding: 0;
+		max-height: 34rem;
+		overflow: auto;
+		font-size: 0.78rem;
+		line-height: 1.45;
+		color: var(--ink);
+		white-space: pre;
+		tab-size: 2;
+	}
+
+	/* install */
+	.install {
+		padding-bottom: clamp(3rem, 8vh, 5rem);
+	}
+
+	.cmd {
+		margin: 0 0 0.9rem;
+		font-size: 0.86rem;
+		white-space: pre-wrap;
+		word-break: break-all;
+		color: var(--sage-deep);
+	}
+
+	.install p {
+		margin: 0;
+		color: var(--ink-soft);
+	}
+
+	.install a {
+		color: var(--sage-deep);
 	}
 
 	@media (max-width: 1280px) {
 		.hero {
-			grid-template-columns: 1fr;
-			align-items: start;
+			grid-template-columns: minmax(0, 1fr);
 		}
 
 		.word {
-			font-size: clamp(2.6rem, 12cqw, 5.4rem);
-		}
-	}
-
-	@media (max-width: 1000px) {
-		.fit-grid,
-		.policy,
-		.install {
-			grid-template-columns: 1fr;
+			font-size: clamp(2rem, 7cqw, 3.2rem);
 		}
 
-		.caps-row {
-			grid-template-columns: 6.5rem 1fr;
-		}
-
-		.caps-note {
-			grid-column: 2;
-			text-align: left;
-		}
-
-		.uc-steps,
-		.compare,
-		.stats {
-			grid-template-columns: repeat(2, 1fr);
+		.line {
+			max-width: 30ch;
 		}
 	}
 
 	@media (max-width: 600px) {
-		.hero {
-			padding-top: 1.6rem;
-		}
-
 		.word {
-			font-size: clamp(1.9rem, 9cqw, 2.5rem);
-			margin-bottom: 0.7rem;
+			font-size: clamp(1.7rem, 8cqw, 2.2rem);
 		}
 
 		.line {
-			font-size: 1.2rem;
+			font-size: 1.25rem;
 		}
 
-		.lede {
-			font-size: 1rem;
-		}
-
-		.uc-steps,
-		.compare,
-		.stats {
-			grid-template-columns: 1fr;
-		}
-
-		.caps-row {
-			grid-template-columns: 1fr;
-		}
-
-		.caps-note {
-			grid-column: 1;
+		.prose {
+			font-size: 1.02rem;
 		}
 	}
 </style>

@@ -130,7 +130,6 @@
 		gap: 0;
 		min-width: 0;
 		border: 1px solid color-mix(in srgb, var(--sage-deep) 40%, transparent);
-		box-shadow: 0 30px 80px var(--shadow);
 	}
 
 	.src {
@@ -290,29 +289,29 @@
 	}
 
 	.run-foot button {
-		border: 1px solid var(--line);
+		border: 0;
 		background: transparent;
-		padding: 0.3rem 0.65rem;
+		padding: 0;
 		cursor: pointer;
 		font-family: var(--font-mono);
 		font-size: 0.75rem;
-		color: var(--ink);
+		color: var(--ink-soft);
+		text-decoration: underline;
+		text-underline-offset: 0.2em;
 	}
 
 	.run-foot button:hover:not(:disabled) {
-		border-color: var(--sage);
 		color: var(--sage);
 	}
 
 	.run-foot a {
-		text-decoration: none;
-		color: var(--sage);
+		color: var(--sage-deep);
 		font-weight: 500;
 	}
 
 	@media (max-width: 760px) {
 		.live {
-			grid-template-columns: 1fr;
+			grid-template-columns: minmax(0, 1fr);
 		}
 
 		.run {
