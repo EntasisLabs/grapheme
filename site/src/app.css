@@ -24,15 +24,14 @@
 	--panel-dim: #626c65;
 
 	--radius: 2px;
-	--font-display: 'Syne', sans-serif;
-	--font-body: 'Literata', Georgia, serif;
+	--font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
 	--font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 	--nav-h: 3.5rem;
 	color: var(--ink);
 	background: var(--paper);
-	font-family: var(--font-body);
+	font-family: var(--font-sans);
 	font-size: 1rem;
-	line-height: 1.55;
+	line-height: 1.5;
 	font-synthesis: none;
 	text-rendering: optimizeLegibility;
 	-webkit-font-smoothing: antialiased;

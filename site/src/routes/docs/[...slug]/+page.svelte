@@ -42,16 +42,15 @@
 
 	.eyebrow {
 		margin: 0 0 0.35rem;
-		font-family: var(--font-mono);
-		font-size: 0.72rem;
-		letter-spacing: 0.1em;
+		font-size: 0.74rem;
+		font-weight: 500;
+		letter-spacing: 0.06em;
 		text-transform: uppercase;
-		color: var(--signal);
+		color: var(--ink-soft);
 	}
 
 	h1 {
 		margin: 0;
-		font-family: var(--font-display);
 		font-size: clamp(1.9rem, 3.2vw, 2.6rem);
 		letter-spacing: -0.035em;
 		color: var(--sage-deep);
@@ -63,7 +62,6 @@
 
 	.prose :global(h2),
 	.prose :global(h3) {
-		font-family: var(--font-display);
 		letter-spacing: -0.02em;
 		margin-top: 2.2rem;
 		color: var(--sage-deep);
@@ -162,7 +160,6 @@
 	}
 
 	.prose :global(th) {
-		font-family: var(--font-display);
 		color: var(--sage-deep);
 		background: color-mix(in srgb, var(--sage) 8%, transparent);
 	}
@@ -200,16 +197,15 @@
 	}
 
 	.pager small {
-		font-family: var(--font-mono);
-		font-size: 0.68rem;
-		letter-spacing: 0.08em;
+		font-size: 0.7rem;
+		font-weight: 500;
+		letter-spacing: 0.06em;
 		text-transform: uppercase;
-		color: var(--signal);
+		color: var(--ink-soft);
 	}
 
 	.pager span {
-		font-family: var(--font-display);
-		font-weight: 700;
+		font-weight: 600;
 		color: var(--sage-deep);
 	}
 

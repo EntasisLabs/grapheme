@@ -76,11 +76,11 @@ const send = (method, params = {}) =>
 await send('Page.enable');
 await send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 630, deviceScaleFactor: 1, mobile: false });
 await send('Page.navigate', { url: `${html}?v=${Date.now()}` });
-// wait for load + web fonts (Syne and Plex Mono are fetched from Google Fonts)
+// wait for load + web fonts (Plex Sans and Plex Mono are fetched from Google Fonts)
 const fontsReady = async () =>
 	(
 		await send('Runtime.evaluate', {
-			expression: `document.readyState === 'complete' && document.fonts.check('800 20px Syne') && document.fonts.check('500 16px "IBM Plex Mono"')`,
+			expression: `document.readyState === 'complete' && document.fonts.check('600 20px "IBM Plex Sans"') && document.fonts.check('500 16px "IBM Plex Mono"')`,
 			returnByValue: true
 		})
 	).result?.result?.value === true;

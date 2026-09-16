@@ -61,9 +61,8 @@
 		align-items: center;
 		gap: 0.55rem;
 		text-decoration: none;
-		font-family: var(--font-display);
-		font-weight: 700;
-		letter-spacing: -0.03em;
+		font-weight: 600;
+		letter-spacing: -0.01em;
 	}
 
 	.mark {
@@ -76,7 +75,7 @@
 		color: var(--paper);
 		font-family: var(--font-mono);
 		font-size: 0.7rem;
-		font-weight: 700;
+		font-weight: 600;
 		line-height: 1;
 	}
 
@@ -89,8 +88,7 @@
 		display: flex;
 		align-items: center;
 		gap: 1.5rem;
-		font-family: var(--font-display);
-		font-weight: 600;
+		font-weight: 500;
 		font-size: 0.88rem;
 		color: var(--ink-soft);
 	}
@@ -116,8 +114,7 @@
 		padding: 0.35rem 0.7rem;
 		border-radius: var(--radius);
 		cursor: pointer;
-		font-family: var(--font-display);
-		font-weight: 600;
+		font-weight: 500;
 	}
 
 	@media (max-width: 720px) {

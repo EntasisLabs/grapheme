@@ -54,8 +54,7 @@
 	.aside-title {
 		display: block;
 		margin: 0 0 1rem;
-		font-family: var(--font-display);
-		font-weight: 800;
+		font-weight: 600;
 		font-size: 1.1rem;
 		letter-spacing: -0.03em;
 		text-decoration: none;
@@ -64,11 +63,11 @@
 
 	.section {
 		margin: 1rem 0 0.35rem;
-		font-family: var(--font-mono);
-		font-size: 0.7rem;
-		letter-spacing: 0.1em;
+		font-size: 0.72rem;
+		font-weight: 500;
+		letter-spacing: 0.06em;
 		text-transform: uppercase;
-		color: var(--signal);
+		color: var(--ink-soft);
 	}
 
 	ul {

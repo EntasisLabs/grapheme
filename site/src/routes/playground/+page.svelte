@@ -360,8 +360,7 @@
 
 	.rail h1 {
 		margin: 0.15rem 0 0.3rem;
-		font-family: var(--font-display);
-		font-weight: 800;
+		font-weight: 600;
 		font-size: 2rem;
 		letter-spacing: -0.05em;
 		line-height: 1;
@@ -400,7 +399,6 @@
 		background: transparent;
 		cursor: pointer;
 		color: var(--ink);
-		font-family: var(--font-display);
 		font-weight: 600;
 		font-size: 0.9rem;
 	}
@@ -436,14 +434,12 @@
 
 	.rail-foot strong {
 		color: var(--sage-deep);
-		font-family: var(--font-display);
 	}
 
 	.rail-foot a {
 		text-decoration: none;
 		color: var(--sage);
 		font-weight: 600;
-		font-family: var(--font-display);
 	}
 
 	/* work */
@@ -500,8 +496,7 @@
 		border-radius: var(--radius);
 		background: var(--sage);
 		color: var(--mist);
-		font-family: var(--font-display);
-		font-weight: 700;
+		font-weight: 600;
 		cursor: pointer;
 	}
 
@@ -525,7 +520,6 @@
 		border: 1px solid var(--line);
 		background: transparent;
 		border-radius: var(--radius);
-		font-family: var(--font-display);
 		font-weight: 600;
 		color: var(--ink);
 		cursor: pointer;
@@ -665,7 +659,6 @@
 		border: 0;
 		border-bottom: 2px solid transparent;
 		background: transparent;
-		font-family: var(--font-display);
 		font-weight: 600;
 		font-size: 0.85rem;
 		color: var(--ink-soft);
@@ -812,7 +805,6 @@
 	}
 
 	.trace .fn {
-		font-family: var(--font-display);
 		font-weight: 600;
 		color: var(--sage-deep);
 	}

@@ -28,7 +28,7 @@
 
 <section class="refusal wrap">
 	<div class="refusal-copy">
-		<p class="eyebrow mono">Fails closed</p>
+		<p class="eyebrow">Fails closed</p>
 		<h2>Call a module the host did not grant, and the run stops at that step.</h2>
 		<p>
 			<code>http</code>, <code>sql</code>, <code>smtp</code>, secrets: each is a capability the
@@ -43,7 +43,7 @@
 <section class="next wrap">
 	<h2>Next: change <code>release.gr</code> and run it.</h2>
 	<a class="btn" href="/playground?example={HERO_SNIPPET.id}">Open the playground</a>
-	<p class="install mono">
+	<p class="install">
 		On your machine: <code>{install}</code>
 		<a href="/docs/quickstart">Quickstart →</a>
 	</p>
@@ -57,18 +57,15 @@
 		padding-right: clamp(1rem, 4vw, 3rem);
 	}
 
-	.mono {
-		font-family: var(--font-mono);
-	}
-
 	code {
 		font-size: 0.9em;
 	}
 
 	.eyebrow {
-		margin: 0 0 0.9rem;
-		font-size: 0.7rem;
-		letter-spacing: 0.1em;
+		margin: 0 0 0.8rem;
+		font-size: 0.74rem;
+		font-weight: 500;
+		letter-spacing: 0.06em;
 		text-transform: uppercase;
 		color: var(--ink-soft);
 	}
@@ -76,21 +73,20 @@
 	h1,
 	h2 {
 		margin: 0;
-		font-family: var(--font-display);
-		font-weight: 700;
-		letter-spacing: -0.025em;
-		line-height: 1.1;
+		font-weight: 600;
+		letter-spacing: -0.02em;
+		line-height: 1.15;
 		color: var(--ink);
 	}
 
 	h1 {
-		font-size: clamp(1.7rem, 3vw, 2.5rem);
+		font-size: clamp(1.75rem, 3vw, 2.5rem);
 		max-width: 24ch;
 	}
 
 	h2 {
-		font-size: clamp(1.3rem, 2.1vw, 1.7rem);
-		max-width: 28ch;
+		font-size: clamp(1.25rem, 2vw, 1.6rem);
+		max-width: 30ch;
 	}
 
 	.hero {
@@ -99,9 +95,10 @@
 	}
 
 	.lede {
-		margin: 1.1rem 0 1.5rem;
-		max-width: 56ch;
+		margin: 1.1rem 0 1.6rem;
+		max-width: 58ch;
 		font-size: 1.05rem;
+		line-height: 1.55;
 		color: var(--ink-soft);
 	}
 
@@ -119,9 +116,8 @@
 		border-radius: var(--radius);
 		background: var(--ink);
 		color: var(--paper);
-		font-family: var(--font-display);
-		font-weight: 700;
-		font-size: 0.95rem;
+		font-weight: 500;
+		font-size: 0.92rem;
 		text-decoration: none;
 	}
 
@@ -131,9 +127,8 @@
 	}
 
 	.quiet {
-		font-family: var(--font-display);
-		font-weight: 600;
-		font-size: 0.9rem;
+		font-weight: 500;
+		font-size: 0.92rem;
 		color: var(--ink-soft);
 		text-decoration: none;
 	}
@@ -174,13 +169,13 @@
 	.install {
 		margin: 0;
 		max-width: 100%;
-		font-size: 0.74rem;
+		font-size: 0.85rem;
 		color: var(--ink-soft);
 		overflow-wrap: anywhere;
 	}
 
 	.install code {
-		font-size: 1em;
+		font-size: 0.86em;
 		color: var(--ink);
 	}
 
