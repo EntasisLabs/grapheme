@@ -35,9 +35,9 @@
 	}
 
 	.code.dark {
-		background: linear-gradient(160deg, var(--sage), var(--sage-deep) 70%);
-		color: var(--mist);
-		border-color: color-mix(in srgb, var(--sage-deep) 60%, transparent);
+		background: var(--code-dark);
+		color: #ece8df;
+		border-color: #2c2a27;
 	}
 
 	.bar {

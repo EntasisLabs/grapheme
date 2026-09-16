@@ -10,6 +10,7 @@
 	--signal: #5f8168;
 	--signal-bright: #8aab92;
 	--ember: #b85c38;
+	--code-dark: #171614;
 	--line: color-mix(in srgb, var(--sage) 20%, transparent);
 	--shadow: color-mix(in srgb, var(--sage-deep) 22%, transparent);
 	--radius: 2px;
