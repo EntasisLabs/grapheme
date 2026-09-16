@@ -12,9 +12,7 @@
 			body {
 				font-family: 'Syne', sans-serif;
 				color: #f3eee4;
-				background:
-					radial-gradient(900px 500px at 100% 0%, rgba(138, 171, 146, 0.35), transparent 60%),
-					linear-gradient(160deg, #3f5f4a, #1f3528 70%);
+				background: #1f3528;
 				display: grid;
 				grid-template-columns: 1fr 460px;
 				padding: 64px 72px;
@@ -27,7 +25,7 @@
 				background: #f3eee4; color: #1f3528; font: 700 15px 'IBM Plex Mono', monospace; font-style: normal;
 			}
 			.mark span { font-size: 30px; font-weight: 800; letter-spacing: -0.04em; }
-			h1 { font-size: 52px; line-height: 1.04; letter-spacing: -0.03em; font-weight: 800; max-width: 560px; }
+			h1 { font-size: 42px; line-height: 1.04; letter-spacing: -0.03em; font-weight: 800; max-width: 560px; }
 			p { margin-top: 24px; font: 400 17px/1.5 'IBM Plex Mono', monospace; color: rgba(243, 238, 228, 0.78); max-width: 540px; }
 			.code {
 				background: rgba(15, 28, 20, 0.7);
@@ -36,7 +34,6 @@
 				font: 500 17px/1.6 'IBM Plex Mono', monospace;
 				white-space: pre;
 				color: #eaf0e6;
-				box-shadow: 0 30px 60px rgba(0, 0, 0, 0.35);
 			}
 			.k { color: #a8d5b3; } .d { color: #f6efe0; font-weight: 500; } .s { color: #f0b48a; }
 			.v { color: #9ec9f5; } .p { color: #8ff0b8; font-weight: 700; } .a { color: #e9d18a; } .t { color: #e8c38f; }
@@ -45,8 +42,8 @@
 	<body>
 		<div>
 			<div class="mark"><i>|&gt;</i><span>grapheme</span></div>
-			<h1>A small language for workflows that have to be right.</h1>
-			<p>typed state · visible control flow · side effects as granted capabilities · runs native, in WASI, or in your browser</p>
+			<h1>A typed workflow language with capability-gated side effects.</h1>
+			<p>compiles .gr to a verified artifact · every step recorded in a trace · runs native, in WASI, or in your browser</p>
 		</div>
 		<div class="code"><span class="k">query</span> <span class="d">Rollout</span> <span class="k">on</span> <span class="t">Any</span> -&gt; <span class="d">Release</span> {
   <span class="d">Release</span> { status: <span class="s">"ramping"</span> }
