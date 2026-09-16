@@ -7,4 +7,9 @@ extensions/grapheme-vscode/node_modules/
 extensions/grapheme-vscode/out/
 extensions/grapheme-vscode/*.vsix
 extensions/grapheme-vscode/.vscode-test/
+site/node_modules/
+site/.svelte-kit/
+site/build/
+site/static/grapheme-wasm.wasm
+site/content/
 /data/

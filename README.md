@@ -235,6 +235,17 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes and version history.
 - Troubleshooting: `docs/internal/troubleshooting.md`
 - Language contract: `docs/internal/language-contract.md`
 
+## Site (landing + docs + playground)
+
+A SvelteKit product site lives in `site/` — brand landing, mirrored product docs, and an in-browser playground that runs `grapheme-wasm` (RFC-0006) via a WASI shim (no server execution).
+
+```bash
+bash scripts/build-runtime-wasm.sh
+cd site && npm install && npm run dev
+```
+
+See `site/README.md`.
+
 ## Tooling and Release
 
 - LSP quickstart: `docs/internal/lsp/quickstart.md`

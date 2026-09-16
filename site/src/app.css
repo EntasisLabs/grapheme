@@ -1,0 +1,72 @@
+:root {
+	--ink: #10141c;
+	--ink-soft: #2a3140;
+	--paper: #e6ebf1;
+	--paper-deep: #d5dce6;
+	--mist: #f4f6f9;
+	--signal: #0f8f7f;
+	--signal-bright: #14b8a6;
+	--ember: #e4572e;
+	--line: color-mix(in srgb, var(--ink) 12%, transparent);
+	--shadow: color-mix(in srgb, var(--ink) 18%, transparent);
+	--radius: 2px;
+	--font-display: 'Syne', sans-serif;
+	--font-body: 'Literata', Georgia, serif;
+	--font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+	--nav-h: 4rem;
+	color: var(--ink);
+	background: var(--paper);
+	font-family: var(--font-body);
+	font-size: 1.05rem;
+	line-height: 1.55;
+	font-synthesis: none;
+	text-rendering: optimizeLegibility;
+	-webkit-font-smoothing: antialiased;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	min-height: 100%;
+}
+
+body {
+	background:
+		radial-gradient(1200px 600px at 10% -10%, color-mix(in srgb, var(--signal) 18%, transparent), transparent 60%),
+		radial-gradient(900px 500px at 100% 0%, color-mix(in srgb, var(--ember) 12%, transparent), transparent 55%),
+		linear-gradient(180deg, var(--mist), var(--paper) 40%, var(--paper-deep));
+	background-attachment: fixed;
+}
+
+a {
+	color: inherit;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.18em;
+}
+
+a:hover {
+	color: var(--signal);
+}
+
+code,
+pre,
+.mono {
+	font-family: var(--font-mono);
+}
+
+button,
+input,
+textarea,
+select {
+	font: inherit;
+}
+
+::selection {
+	background: color-mix(in srgb, var(--signal) 35%, white);
+}
