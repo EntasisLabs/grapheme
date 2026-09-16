@@ -54,10 +54,10 @@
 	.aside-title {
 		display: block;
 		margin: 0 0 1rem;
-		font-family: var(--font-mono);
-		font-weight: 700;
-		font-size: 0.95rem;
-		letter-spacing: -0.02em;
+		font-family: var(--font-display);
+		font-weight: 800;
+		font-size: 1.1rem;
+		letter-spacing: -0.03em;
 		text-decoration: none;
 		color: var(--sage-deep);
 	}

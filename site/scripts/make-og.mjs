@@ -80,7 +80,7 @@ await send('Page.navigate', { url: `${html}?v=${Date.now()}` });
 const fontsReady = async () =>
 	(
 		await send('Runtime.evaluate', {
-			expression: `document.readyState === 'complete' && document.fonts.check('600 20px "Source Serif 4"') && document.fonts.check('700 16px "JetBrains Mono"')`,
+			expression: `document.readyState === 'complete' && document.fonts.check('800 20px Syne') && document.fonts.check('500 16px "IBM Plex Mono"')`,
 			returnByValue: true
 		})
 	).result?.result?.value === true;

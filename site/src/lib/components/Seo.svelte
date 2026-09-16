@@ -31,7 +31,7 @@
 	<meta property="og:image" content={imageUrl} />
 	<meta property="og:image:width" content="1200" />
 	<meta property="og:image:height" content="630" />
-	<meta property="og:image:alt" content="Grapheme — a small language for workflows that must not go wrong quietly" />
+	<meta property="og:image:alt" content="Grapheme — a small language for workflows that have to be right" />
 
 	<meta name="twitter:card" content="summary_large_image" />
 	<meta name="twitter:title" content={title} />

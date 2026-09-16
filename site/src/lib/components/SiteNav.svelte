@@ -45,43 +45,46 @@
 		gap: 1rem;
 		height: var(--nav-h);
 		padding: 0 clamp(1rem, 3vw, 2.5rem);
-		background: var(--paper);
+		backdrop-filter: blur(12px);
+		background: color-mix(in srgb, var(--mist) 82%, transparent);
 		border-bottom: 1px solid var(--line);
 	}
 
 	.brand {
 		display: inline-flex;
-		align-items: center;
-		gap: 0.6rem;
+		align-items: baseline;
+		gap: 0.55rem;
 		text-decoration: none;
-		font-family: var(--font-mono);
-		font-weight: 700;
-		letter-spacing: -0.02em;
+		font-family: var(--font-display);
+		font-weight: 800;
+		letter-spacing: -0.04em;
 	}
 
 	.mark {
 		display: inline-grid;
 		place-items: center;
-		width: 1.6rem;
-		height: 1.6rem;
+		width: 1.7rem;
+		height: 1.7rem;
+		border-radius: 0.35rem;
 		background: var(--sage-deep);
-		color: var(--mist);
+		color: var(--signal-bright);
 		font-family: var(--font-mono);
-		font-size: 0.65rem;
+		font-size: 0.7rem;
 		font-weight: 700;
 		line-height: 1;
 	}
 
 	.name {
-		font-size: 1.05rem;
-		color: var(--sage-deep);
+		font-size: 1.35rem;
 	}
 
 	nav {
 		display: flex;
 		align-items: center;
 		gap: 1.4rem;
-		font-size: 0.98rem;
+		font-family: var(--font-display);
+		font-weight: 600;
+		font-size: 0.95rem;
 	}
 
 	nav a {
@@ -101,6 +104,8 @@
 		padding: 0.4rem 0.75rem;
 		border-radius: var(--radius);
 		cursor: pointer;
+		font-family: var(--font-display);
+		font-weight: 600;
 	}
 
 	@media (max-width: 720px) {
