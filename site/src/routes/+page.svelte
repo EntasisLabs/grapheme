@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import Seo from '$lib/components/Seo.svelte';
 	import LiveRun from '$lib/components/LiveRun.svelte';
 	import { HERO_SNIPPET, POLICY_SNIPPET } from '$lib/snippets';
@@ -16,8 +17,8 @@
 		has granted. Below, the real compiler and runtime in Wasm.
 	</p>
 	<div class="cta">
-		<a class="btn" href="/playground">Open the playground</a>
-		<a class="quiet" href="/docs/quickstart">Install the CLI →</a>
+		<a class="btn" href={resolve('/playground')}>Open the playground</a>
+		<a class="quiet" href={resolve('/docs/quickstart')}>Install the CLI →</a>
 	</div>
 </section>
 
@@ -39,10 +40,10 @@
 
 <section class="next wrap">
 	<h2>Next: change <code>release.gr</code> and run it.</h2>
-	<a class="btn" href="/playground?example={HERO_SNIPPET.id}">Open the playground</a>
+	<a class="btn" href={`${resolve('/playground')}?example=${HERO_SNIPPET.id}`}>Open the playground</a>
 	<p class="install">
 		CLI: <code>{install}</code>
-		<a href="/docs/quickstart">Quickstart →</a>
+		<a href={resolve('/docs/quickstart')}>Quickstart →</a>
 	</p>
 </section>
 

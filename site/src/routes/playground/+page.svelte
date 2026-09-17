@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { replaceState } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import Seo from '$lib/components/Seo.svelte';
 	import { highlightGr, highlightJson } from '$lib/highlight';
 	import { SNIPPETS, snippetById } from '$lib/snippets';
-	import { runGrapheme, type ExecuteResponse } from '$lib/wasm/runtime';
+	import { runGrapheme, WASM_URL, type ExecuteResponse } from '$lib/wasm/runtime';
 
 	type PipelineEntry = {
 		index: number;
@@ -103,7 +104,7 @@
 
 	async function checkWasm() {
 		try {
-			const res = await fetch('/grapheme-wasm.wasm', { method: 'HEAD' });
+			const res = await fetch(WASM_URL, { method: 'HEAD' });
 			if (!res.ok) throw new Error(`grapheme-wasm.wasm missing (${res.status})`);
 			wasmReady = true;
 		} catch (e) {
@@ -214,7 +215,7 @@
 		</ul>
 		<div class="rail-foot">
 			<p><strong>Granted here:</strong> core · json · csv · yaml · html. Host ops such as <code>http</code> fail closed.</p>
-			<a href="/docs/language-tour">Language tour →</a>
+			<a href={resolve('/docs/language-tour')}>Language tour →</a>
 		</div>
 	</aside>
 

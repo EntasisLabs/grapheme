@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
+
 	let {
 		compact = false
 	}: {
@@ -10,7 +12,7 @@
 
 <header class="nav" class:compact>
 	<div class="inner">
-	<a class="brand" href="/" aria-label="Grapheme home">
+	<a class="brand" href={resolve('/')} aria-label="Grapheme home">
 		<span class="mark" aria-hidden="true">|&gt;</span>
 		<span class="name">grapheme</span>
 	</a>
@@ -26,9 +28,9 @@
 	</button>
 
 	<nav id="site-nav" class:open>
-		<a href="/docs/why-grapheme">Docs</a>
-		<a href="/docs/tutorials">Tutorials</a>
-		<a href="/playground">Playground</a>
+		<a href={resolve('/docs/why-grapheme')}>Docs</a>
+		<a href={resolve('/docs/tutorials')}>Tutorials</a>
+		<a href={resolve('/playground')}>Playground</a>
 		<a class="ext" href="https://github.com/EntasisLabs/grapheme" rel="noreferrer" target="_blank"
 			>GitHub</a
 		>

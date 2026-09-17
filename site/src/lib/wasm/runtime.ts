@@ -6,6 +6,10 @@ import {
 	PreopenDirectory,
 	WASIProcExit
 } from '@bjorn3/browser_wasi_shim';
+import { asset } from '$app/paths';
+
+/** Public URL of the WASI engine, honouring `kit.paths.base` (see svelte.config.js). */
+export const WASM_URL = asset('/grapheme-wasm.wasm');
 
 export type ExecuteRequest = {
 	source?: string;
@@ -37,7 +41,7 @@ let wasmBytesPromise: Promise<ArrayBuffer> | null = null;
 
 async function loadWasmBytes(): Promise<ArrayBuffer> {
 	if (!wasmBytesPromise) {
-		wasmBytesPromise = fetch('/grapheme-wasm.wasm').then(async (res) => {
+		wasmBytesPromise = fetch(WASM_URL).then(async (res) => {
 			if (!res.ok) {
 				throw new Error(
 					`Failed to load grapheme-wasm.wasm (${res.status}). Run bash scripts/build-runtime-wasm.sh && npm run sync-wasm`

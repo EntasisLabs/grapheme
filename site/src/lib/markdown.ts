@@ -1,5 +1,6 @@
 import { marked } from 'marked';
 import { codeToHtml } from 'shiki';
+import { resolve } from '$app/paths';
 import { highlightGrLines } from './highlight';
 import { DOC_NAV } from './docs';
 
@@ -15,6 +16,8 @@ export async function renderMarkdown(source: string): Promise<string> {
 }
 
 const GH = 'https://github.com/EntasisLabs/grapheme';
+/** Rendered docs root including the deploy base path (e.g. `/grapheme/docs`). */
+const DOCS = resolve('/docs');
 
 /** Point repo-relative links somewhere useful on a static site. */
 function rewriteDocLinks(source: string): string {
@@ -22,16 +25,16 @@ function rewriteDocLinks(source: string): string {
 		// Bare tutorial filenames (`03-control-flow-and-state.md`) become links to the rendered page.
 		.replace(/`(\d{2}-[a-z0-9-]+)\.md`/g, (m, name: string) => {
 			const hit = DOC_NAV.find((d) => d.slug === `tutorials/${name}`);
-			return hit ? `[${hit.title.replace(/^\d+ · /, '')}](/docs/tutorials/${name})` : m;
+			return hit ? `[${hit.title.replace(/^\d+ · /, '')}](${DOCS}/tutorials/${name})` : m;
 		})
 		.replace(/\]\(\.\.\/CHANGELOG\.md(#[^)]*)?\)/g, `](${GH}/blob/main/CHANGELOG.md$1)`)
 		.replace(/\]\(\.\.\/examples\//g, `](${GH}/tree/main/examples/`)
 		.replace(/\]\(examples\//g, `](${GH}/tree/main/examples/`)
 		.replace(/\]\(docs\/internal\//g, `](${GH}/tree/main/docs/internal/`)
 		.replace(/\]\(\.\.\/docs\/internal\//g, `](${GH}/tree/main/docs/internal/`)
-		.replace(/\]\(docs\/([^)#]+)\.md(#[^)]*)?\)/g, '](/docs/$1$2)')
-		.replace(/\]\(\.\/([^)#]+)\.md(#[^)]*)?\)/g, '](/docs/$1$2)')
-		.replace(/\]\(([^)/#:]+)\.md(#[^)]*)?\)/g, '](/docs/$1$2)');
+		.replace(/\]\(docs\/([^)#]+)\.md(#[^)]*)?\)/g, `](${DOCS}/$1$2)`)
+		.replace(/\]\(\.\/([^)#]+)\.md(#[^)]*)?\)/g, `](${DOCS}/$1$2)`)
+		.replace(/\]\(([^)/#:]+)\.md(#[^)]*)?\)/g, `](${DOCS}/$1$2)`);
 }
 
 async function enhanceCodeBlocks(html: string): Promise<string> {
