@@ -104,4 +104,47 @@
 			grid-template-columns: 1fr 1fr;
 		}
 	}
+
+	@media (max-width: 600px) {
+		.foot {
+			padding-top: 2rem;
+			padding-bottom: 1.75rem;
+		}
+
+		/* Brand on top, then each group as a label with its links flowing inline. */
+		.cols {
+			grid-template-columns: 1fr;
+			gap: 1.25rem;
+			margin-bottom: 1.5rem;
+		}
+
+		.brand-col {
+			padding-bottom: 0.25rem;
+			border-bottom: 1px solid var(--line);
+		}
+
+		.brand-col p {
+			margin-top: 0.25rem;
+		}
+
+		.h {
+			margin-bottom: 0.35rem;
+		}
+
+		.cols div:not(.brand-col) {
+			display: flex;
+			flex-wrap: wrap;
+			align-items: baseline;
+			gap: 0.2rem 1rem;
+		}
+
+		.cols div:not(.brand-col) .h {
+			flex: 0 0 100%;
+		}
+
+		.cols a {
+			display: inline-block;
+			padding: 0.3rem 0;
+		}
+	}
 </style>

@@ -103,12 +103,14 @@
 
 	.menu {
 		display: none;
+		min-height: 2.25rem;
 		border: 1px solid var(--line);
 		background: transparent;
-		padding: 0.35rem 0.7rem;
+		padding: 0.35rem 0.8rem;
 		border-radius: var(--radius);
 		cursor: pointer;
 		font-weight: 500;
+		color: var(--ink);
 	}
 
 	@media (max-width: 720px) {
@@ -123,9 +125,11 @@
 			flex-direction: column;
 			align-items: stretch;
 			gap: 0;
-			padding: 0.5rem 1rem 1rem;
-			background: var(--mist);
+			padding: 0.25rem 1.25rem 0.75rem;
+			background: var(--paper);
 			border-bottom: 1px solid var(--line);
+			font-size: 1rem;
+			color: var(--ink);
 		}
 
 		nav.open {
@@ -133,8 +137,12 @@
 		}
 
 		nav a {
-			padding: 0.75rem 0;
+			padding: 0.8rem 0;
 			border-bottom: 1px solid var(--line);
+		}
+
+		nav a:last-child {
+			border-bottom: 0;
 		}
 	}
 </style>
