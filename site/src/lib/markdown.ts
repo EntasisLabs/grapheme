@@ -1,6 +1,6 @@
 import { marked } from 'marked';
 import { codeToHtml } from 'shiki';
-import { highlightGr } from './highlight';
+import { highlightGrLines } from './highlight';
 
 marked.setOptions({
 	gfm: true,
@@ -42,7 +42,7 @@ async function enhanceCodeBlocks(html: string): Promise<string> {
 		if (l === 'gr' || l === 'grapheme') {
 			out = out.replace(
 				full,
-				`<pre class="gr"><code>${highlightGr(code.replace(/\n$/, ''))}</code></pre>`
+				`<pre class="gr"><code>${highlightGrLines(code.replace(/\n$/, ''))}</code></pre>`
 			);
 			continue;
 		}

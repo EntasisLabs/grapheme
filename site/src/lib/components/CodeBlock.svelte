@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { highlightGr } from '$lib/highlight';
+	import { highlightGrLines } from '$lib/highlight';
 
 	let {
 		code,
@@ -11,7 +11,7 @@
 		compact?: boolean;
 	} = $props();
 
-	const html = $derived(highlightGr(code.replace(/\n$/, '')));
+	const html = $derived(highlightGrLines(code.replace(/\n$/, '')));
 </script>
 
 <div class="code" class:compact>
@@ -40,11 +40,19 @@
 	pre {
 		margin: 0;
 		padding: 1rem 1.1rem 1.1rem;
-		overflow-x: auto;
 		font-family: var(--font-mono);
 		font-size: 0.84rem;
 		line-height: 1.6;
 		tab-size: 2;
+		white-space: pre-wrap;
+		overflow-wrap: break-word;
+	}
+
+	/* One block per source line; wrapped continuations hang 2ch past the line's own indent. */
+	pre :global(.ln) {
+		display: block;
+		padding-left: calc((var(--in, 0) + 2) * 1ch);
+		text-indent: calc((var(--in, 0) + 2) * -1ch);
 	}
 
 	.compact pre {

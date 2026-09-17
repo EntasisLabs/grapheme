@@ -99,6 +99,14 @@
 		background: var(--panel) !important;
 		color: #ece8df;
 		border-color: #2c2a27;
+		white-space: pre-wrap;
+		overflow-wrap: break-word;
+	}
+
+	.prose :global(pre.gr .ln) {
+		display: block;
+		padding-left: calc((var(--in, 0) + 2) * 1ch);
+		text-indent: calc((var(--in, 0) + 2) * -1ch);
 	}
 
 	.prose :global(pre.gr .t-kw) { color: #a8d5b3; }

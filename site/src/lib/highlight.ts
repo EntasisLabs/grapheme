@@ -157,6 +157,33 @@ export function highlightGr(src: string): string {
 		.join('');
 }
 
+/**
+ * Like highlightGr, but wraps each source line in a block so long lines can
+ * soft-wrap with a hanging indent (`--in` = leading spaces on that line).
+ * Tokens that contain newlines are split so no span crosses a line.
+ */
+export function highlightGrLines(src: string): string {
+	const lines: string[][] = [[]];
+	for (const t of tokenize(src)) {
+		const parts = t.text.split('\n');
+		parts.forEach((p, i) => {
+			if (i > 0) lines.push([]);
+			if (!p) return;
+			lines[lines.length - 1]!.push(t.cls ? `<span class="t-${t.cls}">${esc(p)}</span>` : esc(p));
+		});
+	}
+	const indentOf = (html: string) => {
+		const m = /^(?:<span[^>]*>)?( *)/.exec(html);
+		return m?.[1]?.length ?? 0;
+	};
+	return lines
+		.map((toks) => {
+			const html = toks.join('');
+			return `<span class="ln" style="--in:${indentOf(html)}">${html || ' '}</span>`;
+		})
+		.join('');
+}
+
 /** Minimal JSON highlighter for result panes. */
 export function highlightJson(text: string): string {
 	return esc(text).replace(
