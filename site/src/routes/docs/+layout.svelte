@@ -1,11 +1,19 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { DOC_NAV } from '$lib/docs';
 
 	let { children } = $props();
 
 	const sections = [...new Set(DOC_NAV.map((d) => d.section).filter(Boolean))] as string[];
-	const current = $derived(page.url.pathname.replace(/^\/docs\//, '').replace(/\/$/, ''));
+	// `/docs/` including the deploy base path, e.g. `/grapheme/docs/` on GitHub Pages.
+	const docsPrefix = `${resolve('/docs')}/`;
+	const current = $derived(
+		(page.url.pathname.startsWith(docsPrefix)
+			? page.url.pathname.slice(docsPrefix.length)
+			: page.url.pathname
+		).replace(/\/$/, '')
+	);
 	const here = $derived(DOC_NAV.find((d) => d.slug === current));
 
 	let open = $state(false);
@@ -40,14 +48,14 @@
 	</button>
 
 	<aside id="docs-nav">
-		<a class="aside-title" href="/docs/why-grapheme">Docs</a>
+		<a class="aside-title" href={resolve('/docs/why-grapheme')}>Docs</a>
 		{#each sections as section}
 			<p class="section">{section}</p>
 			<ul>
 				{#each DOC_NAV.filter((d) => d.section === section) as item}
 					<li>
 						<a
-							href={`/docs/${item.slug}`}
+							href={resolve('/docs/[...slug]', { slug: item.slug })}
 							class:active={current === item.slug}
 							aria-current={current === item.slug ? 'page' : undefined}>{item.title}</a
 						>
@@ -57,7 +65,7 @@
 		{/each}
 		<p class="section">Reference</p>
 		<ul>
-			<li><a href="/playground">Playground</a></li>
+			<li><a href={resolve('/playground')}>Playground</a></li>
 			<li>
 				<a class="ext" href="https://github.com/EntasisLabs/grapheme/tree/main/docs/internal" rel="noreferrer"
 					>Internals</a

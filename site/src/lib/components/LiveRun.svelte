@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { resolve } from '$app/paths';
 	import CodeBlock from './CodeBlock.svelte';
 	import { highlightJson } from '$lib/highlight';
 	import type { Snippet } from '$lib/snippets';
-	import { runGrapheme, type ExecuteResponse } from '$lib/wasm/runtime';
+	import { runGrapheme, WASM_URL, type ExecuteResponse } from '$lib/wasm/runtime';
 
 	type Step = { index: number; function_name: string; op: string; ok: boolean };
 	type Phase = 'idle' | 'loading' | 'running' | 'ok' | 'refused' | 'error';
@@ -38,7 +39,7 @@
 	async function go() {
 		phase = 'loading';
 		try {
-			const head = await fetch('/grapheme-wasm.wasm', { method: 'HEAD' });
+			const head = await fetch(WASM_URL, { method: 'HEAD' });
 			const len = head.headers.get('content-length');
 			if (len) wasmBytes = Number(len);
 			phase = 'running';
@@ -175,7 +176,7 @@
 				<button type="button" onclick={go} disabled={phase === 'running' || phase === 'loading'}>
 					run again
 				</button>
-				<a href={`/playground?example=${snippet.id}`}>edit in playground →</a>
+				<a href={`${resolve('/playground')}?example=${snippet.id}`}>edit in playground →</a>
 			</span>
 		</div>
 	</div>

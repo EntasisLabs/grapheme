@@ -1,11 +1,12 @@
 <script lang="ts">
+	import { asset } from '$app/paths';
 	import { page } from '$app/state';
 	import { SITE_URL, SITE_NAME, DEFAULT_TITLE, DEFAULT_DESCRIPTION } from '$lib/site';
 
 	let {
 		title = DEFAULT_TITLE,
 		description = DEFAULT_DESCRIPTION,
-		image = '/og.png',
+		image = asset('/og.png'),
 		type = 'website'
 	}: { title?: string; description?: string; image?: string; type?: string } = $props();
 

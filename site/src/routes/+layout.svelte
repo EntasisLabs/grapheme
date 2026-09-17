@@ -1,5 +1,6 @@
 <script lang="ts">
 	import '../app.css';
+	import { resolve } from '$app/paths';
 	import SiteNav from '$lib/components/SiteNav.svelte';
 
 	let { children } = $props();
@@ -18,14 +19,14 @@
 		</div>
 		<div>
 			<p class="h">Learn</p>
-			<a href="/docs/why-grapheme">Why Grapheme</a>
-			<a href="/docs/quickstart">Quickstart</a>
-			<a href="/docs/language-tour">Language tour</a>
-			<a href="/docs/tutorials">Tutorials</a>
+			<a href={resolve('/docs/why-grapheme')}>Why Grapheme</a>
+			<a href={resolve('/docs/quickstart')}>Quickstart</a>
+			<a href={resolve('/docs/language-tour')}>Language tour</a>
+			<a href={resolve('/docs/tutorials')}>Tutorials</a>
 		</div>
 		<div>
 			<p class="h">Use</p>
-			<a href="/playground">Playground</a>
+			<a href={resolve('/playground')}>Playground</a>
 			<a class="ext" href="https://github.com/EntasisLabs/grapheme/tree/main/examples" rel="noreferrer">Examples</a>
 			<a class="ext" href="https://github.com/EntasisLabs/grapheme/tree/main/extensions/grapheme-vscode" rel="noreferrer">VS Code</a>
 			<a class="ext" href="https://github.com/EntasisLabs/grapheme/blob/main/CHANGELOG.md" rel="noreferrer">Changelog</a>

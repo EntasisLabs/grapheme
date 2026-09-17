@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import Seo from '$lib/components/Seo.svelte';
 
 	let { data } = $props();
@@ -18,13 +19,13 @@
 <footer class="doc-foot">
 	<div class="pager">
 		{#if data.prev}
-			<a class="prev" href={`/docs/${data.prev.slug}`}>
+			<a class="prev" href={resolve('/docs/[...slug]', { slug: data.prev.slug })}>
 				<small>Previous</small>
 				<span>{data.prev.title}</span>
 			</a>
 		{:else}<span></span>{/if}
 		{#if data.next}
-			<a class="next" href={`/docs/${data.next.slug}`}>
+			<a class="next" href={resolve('/docs/[...slug]', { slug: data.next.slug })}>
 				<small>Next</small>
 				<span>{data.next.title}</span>
 			</a>
