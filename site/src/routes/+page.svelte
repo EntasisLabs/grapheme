@@ -12,9 +12,8 @@
 <section class="hero wrap">
 	<h1>A typed workflow language with capability-gated side effects.</h1>
 	<p class="lede">
-		Programs compile to a verified artifact and run one step at a time, each step recorded. A
-		step can only call what the host has granted. Below: the real compiler and runtime, in Wasm,
-		in this tab.
+		Compiles to a verified artifact. Runs one recorded step at a time. Calls only what the host
+		has granted. Below, the real compiler and runtime in Wasm.
 	</p>
 	<div class="cta">
 		<a class="btn" href="/playground">Open the playground</a>
@@ -29,12 +28,10 @@
 <section class="refusal wrap">
 	<div class="refusal-copy">
 		<p class="eyebrow">Fails closed</p>
-		<h2>Call a module the host did not grant, and the run stops at that step.</h2>
+		<h2>Call a module the host didn't grant, and the run stops there.</h2>
 		<p>
-			<code>http</code>, <code>sql</code>, <code>smtp</code>, secrets: each is a capability the
-			host provides to a program. In this tab the host grants only the Wasm stdlib
-			(<code>core</code>, <code>json</code>, <code>csv</code>, <code>yaml</code>,
-			<code>html</code>). This program compiles, gets an artifact id, and is refused at step 01.
+			This host grants only the Wasm stdlib. <code>http.get</code> compiles, then is refused at
+			step 01.
 		</p>
 	</div>
 	<LiveRun snippet={POLICY_SNIPPET} file="needs-http.gr" autorun="visible" stack />
@@ -44,7 +41,7 @@
 	<h2>Next: change <code>release.gr</code> and run it.</h2>
 	<a class="btn" href="/playground?example={HERO_SNIPPET.id}">Open the playground</a>
 	<p class="install">
-		On your machine: <code>{install}</code>
+		CLI: <code>{install}</code>
 		<a href="/docs/quickstart">Quickstart →</a>
 	</p>
 </section>

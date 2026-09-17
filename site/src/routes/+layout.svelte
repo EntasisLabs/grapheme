@@ -14,7 +14,7 @@
 	<div class="cols">
 		<div class="brand-col">
 			<span class="brand">grapheme</span>
-			<p>A small language for governed automation. Apache-2.0. Built in Rust by Entasis Labs.</p>
+			<p>Governed workflows, in Rust. Apache-2.0. Entasis Labs.</p>
 		</div>
 		<div>
 			<p class="h">Learn</p>
@@ -37,7 +37,7 @@
 			<a class="ext" href="https://github.com/EntasisLabs/grapheme" rel="noreferrer">GitHub</a>
 		</div>
 	</div>
-	<p class="fine">v0.7 · Apache-2.0 · the playground on this site runs grapheme-wasm (RFC-0006) without a server.</p>
+	<p class="fine">v0.7 · the playground runs grapheme-wasm in your browser; no server.</p>
 </footer>
 
 <style>
