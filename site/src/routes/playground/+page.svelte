@@ -48,6 +48,11 @@
 		result = null;
 		elapsed = null;
 		if (updateUrl) syncUrl();
+		requestAnimationFrame(() => {
+			document
+				.querySelector('.examples button.active')
+				?.scrollIntoView({ block: 'nearest', inline: 'center' });
+		});
 	}
 
 	function encodeShare(): string {
@@ -190,9 +195,8 @@
 <div class="pg">
 	<aside class="rail">
 		<div class="rail-head">
-			<p class="eyebrow">Playground</p>
-			<h1>grapheme</h1>
-			<p class="sub">Compiler + runtime running as Wasm in this tab.</p>
+			<h1>Playground</h1>
+			<p class="sub">Compiler and runtime as Wasm, in this tab.</p>
 		</div>
 		<p class="rail-label">Examples</p>
 		<ul class="examples">
@@ -206,8 +210,7 @@
 			{/each}
 		</ul>
 		<div class="rail-foot">
-			<p><strong>wasm-safe stdlib</strong><br />core · json · csv · yaml · html</p>
-			<p>Host ops (<code>http</code>, <code>sql</code>, …) fail closed here, exactly as a host without policy would.</p>
+			<p><strong>Granted here:</strong> core · json · csv · yaml · html. Host ops such as <code>http</code> fail closed.</p>
 			<a href="/docs/language-tour">Language tour →</a>
 		</div>
 	</aside>
@@ -283,7 +286,7 @@
 					{#if !result}
 						<div class="empty">
 							<p>Press <strong>Run</strong> (or ⌘/Ctrl + Enter).</p>
-							<p class="dim">Source is compiled to a verified MIR artifact, then executed by the runtime — all inside Wasm.</p>
+							<p class="dim">Compiled to a verified artifact, then executed, all inside Wasm.</p>
 						</div>
 					{:else if !result.ok && !result.execution}
 						<div class="errbox">
@@ -336,35 +339,27 @@
 		min-height: calc(100vh - var(--nav-h));
 	}
 
-	.eyebrow {
-		margin: 0;
-		font-family: var(--font-mono);
-		font-size: 0.72rem;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--signal);
-	}
-
 	/* rail */
 	.rail {
 		display: flex;
 		flex-direction: column;
+		min-width: 0;
 		border-right: 1px solid var(--line);
 		background: color-mix(in srgb, var(--mist) 60%, transparent);
 	}
 
 	.rail-head {
-		padding: 1.4rem 1.2rem 1rem;
+		padding: 1.2rem 1.2rem 1rem;
 		border-bottom: 1px solid var(--line);
 	}
 
 	.rail h1 {
-		margin: 0.15rem 0 0.3rem;
+		margin: 0 0 0.2rem;
 		font-weight: 600;
-		font-size: 2rem;
-		letter-spacing: -0.05em;
-		line-height: 1;
-		color: var(--sage-deep);
+		font-size: 1.05rem;
+		letter-spacing: -0.01em;
+		line-height: 1.2;
+		color: var(--ink);
 	}
 
 	.sub {
@@ -446,6 +441,13 @@
 	.work {
 		display: flex;
 		flex-direction: column;
+		min-width: 0;
+	}
+
+	.toolbar,
+	.split,
+	.editor-wrap,
+	.result {
 		min-width: 0;
 	}
 
@@ -573,7 +575,8 @@
 		font-size: 0.86rem;
 		line-height: 1.55;
 		tab-size: 2;
-		white-space: pre;
+		white-space: pre-wrap;
+		overflow-wrap: break-word;
 		overflow: auto;
 		border: 0;
 	}
@@ -584,7 +587,8 @@
 	}
 
 	.editor .hl code {
-		white-space: pre;
+		white-space: inherit;
+		overflow-wrap: inherit;
 	}
 
 	.editor textarea {
@@ -818,6 +822,7 @@
 	.trace .op {
 		color: var(--ink-soft);
 		font-size: 0.76rem;
+		overflow-wrap: anywhere;
 	}
 
 	.trace .shape,
@@ -833,6 +838,7 @@
 	@media (max-width: 1000px) {
 		.pg {
 			grid-template-columns: 1fr;
+			min-height: 0;
 		}
 
 		.rail {
@@ -840,24 +846,48 @@
 			border-bottom: 1px solid var(--line);
 		}
 
-		.rail-foot {
+		.rail-head {
+			padding: 0.9rem 1rem 0.5rem;
+			border-bottom: 0;
+		}
+
+		.rail-foot,
+		.rail-label {
 			display: none;
 		}
 
 		.examples {
 			display: flex;
+			gap: 0.35rem;
 			overflow-x: auto;
-			padding: 0 0.6rem 0.6rem;
+			scrollbar-width: none;
+			padding: 0.25rem 1rem 0.8rem;
+		}
+
+		.examples::-webkit-scrollbar {
+			display: none;
 		}
 
 		.examples button {
-			border-left: 0;
-			border-bottom: 3px solid transparent;
+			width: auto;
+			flex: 0 0 auto;
+			display: block;
+			padding: 0.5rem 0.8rem;
+			border: 1px solid var(--line);
+			border-radius: var(--radius);
+			font-weight: 500;
+			font-size: 0.85rem;
 			white-space: nowrap;
 		}
 
+		.examples small {
+			display: none;
+		}
+
 		.examples button.active {
-			border-bottom-color: var(--sage);
+			border-color: var(--ink);
+			background: var(--ink);
+			color: var(--paper);
 		}
 
 		.split {
@@ -867,6 +897,85 @@
 		.editor-wrap {
 			border-right: 0;
 			border-bottom: 1px solid var(--line);
+		}
+
+		/* Let the editor grow with its content: highlight layer in flow, textarea painted over it. */
+		.editor {
+			min-height: 10rem;
+		}
+
+		.editor .hl {
+			position: relative;
+			overflow: hidden;
+		}
+
+		.editor textarea {
+			overflow: hidden;
+		}
+
+		.run kbd {
+			display: none;
+		}
+
+		.result-body {
+			min-height: 12rem;
+		}
+
+		/* Run bar moves to the thumb: sticky at the bottom of the viewport. */
+		.toolbar {
+			order: 3;
+			position: sticky;
+			bottom: 0;
+			z-index: 5;
+			padding: 0.6rem 1rem;
+			background: var(--paper);
+			border-bottom: 0;
+			border-top: 1px solid var(--line);
+		}
+
+		.right {
+			flex: 1;
+			justify-content: flex-end;
+		}
+
+		.run {
+			flex: 1;
+			justify-content: center;
+			min-height: 2.75rem;
+		}
+
+		.ghost {
+			min-height: 2.75rem;
+		}
+
+		.tabs button {
+			padding: 0.8rem 1rem;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.pill.mono {
+			display: none;
+		}
+
+		.trace li {
+			grid-template-columns: 2rem minmax(0, 1fr) auto;
+			gap: 0.5rem;
+			padding-left: calc(1rem + var(--depth) * 0.6rem);
+			padding-right: 1rem;
+		}
+
+		.trace .shape,
+		.trace .iter {
+			display: none;
+		}
+
+		.editor .hl,
+		.editor textarea,
+		.args-editor,
+		.json {
+			padding-left: 1rem;
+			padding-right: 1rem;
 		}
 	}
 </style>
