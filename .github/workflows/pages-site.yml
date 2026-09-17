@@ -3,12 +3,14 @@ name: Deploy site to GitHub Pages
 # Builds the SvelteKit site in `site/` (landing, docs, in-browser WASM
 # playground) and publishes it to GitHub Pages on every push to main.
 #
-# Live at: https://entasislabs.github.io/grapheme/
+# Live at: https://grapheme-lang.org/ (custom domain; the old project-site
+# URL https://entasislabs.github.io/grapheme/ redirects there).
 #
-# The base path (`/grapheme`) and origin come from actions/configure-pages, so
-# attaching a custom domain later needs no workflow change: configure-pages
-# then reports an empty base path and the site is built for `/`.
-# See site/README.md ("Deploy") for details and the custom-domain steps.
+# The base path comes from actions/configure-pages: "" with the custom domain
+# attached, "/grapheme" if it is ever removed. The origin used for canonical /
+# Open Graph URLs is pinned to https://grapheme-lang.org because configure-pages
+# reports the Pages `html_url`, which is `http://` until "Enforce HTTPS" is on.
+# See site/README.md ("Deploy") for details and the custom-domain / DNS steps.
 
 on:
   push:
@@ -77,10 +79,13 @@ jobs:
       - name: Build site
         working-directory: site
         env:
-          # `/grapheme` for the project site; `` once a custom domain is set.
+          # `` with the custom domain attached; `/grapheme` for the bare
+          # project site. Always taken from configure-pages, never hardcoded.
           BASE_PATH: ${{ steps.pages.outputs.base_path }}
-          # Scheme + host used for canonical and Open Graph URLs.
-          PUBLIC_SITE_URL: ${{ steps.pages.outputs.origin }}
+          # Scheme + host used for canonical and Open Graph URLs. Pinned to
+          # https:// rather than `steps.pages.outputs.origin`, which follows
+          # the Pages `html_url` and stays `http://` until Enforce HTTPS is on.
+          PUBLIC_SITE_URL: https://grapheme-lang.org
         run: |
           echo "BASE_PATH=${BASE_PATH:-<root>}  PUBLIC_SITE_URL=$PUBLIC_SITE_URL"
           npm run build
@@ -91,6 +96,9 @@ jobs:
           set -euo pipefail
           test -f build/index.html || { echo "::error::build/index.html missing" >&2; exit 1; }
           test -f build/404.html || { echo "::error::build/404.html (SPA fallback) missing" >&2; exit 1; }
+          # The Pages artifact must carry CNAME or the custom domain is dropped on deploy.
+          test -f build/CNAME || { echo "::error::build/CNAME missing (static/CNAME not copied): the custom domain would be detached by this deploy" >&2; exit 1; }
+          [[ "$(tr -d '[:space:]' < build/CNAME)" == "grapheme-lang.org" ]] || { echo "::error::build/CNAME is not 'grapheme-lang.org' (got '$(cat build/CNAME)')" >&2; exit 1; }
           if [[ ! -s build/grapheme-wasm.wasm ]]; then
             echo "::error::build/grapheme-wasm.wasm missing: sync-wasm did not pick up the WASI build, the playground would be broken" >&2
             exit 1
