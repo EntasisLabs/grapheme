@@ -1,15 +1,15 @@
 :root {
-	/* Paper */
-	--ink: #171c18;
-	--ink-soft: #545e57;
-	--paper: #f4f2ec;
-	--paper-deep: #e8e5dc;
-	--mist: #fbfaf7;
-	--line: rgba(23, 28, 24, 0.12);
+	/* Paper + deep sage ink */
+	--ink: #1f3528;
+	--ink-soft: #4f6656;
+	--paper: #f5f2ea;
+	--paper-deep: #e9e4d8;
+	--mist: #fbf9f4;
+	--line: rgba(31, 53, 40, 0.14);
 
-	/* Sage accents */
+	/* Sage accents (sage-deep is the hover/pressed step below ink) */
 	--sage: #3f5f4a;
-	--sage-deep: #1f3528;
+	--sage-deep: #172a1f;
 	--signal: #5f8168;
 	--signal-bright: #8aab92;
 	--ember: #b85c38;
