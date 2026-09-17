@@ -19,6 +19,7 @@
 
 	let source = $state(SNIPPETS[0]!.source);
 	let argsJson = $state('');
+	let argsOpen = $state(false);
 	let activeId = $state<string | null>(SNIPPETS[0]!.id);
 	let wasmReady = $state(false);
 	let wasmError = $state('');
@@ -45,6 +46,7 @@
 		activeId = s.id;
 		source = s.source;
 		argsJson = s.args ? JSON.stringify(s.args, null, 2) : '';
+		argsOpen = !!s.args;
 		result = null;
 		elapsed = null;
 		if (updateUrl) syncUrl();
@@ -166,6 +168,7 @@
 			if (decoded) {
 				source = decoded.s;
 				argsJson = decoded.a ?? '';
+				argsOpen = !!decoded.a;
 				activeId = null;
 			}
 			return;
@@ -225,6 +228,16 @@
 				{#if result?.artifact_id}<span class="pill muted mono">{result.artifact_id}</span>{/if}
 			</div>
 			<div class="right">
+				<button
+					type="button"
+					class="ghost"
+					class:active={argsOpen}
+					aria-expanded={argsOpen}
+					aria-controls="args-panel"
+					onclick={() => (argsOpen = !argsOpen)}
+				>
+					Args{argsJson.trim() ? ' · set' : ''}
+				</button>
 				<button type="button" class="ghost" onclick={share}>{copied ? 'Copied link' : 'Share'}</button>
 				<button type="button" class="run" disabled={running || !wasmReady} onclick={run}>
 					{running ? 'Running…' : 'Run'}
@@ -232,6 +245,23 @@
 				</button>
 			</div>
 		</div>
+
+		{#if argsOpen}
+			<div class="args" id="args-panel">
+				<div class="pane-label">
+					<span>entrypoint args · json</span>
+					<button type="button" class="hide" onclick={() => (argsOpen = false)}>Hide</button>
+				</div>
+				<textarea
+					class="args-editor"
+					bind:value={argsJson}
+					spellcheck="false"
+					autocomplete="off"
+					placeholder={'{ "label": "grapheme" }'}
+					aria-label="Entrypoint args JSON"
+				></textarea>
+			</div>
+		{/if}
 
 		<div class="split">
 			<div class="editor-wrap">
@@ -251,17 +281,6 @@
 						onscroll={onScroll}
 						onkeydown={onKey}
 						aria-label="Grapheme source"
-					></textarea>
-				</div>
-				<div class="args">
-					<div class="pane-label"><span>entrypoint args · json</span></div>
-					<textarea
-						class="args-editor"
-						bind:value={argsJson}
-						spellcheck="false"
-						autocomplete="off"
-						placeholder={'{ "label": "grapheme" }'}
-						aria-label="Entrypoint args JSON"
 					></textarea>
 				</div>
 			</div>
@@ -621,7 +640,28 @@
 	.hl :global(.t-p) { opacity: 0.7; }
 
 	.args {
-		border-top: 1px solid var(--line);
+		border-bottom: 1px solid var(--line);
+		background: color-mix(in srgb, var(--mist) 60%, transparent);
+	}
+
+	.args .pane-label {
+		align-items: center;
+	}
+
+	.hide {
+		border: 0;
+		padding: 0;
+		background: none;
+		cursor: pointer;
+		font: inherit;
+		letter-spacing: inherit;
+		text-transform: inherit;
+		color: var(--sage);
+	}
+
+	.ghost.active {
+		border-color: var(--ink);
+		color: var(--ink);
 	}
 
 	.args-editor {
@@ -921,6 +961,13 @@
 			min-height: 12rem;
 		}
 
+		/* Args disclosure opens directly above the run bar. */
+		.args {
+			order: 2;
+			border-bottom: 0;
+			border-top: 1px solid var(--line);
+		}
+
 		/* Run bar moves to the thumb: sticky at the bottom of the viewport. */
 		.toolbar {
 			order: 3;
@@ -954,8 +1001,23 @@
 	}
 
 	@media (max-width: 640px) {
-		.pill.mono {
+		/* Only loading / unavailable status is worth a slot next to the thumb bar. */
+		.left {
+			display: contents;
+		}
+
+		.pill.ok,
+		.pill.muted {
 			display: none;
+		}
+
+		.right {
+			gap: 0.4rem;
+		}
+
+		.ghost {
+			padding-left: 0.75rem;
+			padding-right: 0.75rem;
 		}
 
 		.trace li {
