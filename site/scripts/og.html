@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link
+			href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@500;600&display=swap"
+			rel="stylesheet"
+		/>
+		<style>
+			* { box-sizing: border-box; margin: 0; }
+			html, body { width: 1200px; height: 630px; overflow: hidden; }
+			body {
+				font-family: 'IBM Plex Sans', sans-serif;
+				color: #f3eee4;
+				background: #1f3528;
+				display: grid;
+				grid-template-columns: 1fr 460px;
+				padding: 64px 72px;
+				gap: 48px;
+				align-items: center;
+			}
+			.mark { display: inline-flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+			.mark i {
+				display: inline-grid; place-items: center; width: 40px; height: 40px;
+				background: #f3eee4; color: #1f3528; font: 700 15px 'IBM Plex Mono', monospace; font-style: normal;
+			}
+			.mark span { font-size: 28px; font-weight: 600; letter-spacing: -0.01em; }
+			h1 { font-size: 44px; line-height: 1.1; letter-spacing: -0.02em; font-weight: 600; max-width: 560px; }
+			p { margin-top: 24px; font: 400 17px/1.5 'IBM Plex Mono', monospace; color: rgba(243, 238, 228, 0.78); max-width: 540px; }
+			.code {
+				background: rgba(15, 28, 20, 0.7);
+				border: 1px solid rgba(243, 238, 228, 0.15);
+				padding: 26px 28px;
+				font: 500 17px/1.6 'IBM Plex Mono', monospace;
+				white-space: pre;
+				color: #eaf0e6;
+			}
+			.k { color: #a8d5b3; } .d { color: #f6efe0; font-weight: 500; } .s { color: #f0b48a; }
+			.v { color: #9ec9f5; } .p { color: #8ff0b8; font-weight: 700; } .a { color: #e9d18a; } .t { color: #e8c38f; }
+		</style>
+	</head>
+	<body>
+		<div>
+			<div class="mark"><i>|&gt;</i><span>grapheme</span></div>
+			<h1>A typed workflow language with capability-gated side effects.</h1>
+			<p>compiles .gr to a verified artifact · every step recorded in a trace · runs native, in WASI, or in your browser</p>
+		</div>
+		<div class="code"><span class="k">query</span> <span class="d">Rollout</span> <span class="k">on</span> <span class="t">Any</span> -&gt; <span class="d">Release</span> {
+  <span class="d">Release</span> { status: <span class="s">"ramping"</span> }
+  <span class="p">|&gt;</span> <span class="d">Ramp</span>
+}
+
+<span class="k">iterator</span> <span class="d">Ramp</span> <span class="a">@loop</span>(max: 10) {
+  <span class="k">match</span> <span class="v">$state.status</span> {
+    <span class="k">case</span> complete <span class="p">=&gt;</span> <span class="k">return</span>
+    <span class="k">default</span>  <span class="p">=&gt;</span> <span class="d">Advance</span>
+  }
+}</div>
+	</body>
+</html>

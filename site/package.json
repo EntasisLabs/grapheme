@@ -1,0 +1,32 @@
+{
+  "name": "grapheme-site",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "sync-wasm": "node scripts/sync-wasm.mjs",
+    "sync-docs": "node scripts/sync-docs.mjs",
+    "predev": "node scripts/sync-docs.mjs",
+    "prebuild": "node scripts/sync-docs.mjs && node scripts/sync-wasm.mjs",
+    "make-og": "node scripts/make-og.mjs"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-static": "^3.0.8",
+    "@sveltejs/kit": "^2.20.2",
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "@types/node": "^22.13.10",
+    "svelte": "^5.23.2",
+    "svelte-check": "^4.1.5",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.2"
+  },
+  "dependencies": {
+    "@bjorn3/browser_wasi_shim": "^0.4.1",
+    "marked": "^15.0.7",
+    "shiki": "^3.2.1"
+  }
+}
