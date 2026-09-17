@@ -35,8 +35,8 @@
 
 <style>
 	.doc-head {
-		margin-bottom: 1.75rem;
-		padding-bottom: 1.1rem;
+		margin-bottom: 1.5rem;
+		padding-bottom: 1rem;
 		border-bottom: 1px solid var(--line);
 	}
 
@@ -51,9 +51,10 @@
 
 	h1 {
 		margin: 0;
-		font-size: clamp(1.9rem, 3.2vw, 2.6rem);
-		letter-spacing: -0.035em;
-		color: var(--sage-deep);
+		font-size: clamp(1.6rem, 2.6vw + 0.6rem, 2.4rem);
+		letter-spacing: -0.02em;
+		line-height: 1.15;
+		color: var(--ink);
 	}
 
 	.prose :global(h1) {
@@ -62,20 +63,29 @@
 
 	.prose :global(h2),
 	.prose :global(h3) {
-		letter-spacing: -0.02em;
-		margin-top: 2.2rem;
-		color: var(--sage-deep);
+		letter-spacing: -0.015em;
+		line-height: 1.25;
+		color: var(--ink);
 	}
 
 	.prose :global(h2) {
-		font-size: 1.5rem;
-		padding-top: 1.2rem;
-		border-top: 1px solid var(--line);
+		font-size: clamp(1.25rem, 1.2vw + 0.8rem, 1.5rem);
+		margin: 2.5rem 0 0.75rem;
+	}
+
+	.prose :global(h3) {
+		font-size: 1.05rem;
+		margin: 1.75rem 0 0.5rem;
 	}
 
 	.prose :global(p),
 	.prose :global(li) {
 		color: var(--ink-soft);
+		line-height: 1.6;
+	}
+
+	.prose :global(p) {
+		margin: 0.85rem 0;
 	}
 
 	.prose :global(strong) {
@@ -155,7 +165,9 @@
 	}
 
 	.prose :global(table) {
+		display: block;
 		width: 100%;
+		overflow-x: auto;
 		border-collapse: collapse;
 		font-size: 0.92rem;
 	}
@@ -173,17 +185,17 @@
 	}
 
 	.doc-foot {
-		margin-top: 3rem;
-		padding-top: 1.5rem;
+		margin-top: 2.5rem;
+		padding-top: 1.25rem;
 		border-top: 1px solid var(--line);
 		display: grid;
 		gap: 1rem;
 	}
 
 	.pager {
-		display: flex;
-		justify-content: space-between;
-		gap: 1rem;
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.75rem;
 	}
 
 	.pager a {
@@ -191,8 +203,9 @@
 		gap: 0.15rem;
 		padding: 0.8rem 1rem;
 		border: 1px solid var(--line);
+		border-radius: var(--radius);
 		text-decoration: none;
-		min-width: 12rem;
+		min-height: 3.5rem;
 	}
 
 	.pager a:hover {
@@ -200,8 +213,8 @@
 	}
 
 	.pager .next {
+		grid-column: 2;
 		text-align: right;
-		margin-left: auto;
 	}
 
 	.pager small {
@@ -214,7 +227,7 @@
 
 	.pager span {
 		font-weight: 600;
-		color: var(--sage-deep);
+		color: var(--ink);
 	}
 
 	.edit {
@@ -225,5 +238,34 @@
 
 	.edit:hover {
 		color: var(--sage);
+	}
+
+	@media (max-width: 860px) {
+		/* The sticky contents bar already names the section. */
+		.eyebrow {
+			display: none;
+		}
+
+		.doc-head {
+			margin-bottom: 1.25rem;
+		}
+
+		.pager {
+			grid-template-columns: 1fr;
+		}
+
+		.pager .next {
+			grid-column: 1;
+			text-align: left;
+		}
+
+		.prose :global(pre) {
+			padding: 0.9rem 1rem;
+		}
+
+		.prose :global(ul),
+		.prose :global(ol) {
+			padding-left: 1.1rem;
+		}
 	}
 </style>
