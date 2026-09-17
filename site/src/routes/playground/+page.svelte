@@ -228,16 +228,6 @@
 				{#if result?.artifact_id}<span class="pill muted mono">{result.artifact_id}</span>{/if}
 			</div>
 			<div class="right">
-				<button
-					type="button"
-					class="ghost"
-					class:active={argsOpen}
-					aria-expanded={argsOpen}
-					aria-controls="args-panel"
-					onclick={() => (argsOpen = !argsOpen)}
-				>
-					Args{argsJson.trim() ? ' · set' : ''}
-				</button>
 				<button type="button" class="ghost" onclick={share}>{copied ? 'Copied link' : 'Share'}</button>
 				<button type="button" class="run" disabled={running || !wasmReady} onclick={run}>
 					{running ? 'Running…' : 'Run'}
@@ -246,29 +236,37 @@
 			</div>
 		</div>
 
-		{#if argsOpen}
-			<div class="args" id="args-panel">
-				<div class="pane-label">
-					<span>entrypoint args · json</span>
-					<button type="button" class="hide" onclick={() => (argsOpen = false)}>Hide</button>
-				</div>
-				<textarea
-					class="args-editor"
-					bind:value={argsJson}
-					spellcheck="false"
-					autocomplete="off"
-					placeholder={'{ "label": "grapheme" }'}
-					aria-label="Entrypoint args JSON"
-				></textarea>
-			</div>
-		{/if}
-
 		<div class="split">
 			<div class="editor-wrap">
 				<div class="pane-label">
 					<span>source</span>
-					<span class="mono">{lineCount} lines</span>
+					<span class="pane-meta">
+						<button
+							type="button"
+							class="args-toggle"
+							class:on={argsOpen}
+							aria-expanded={argsOpen}
+							aria-controls="args-panel"
+							onclick={() => (argsOpen = !argsOpen)}
+						>
+							args{argsJson.trim() ? ' · set' : ''}
+						</button>
+						<span class="mono">{lineCount} lines</span>
+					</span>
 				</div>
+				{#if argsOpen}
+					<div class="args" id="args-panel">
+						<div class="pane-label"><span>entrypoint args · json</span></div>
+						<textarea
+							class="args-editor"
+							bind:value={argsJson}
+							spellcheck="false"
+							autocomplete="off"
+							placeholder={'{ "label": "grapheme" }'}
+							aria-label="Entrypoint args JSON"
+						></textarea>
+					</div>
+				{/if}
 				<div class="editor">
 					<pre class="hl" bind:this={highlightEl} aria-hidden="true"><code>{@html highlighted}</code></pre>
 					<textarea
@@ -639,16 +637,13 @@
 	.hl :global(.t-cm) { color: #7a877c; font-style: italic; }
 	.hl :global(.t-p) { opacity: 0.7; }
 
-	.args {
-		border-bottom: 1px solid var(--line);
-		background: color-mix(in srgb, var(--mist) 60%, transparent);
-	}
-
-	.args .pane-label {
+	.pane-meta {
+		display: inline-flex;
 		align-items: center;
+		gap: 0.9rem;
 	}
 
-	.hide {
+	.args-toggle {
 		border: 0;
 		padding: 0;
 		background: none;
@@ -659,9 +654,19 @@
 		color: var(--sage);
 	}
 
-	.ghost.active {
-		border-color: var(--ink);
+	.args-toggle:hover,
+	.args-toggle.on {
 		color: var(--ink);
+	}
+
+	.args-toggle.on {
+		text-decoration: underline;
+		text-underline-offset: 0.25em;
+	}
+
+	.args {
+		border-bottom: 1px solid var(--line);
+		background: color-mix(in srgb, var(--mist) 60%, transparent);
 	}
 
 	.args-editor {
@@ -961,13 +966,6 @@
 			min-height: 12rem;
 		}
 
-		/* Args disclosure opens directly above the run bar. */
-		.args {
-			order: 2;
-			border-bottom: 0;
-			border-top: 1px solid var(--line);
-		}
-
 		/* Run bar moves to the thumb: sticky at the bottom of the viewport. */
 		.toolbar {
 			order: 3;
@@ -1001,23 +999,8 @@
 	}
 
 	@media (max-width: 640px) {
-		/* Only loading / unavailable status is worth a slot next to the thumb bar. */
-		.left {
-			display: contents;
-		}
-
-		.pill.ok,
-		.pill.muted {
+		.pill.mono {
 			display: none;
-		}
-
-		.right {
-			gap: 0.4rem;
-		}
-
-		.ghost {
-			padding-left: 0.75rem;
-			padding-right: 0.75rem;
 		}
 
 		.trace li {
