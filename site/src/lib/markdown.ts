@@ -1,6 +1,7 @@
 import { marked } from 'marked';
 import { codeToHtml } from 'shiki';
 import { highlightGrLines } from './highlight';
+import { DOC_NAV } from './docs';
 
 marked.setOptions({
 	gfm: true,
@@ -18,6 +19,11 @@ const GH = 'https://github.com/EntasisLabs/grapheme';
 /** Point repo-relative links somewhere useful on a static site. */
 function rewriteDocLinks(source: string): string {
 	return source
+		// Bare tutorial filenames (`03-control-flow-and-state.md`) become links to the rendered page.
+		.replace(/`(\d{2}-[a-z0-9-]+)\.md`/g, (m, name: string) => {
+			const hit = DOC_NAV.find((d) => d.slug === `tutorials/${name}`);
+			return hit ? `[${hit.title.replace(/^\d+ · /, '')}](/docs/tutorials/${name})` : m;
+		})
 		.replace(/\]\(\.\.\/CHANGELOG\.md(#[^)]*)?\)/g, `](${GH}/blob/main/CHANGELOG.md$1)`)
 		.replace(/\]\(\.\.\/examples\//g, `](${GH}/tree/main/examples/`)
 		.replace(/\]\(examples\//g, `](${GH}/tree/main/examples/`)
