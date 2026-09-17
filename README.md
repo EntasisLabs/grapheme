@@ -239,14 +239,14 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes and version history.
 
 A SvelteKit product site lives in `site/` — brand landing, mirrored product docs, and an in-browser playground that runs `grapheme-wasm` (RFC-0006) via a WASI shim (no server execution).
 
-Live at **https://entasislabs.github.io/grapheme/**, published to GitHub Pages by `.github/workflows/pages-site.yml` on every push to `main`.
+Live at **https://grapheme-lang.org/** (https://entasislabs.github.io/grapheme/ redirects there), published to GitHub Pages by `.github/workflows/pages-site.yml` on every push to `main`.
 
 ```bash
 bash scripts/build-runtime-wasm.sh
 cd site && npm install && npm run dev
 ```
 
-See `site/README.md` for development, the base-path setup, deployment, and how to attach a custom domain.
+See `site/README.md` for development, the base-path setup, deployment, and the custom-domain / DNS records.
 
 ## Tooling and Release
 
