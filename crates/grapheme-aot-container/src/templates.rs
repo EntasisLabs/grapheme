@@ -66,14 +66,14 @@ fn resolve_local_reference(reference: &str, scope: &TemplateScope<'_>) -> Option
     if let Some(value) = scope.locals.get(reference) {
         return Some(value.clone());
     }
-    if let Some((name, path)) = reference.split_once('.') {
-        if let Some(value) = scope.locals.get(name) {
-            return Some(
-                select_json_path(value, path)
-                    .cloned()
-                    .unwrap_or(JsonValue::Null),
-            );
-        }
+    if let Some((name, path)) = reference.split_once('.')
+        && let Some(value) = scope.locals.get(name)
+    {
+        return Some(
+            select_json_path(value, path)
+                .cloned()
+                .unwrap_or(JsonValue::Null),
+        );
     }
     None
 }
@@ -102,12 +102,11 @@ fn resolve_variable_reference(reference: &str, scope: &TemplateScope<'_>) -> Jso
 }
 
 fn resolve_string_template(template: &str, scope: &TemplateScope<'_>) -> JsonValue {
-    if let Some(reference) = template.strip_prefix('$') {
-        if reference.chars().all(|c| is_selector_char(c) || c == '.') {
-            if let Some(value) = resolve_local_reference(reference, scope) {
-                return value;
-            }
-        }
+    if let Some(reference) = template.strip_prefix('$')
+        && reference.chars().all(|c| is_selector_char(c) || c == '.')
+        && let Some(value) = resolve_local_reference(reference, scope)
+    {
+        return value;
     }
     if template == "$state" {
         return scope.state.clone();
@@ -115,19 +114,19 @@ fn resolve_string_template(template: &str, scope: &TemplateScope<'_>) -> JsonVal
     if template == "$current" {
         return scope.current.clone();
     }
-    if let Some(path) = template.strip_prefix("$state.") {
-        if path.chars().all(is_selector_char) {
-            return select_json_path(scope.state, path)
-                .cloned()
-                .unwrap_or(JsonValue::Null);
-        }
+    if let Some(path) = template.strip_prefix("$state.")
+        && path.chars().all(is_selector_char)
+    {
+        return select_json_path(scope.state, path)
+            .cloned()
+            .unwrap_or(JsonValue::Null);
     }
-    if let Some(path) = template.strip_prefix("$current.") {
-        if path.chars().all(is_selector_char) {
-            return select_json_path(scope.current, path)
-                .cloned()
-                .unwrap_or(JsonValue::Null);
-        }
+    if let Some(path) = template.strip_prefix("$current.")
+        && path.chars().all(is_selector_char)
+    {
+        return select_json_path(scope.current, path)
+            .cloned()
+            .unwrap_or(JsonValue::Null);
     }
     JsonValue::String(template.to_string())
 }

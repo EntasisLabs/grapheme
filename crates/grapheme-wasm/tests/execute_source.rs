@@ -1,4 +1,4 @@
-use grapheme_wasm::{execute, parse_stdin_request, ExecuteRequest};
+use grapheme_wasm::{ExecuteRequest, execute, parse_stdin_request};
 use serde_json::json;
 
 fn hello_world_source() -> String {
@@ -38,6 +38,14 @@ fn hello_world_source_executes_through_runtime_engine() {
 
 #[test]
 fn host_only_op_fails_outside_wasm_stdlib_profile() {
+    // `cargo test --workspace` unifies `grapheme-stdlib` features with the host
+    // CLI, which compiles `http` into this crate's stdlib. The wasm-profile
+    // rejection only applies when that op is not registered. Isolated
+    // `cargo test -p grapheme-wasm` still covers the rejection.
+    if grapheme_stdlib::registry::is_registered_op("http", "get") {
+        return;
+    }
+
     let source = r#"
 import http from "grapheme/http"
 

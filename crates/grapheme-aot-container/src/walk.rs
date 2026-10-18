@@ -5,11 +5,11 @@ use grapheme_artifact::{
     MirProgram,
 };
 use grapheme_stdlib::registry;
-use serde_json::{json, Map, Value as JsonValue};
+use serde_json::{Map, Value as JsonValue, json};
 
-use crate::host::{self, HostCallRequest, CALL_CAPABILITY_IMPORT};
-use crate::templates::{args_with_pipeline_input, TemplateScope};
 use crate::HostFulfillment;
+use crate::host::{self, CALL_CAPABILITY_IMPORT, HostCallRequest};
+use crate::templates::{TemplateScope, args_with_pipeline_input};
 
 /// Modules that may run inside the Stage B container even if Cargo feature
 /// unification enables host stdlib crates in the same build graph.
@@ -231,17 +231,17 @@ fn execute_function(
             iteration_outputs.push(state.current.clone());
         }
 
-        if let Some(loop_cfg) = function.loop_config.as_ref() {
-            if let Some(until) = loop_cfg.until.as_ref() {
-                let done = state
-                    .current
-                    .as_object()
-                    .and_then(|obj| obj.get(&until.field))
-                    .map(|value| value == &until.eq)
-                    .unwrap_or(false);
-                if done {
-                    break;
-                }
+        if let Some(loop_cfg) = function.loop_config.as_ref()
+            && let Some(until) = loop_cfg.until.as_ref()
+        {
+            let done = state
+                .current
+                .as_object()
+                .and_then(|obj| obj.get(&until.field))
+                .map(|value| value == &until.eq)
+                .unwrap_or(false);
+            if done {
+                break;
             }
         }
     }
@@ -262,6 +262,7 @@ fn execute_function(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn dispatch_call(
     functions: &[MirFunction],
     module: Option<&str>,
@@ -286,14 +287,7 @@ fn dispatch_call(
     let call_args = args_with_pipeline_input(args, &current, &scope);
 
     if module == Some("call") {
-        invoke_named(
-            functions,
-            op,
-            state,
-            locals,
-            call_depth,
-            max_call_depth,
-        )?;
+        invoke_named(functions, op, state, locals, call_depth, max_call_depth)?;
         return Ok(());
     }
 
@@ -476,7 +470,7 @@ fn build_locals(
                 message: format!("call args for '{function_name}' must be an object"),
                 capability: None,
                 step_index: 0,
-            })
+            });
         }
     };
 

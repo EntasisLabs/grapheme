@@ -1,10 +1,10 @@
+use pest::Parser;
 /// ─────────────────────────────────────────────────────────────
 ///  Grapheme  —  Parser
 ///  Walks the pest.rs parse tree and emits typed AST nodes.
 ///  All error types are collected; parsing is fail-fast per rule.
 /// ─────────────────────────────────────────────────────────────
 use pest::iterators::Pair;
-use pest::Parser;
 use pest_derive::Parser;
 
 use crate::ast::*;
@@ -72,26 +72,26 @@ fn normalize_intent_attributes(source: &str) -> String {
             continue;
         }
 
-        if let Some(intent) = pending_intent.as_ref() {
-            if is_executable_definition_line(trimmed) {
-                if let Some(brace_idx) = line.find('{') {
-                    out.push_str(&line[..brace_idx]);
-                    out.push(' ');
-                    out.push_str(intent);
-                    out.push(' ');
-                    out.push_str(&line[brace_idx..]);
-                    out.push('\n');
-                    pending_intent = None;
-                    continue;
-                }
-
-                out.push_str(line);
+        if let Some(intent) = pending_intent.as_ref()
+            && is_executable_definition_line(trimmed)
+        {
+            if let Some(brace_idx) = line.find('{') {
+                out.push_str(&line[..brace_idx]);
                 out.push(' ');
                 out.push_str(intent);
+                out.push(' ');
+                out.push_str(&line[brace_idx..]);
                 out.push('\n');
                 pending_intent = None;
                 continue;
             }
+
+            out.push_str(line);
+            out.push(' ');
+            out.push_str(intent);
+            out.push('\n');
+            pending_intent = None;
+            continue;
         }
 
         out.push_str(line);
@@ -370,7 +370,7 @@ fn parse_using_binding(pair: Pair<Rule>) -> Result<UsingBinding, GraphemeError> 
         _ => {
             return Err(GraphemeError::ParseError(
                 "using binding must be `tag(...)` or `$handle: tag(...)`".to_string(),
-            ))
+            ));
         }
     };
 
@@ -415,10 +415,7 @@ fn parse_using_decl(pair: Pair<Rule>) -> Result<UsingDecl, GraphemeError> {
     })
 }
 
-fn parse_using_step(
-    pair: Pair<Rule>,
-    state: &mut ParseState,
-) -> Result<UsingStep, GraphemeError> {
+fn parse_using_step(pair: Pair<Rule>, state: &mut ParseState) -> Result<UsingStep, GraphemeError> {
     let mut bindings = Vec::new();
     let mut pipelines = Vec::new();
 
@@ -715,19 +712,18 @@ fn parse_subscription(
     })
 }
 
+type OperationBody = (
+    Vec<VariableDef>,
+    Option<ExecutableSignature>,
+    Vec<Directive>,
+    Vec<Pipeline>,
+);
+
 /// Shared body parser for query/mutation/subscription
 fn parse_operation_body<'a>(
     inner: impl Iterator<Item = Pair<'a, Rule>>,
     state: &mut ParseState,
-) -> Result<
-    (
-        Vec<VariableDef>,
-        Option<ExecutableSignature>,
-        Vec<Directive>,
-        Vec<Pipeline>,
-    ),
-    GraphemeError,
-> {
+) -> Result<OperationBody, GraphemeError> {
     let mut variables = vec![];
     let mut signature = None;
     let mut directives = vec![];
@@ -862,10 +858,9 @@ fn parse_match_step_as_match_call(
     })
 }
 
-fn parse_match_spec(
-    pair: Pair<Rule>,
-    state: &mut ParseState,
-) -> Result<(String, Vec<(Value, Value)>, Value), GraphemeError> {
+type MatchSpec = (String, Vec<(Value, Value)>, Value);
+
+fn parse_match_spec(pair: Pair<Rule>, state: &mut ParseState) -> Result<MatchSpec, GraphemeError> {
     let mut inner = pair.into_inner();
     let match_var = inner
         .next()
@@ -1260,7 +1255,7 @@ fn parse_if_step_as_branch_call(
             return Err(GraphemeError::ParseError(format!(
                 "unsupported if-step comparator: {}",
                 cmp
-            )))
+            )));
         }
     };
 
@@ -1535,8 +1530,7 @@ fn parse_directive(pair: Pair<Rule>) -> Result<Directive, GraphemeError> {
 
 fn parse_string_lit(pair: Pair<Rule>) -> String {
     let raw = pair.as_str();
-    serde_json::from_str::<String>(raw)
-        .unwrap_or_else(|_| raw[1..raw.len() - 1].to_string())
+    serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw[1..raw.len() - 1].to_string())
 }
 
 #[cfg(test)]
@@ -1546,7 +1540,10 @@ mod tests {
 
     fn first_call_arg(source: &str, arg_name: &str) -> Value {
         let program = parse(source).expect("parse should succeed");
-        let def = program.definitions.first().expect("definition should exist");
+        let def = program
+            .definitions
+            .first()
+            .expect("definition should exist");
         let query = match def {
             Definition::Query(query) => query,
             _ => panic!("expected query definition"),

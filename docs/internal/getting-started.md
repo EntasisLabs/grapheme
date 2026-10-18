@@ -17,7 +17,7 @@ Estimated time: 10 minutes.
 
 ## Prerequisites
 
-- Rust **1.92+** (edition 2024; required by Wasmer/WASIX deps); `rust-toolchain.toml` pins `stable`
+- Rust **1.94+** (edition 2024; sqlx 0.9 and Wasmer/WASIX); `rust-toolchain.toml` pins `stable`
 - `rustup`
 - `wasm32-wasip1` target for plugin builds
 - Node.js + npm (for extension packaging and local extension development)

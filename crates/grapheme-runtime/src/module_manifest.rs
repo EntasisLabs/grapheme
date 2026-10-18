@@ -1,4 +1,4 @@
-use grapheme_signatures::{module_ops, SignatureEffect};
+use grapheme_signatures::{SignatureEffect, module_ops};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +74,7 @@ pub fn core_v1_manifests() -> Vec<ModuleManifest> {
     .collect()
 }
 
+#[allow(clippy::vec_init_then_push)]
 fn capability_manifests() -> Vec<ModuleManifest> {
     #[allow(unused_mut)]
     let mut manifests = Vec::new();

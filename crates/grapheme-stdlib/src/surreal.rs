@@ -1,9 +1,9 @@
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 use std::env;
 use std::time::{Duration, Instant};
+use surrealdb::Surreal;
 use surrealdb::engine::remote::http::Http;
 use surrealdb::opt::Config;
-use surrealdb::Surreal;
 
 pub fn query(args: &JsonValue) -> JsonValue {
     let connection = match required_string(args, "connection") {
@@ -145,7 +145,7 @@ fn run_query(
     {
         Ok(rt) => rt,
         Err(e) => {
-            return error_payload("runtime_error", "tokio_runtime_init_failed", &e.to_string())
+            return error_payload("runtime_error", "tokio_runtime_init_failed", &e.to_string());
         }
     };
 
@@ -248,11 +248,11 @@ fn build_select_query(
     limit: Option<u64>,
 ) -> String {
     let mut q = format!("select * from {}", thing_or_table);
-    if let Some(where_clause) = where_clause {
-        if !where_clause.trim().is_empty() {
-            q.push_str(" where ");
-            q.push_str(where_clause);
-        }
+    if let Some(where_clause) = where_clause
+        && !where_clause.trim().is_empty()
+    {
+        q.push_str(" where ");
+        q.push_str(where_clause);
     }
     if let Some(limit) = limit {
         q.push_str(&format!(" limit {}", limit));
@@ -414,20 +414,18 @@ fn resolve_connection_id(connection: &str) -> Result<ResolvedSurrealConnection, 
             .collect::<String>()
     );
 
-    if let Ok(value) = env::var(&env_key) {
-        if let Some(parsed) = parse_connection_value(&value) {
-            return Ok(parsed);
-        }
+    if let Ok(value) = env::var(&env_key)
+        && let Some(parsed) = parse_connection_value(&value)
+    {
+        return Ok(parsed);
     }
 
-    if let Ok(raw) = env::var("GRAPHEME_SURREAL_CONNECTIONS") {
-        if let Ok(map) = serde_json::from_str::<JsonValue>(&raw) {
-            if let Some(entry) = map.get(connection) {
-                if let Some(parsed) = parse_connection_json(entry) {
-                    return Ok(parsed);
-                }
-            }
-        }
+    if let Ok(raw) = env::var("GRAPHEME_SURREAL_CONNECTIONS")
+        && let Ok(map) = serde_json::from_str::<JsonValue>(&raw)
+        && let Some(entry) = map.get(connection)
+        && let Some(parsed) = parse_connection_json(entry)
+    {
+        return Ok(parsed);
     }
 
     Err(format!(

@@ -19,20 +19,20 @@ use grapheme_artifact::{ExecutionResult, MirInst};
 use grapheme_compiler::ast::Definition;
 use grapheme_compiler::verifier::{ExecutableKindPolicyMode, LintWarning};
 use grapheme_compiler::{Compiler, CompilerError, CompilerOptions};
-use grapheme_runtime::{
-    apply_hotload_store, default_hotload_store_path, discover_wasm_modules,
-    discovered_module_to_load_request, hotload_status_payload, load_hotload_store,
-    save_hotload_store, HotloadError, ModuleLifecycleEvent, ModuleLifecycleEventKind,
-    PolicyGuard, RuntimeEngine, RuntimeOptions, TracePolicy, TraceProjection,
-};
 use grapheme_runtime::ModuleLoadError;
+use grapheme_runtime::{
+    HotloadError, ModuleLifecycleEvent, ModuleLifecycleEventKind, PolicyGuard, RuntimeEngine,
+    RuntimeOptions, TracePolicy, TraceProjection, apply_hotload_store, default_hotload_store_path,
+    discover_wasm_modules, discovered_module_to_load_request, hotload_status_payload,
+    load_hotload_store, save_hotload_store,
+};
 use grapheme_sdk::{
-    discover_examples, discover_module_manifests, example_by_name, modules_examples_payload,
-    modules_info_payload, modules_ops_payload, modules_search_payload, modules_types_payload,
-    GraphemeEngine, ModuleSearchDetail, ModuleSearchOptions, StructuredMode,
+    GraphemeEngine, ModuleSearchDetail, ModuleSearchOptions, StructuredMode, discover_examples,
+    discover_module_manifests, example_by_name, modules_examples_payload, modules_info_payload,
+    modules_ops_payload, modules_search_payload, modules_types_payload,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
@@ -1107,7 +1107,10 @@ fn emit_modules_examples(module: &str, mode: DiscoveryOutputMode) -> Result<(), 
     print_discovery(&payload, mode)
 }
 
-fn emit_modules_scan(extra_paths: &[String], mode: DiscoveryOutputMode) -> Result<(), CompilerError> {
+fn emit_modules_scan(
+    extra_paths: &[String],
+    mode: DiscoveryOutputMode,
+) -> Result<(), CompilerError> {
     let roots = resolve_module_scan_roots(extra_paths);
     let report = discover_wasm_modules(&roots);
     print_discovery(&report, mode)
@@ -1116,15 +1119,14 @@ fn emit_modules_scan(extra_paths: &[String], mode: DiscoveryOutputMode) -> Resul
 fn resolve_module_scan_roots(extra_paths: &[String]) -> Vec<PathBuf> {
     let mut roots = Vec::new();
 
-    if let Ok(cwd) = env::current_dir() {
-        if let Ok(Some((config_path, config))) = discover_project_config(&cwd) {
-            if let Some(modules) = config.modules {
-                let project_root = config_path.parent().unwrap_or(&cwd);
-                for path in modules.scan {
-                    if !path.trim().is_empty() {
-                        roots.push(project_root.join(path));
-                    }
-                }
+    if let Ok(cwd) = env::current_dir()
+        && let Ok(Some((config_path, config))) = discover_project_config(&cwd)
+        && let Some(modules) = config.modules
+    {
+        let project_root = config_path.parent().unwrap_or(&cwd);
+        for path in modules.scan {
+            if !path.trim().is_empty() {
+                roots.push(project_root.join(path));
             }
         }
     }
@@ -1135,11 +1137,11 @@ fn resolve_module_scan_roots(extra_paths: &[String]) -> Vec<PathBuf> {
         }
     }
 
-    if roots.is_empty() {
-        if let Ok(cwd) = env::current_dir() {
-            roots.push(cwd.join("plugins"));
-            roots.push(cwd.join("modules"));
-        }
+    if roots.is_empty()
+        && let Ok(cwd) = env::current_dir()
+    {
+        roots.push(cwd.join("plugins"));
+        roots.push(cwd.join("modules"));
     }
 
     roots
@@ -1155,7 +1157,11 @@ fn hotload_store_path() -> PathBuf {
 
 fn hydrate_runtime_options(options: &mut RuntimeOptions) -> Result<(), CompilerError> {
     if let Some(store) = load_hotload_store(&hotload_store_path()).map_err(map_hotload_error)? {
-        apply_hotload_store(&store, &mut options.module_manager, &mut options.module_registry);
+        apply_hotload_store(
+            &store,
+            &mut options.module_manager,
+            &mut options.module_registry,
+        );
         return Ok(());
     }
 
@@ -1185,9 +1191,8 @@ fn load_persisted_module_bindings() -> Result<BTreeMap<String, PathBuf>, Compile
 
     let raw = fs::read_to_string(&path)
         .map_err(|e| CompilerError::RuntimeError(format!("read '{}': {e}", path.display())))?;
-    let parsed = serde_json::from_str::<PersistedModuleBindingsFile>(&raw).map_err(|e| {
-        CompilerError::RuntimeError(format!("parse '{}': {e}", path.display()))
-    })?;
+    let parsed = serde_json::from_str::<PersistedModuleBindingsFile>(&raw)
+        .map_err(|e| CompilerError::RuntimeError(format!("parse '{}': {e}", path.display())))?;
 
     Ok(parsed
         .bindings
@@ -1227,9 +1232,8 @@ fn save_persisted_module_binding(
         },
     );
 
-    let serialized = serde_json::to_string_pretty(&file).map_err(|e| {
-        CompilerError::RuntimeError(format!("serialize module bindings: {e}"))
-    })?;
+    let serialized = serde_json::to_string_pretty(&file)
+        .map_err(|e| CompilerError::RuntimeError(format!("serialize module bindings: {e}")))?;
     fs::write(&store_path, serialized).map_err(|e| {
         CompilerError::RuntimeError(format!("write '{}': {e}", store_path.display()))
     })?;
@@ -1242,22 +1246,24 @@ fn remove_persisted_module_binding(module_id: &str) -> Result<(), CompilerError>
         return Ok(());
     }
 
-    let raw = fs::read_to_string(&store_path)
-        .map_err(|e| CompilerError::RuntimeError(format!("read '{}': {e}", store_path.display())))?;
+    let raw = fs::read_to_string(&store_path).map_err(|e| {
+        CompilerError::RuntimeError(format!("read '{}': {e}", store_path.display()))
+    })?;
     let mut file = serde_json::from_str::<PersistedModuleBindingsFile>(&raw).map_err(|e| {
         CompilerError::RuntimeError(format!("parse '{}': {e}", store_path.display()))
     })?;
     file.bindings.remove(module_id);
-    let serialized = serde_json::to_string_pretty(&file).map_err(|e| {
-        CompilerError::RuntimeError(format!("serialize module bindings: {e}"))
-    })?;
+    let serialized = serde_json::to_string_pretty(&file)
+        .map_err(|e| CompilerError::RuntimeError(format!("serialize module bindings: {e}")))?;
     fs::write(&store_path, serialized).map_err(|e| {
         CompilerError::RuntimeError(format!("write '{}': {e}", store_path.display()))
     })?;
     Ok(())
 }
 
-fn discovered_module_by_id(module_id: &str) -> Result<grapheme_runtime::DiscoveredWasmModule, CompilerError> {
+fn discovered_module_by_id(
+    module_id: &str,
+) -> Result<grapheme_runtime::DiscoveredWasmModule, CompilerError> {
     let roots = resolve_module_scan_roots(&[]);
     let report = discover_wasm_modules(&roots);
     report
@@ -1295,7 +1301,7 @@ fn emit_modules_activate(module_id: &str, mode: DiscoveryOutputMode) -> Result<(
             "content_hash": activation.content_hash,
         },
         "hotload_store": hotload_store_path().display().to_string(),
-        "lifecycle_events": lifecycle_events_payload(&runtime.module_lifecycle_events()),
+        "lifecycle_events": lifecycle_events_payload(runtime.module_lifecycle_events()),
     });
     print_discovery(&payload, mode)
 }
@@ -1319,7 +1325,7 @@ fn emit_modules_rollback(module_id: &str, mode: DiscoveryOutputMode) -> Result<(
             "content_hash": activation.content_hash,
         },
         "hotload_store": hotload_store_path().display().to_string(),
-        "lifecycle_events": lifecycle_events_payload(&runtime.module_lifecycle_events()),
+        "lifecycle_events": lifecycle_events_payload(runtime.module_lifecycle_events()),
     });
     print_discovery(&payload, mode)
 }
@@ -2120,10 +2126,10 @@ fn resolve_file_path_arg_or_project_main(
     args: &[String],
     command: &str,
 ) -> Result<(String, usize), CompilerError> {
-    if let Some(first) = args.first() {
-        if !first.starts_with("--") {
-            return Ok((first.clone(), 1));
-        }
+    if let Some(first) = args.first()
+        && !first.starts_with("--")
+    {
+        return Ok((first.clone(), 1));
     }
 
     let main = resolve_project_main_path().map_err(|_| {
@@ -2156,13 +2162,13 @@ fn resolve_project_main_path_from_dir(start_dir: &Path) -> Result<String, Compil
         )));
     }
 
-    if let Some(schema) = &config.schema {
-        if schema.trim().is_empty() {
-            return Err(CompilerError::RuntimeError(format!(
-                "'$schema' in '{}' must not be empty",
-                config_path.display()
-            )));
-        }
+    if let Some(schema) = &config.schema
+        && schema.trim().is_empty()
+    {
+        return Err(CompilerError::RuntimeError(format!(
+            "'$schema' in '{}' must not be empty",
+            config_path.display()
+        )));
     }
 
     if let Some(examples) = &config.examples {
@@ -2894,13 +2900,13 @@ fn default_build_output_path(file_path: &str, mode: DiscoveryOutputMode) -> Path
     PathBuf::from(format!("{file_path}.aot.{ext}"))
 }
 
-fn default_build_manifest_path(output_path: &PathBuf) -> PathBuf {
+fn default_build_manifest_path(output_path: &Path) -> PathBuf {
     PathBuf::from(format!("{}.manifest.json", output_path.display()))
 }
 
 fn build_manifest_from_aot(
     source: &str,
-    output_path: &PathBuf,
+    output_path: &Path,
     stage: AotStageSelection,
     aot: &grapheme_artifact::AotEnvelope,
 ) -> AotBuildManifest {
@@ -2955,22 +2961,32 @@ fn print_usage() {
     eprintln!("  grapheme                    # run project main from grapheme.toml");
     eprintln!("  grapheme <file.gr>");
     eprintln!("  grapheme parse [<file.gr>] [--yaml|--json]");
-    eprintln!("  grapheme compile [<file.gr>] [--emit ast|hir|mir|artifact|aot] [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--yaml|--json]");
+    eprintln!(
+        "  grapheme compile [<file.gr>] [--emit ast|hir|mir|artifact|aot] [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--yaml|--json]"
+    );
     eprintln!(
         "  grapheme build [<file.gr>] [--aot-stage stage_a|stage_b] [--out path] [--yaml|--json]"
     );
     eprintln!("  grapheme plugins build [all|core|io ...]");
-    eprintln!("  grapheme examples [list] [--yaml|--json] [--query q] [--tag tag] [--complexity level] [--native-only]");
+    eprintln!(
+        "  grapheme examples [list] [--yaml|--json] [--query q] [--tag tag] [--complexity level] [--native-only]"
+    );
     eprintln!("  grapheme examples show <name> [--summary] [--raw] [--yaml|--json]");
     eprintln!("  grapheme examples init [--out dir]");
-    eprintln!("  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules]");
+    eprintln!(
+        "  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules]"
+    );
     eprintln!("               [--state-json '<json>' | --state-file path.json]");
     eprintln!("               [--args-json '<json-object>']");
-    eprintln!("               [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--strict-stage-b] [--allow-stage-b-fallback] [--stream-steps]");
+    eprintln!(
+        "               [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--strict-stage-b] [--allow-stage-b-fallback] [--stream-steps]"
+    );
     eprintln!("               [--trace-profile lean|debug] [--trace-steps N]");
     eprintln!("               [--trace-projection minimal|full] [--trace-max-string-bytes N]");
     eprintln!("  grapheme modules [--yaml|--json]");
-    eprintln!("  grapheme modules search <query> [--explain] [--detail concise|full] [--top N] [--min-score X] [--include-experimental] [--yaml|--json]");
+    eprintln!(
+        "  grapheme modules search <query> [--explain] [--detail concise|full] [--top N] [--min-score X] [--include-experimental] [--yaml|--json]"
+    );
     eprintln!("  grapheme modules ops <query> [--yaml|--json]");
     eprintln!("  grapheme modules info <module> [--yaml|--json]");
     eprintln!("  grapheme modules types <module> [--yaml|--json]");
@@ -2986,7 +3002,9 @@ fn print_usage() {
 fn print_modules_usage() {
     eprintln!("usage:");
     eprintln!("  grapheme modules [--yaml|--json]");
-    eprintln!("  grapheme modules search <query> [--explain] [--detail concise|full] [--top N] [--min-score X] [--include-experimental] [--yaml|--json]");
+    eprintln!(
+        "  grapheme modules search <query> [--explain] [--detail concise|full] [--top N] [--min-score X] [--include-experimental] [--yaml|--json]"
+    );
     eprintln!("  grapheme modules ops <query> [--yaml|--json]");
     eprintln!("  grapheme modules info <module> [--yaml|--json]");
     eprintln!("  grapheme modules types <module> [--yaml|--json]");
@@ -3110,7 +3128,10 @@ mod tests {
 
         let (_file, run_options) = parse_run_args(&args).expect("parse run args should succeed");
         let _ = fs::remove_dir_all(&dir);
-        assert_eq!(run_options.initial_state_current, Some(json!({"seed": [1, 2, 3]})));
+        assert_eq!(
+            run_options.initial_state_current,
+            Some(json!({"seed": [1, 2, 3]}))
+        );
     }
 
     #[test]
@@ -3297,9 +3318,7 @@ query Hello {
         assert!(
             manifest.aot_id.starts_with("aot-")
                 && manifest.aot_id.len() == 20
-                && manifest.aot_id[4..]
-                    .chars()
-                    .all(|c| c.is_ascii_hexdigit()),
+                && manifest.aot_id[4..].chars().all(|c| c.is_ascii_hexdigit()),
             "aot_id should be aot-<16 hex chars>, got {}",
             manifest.aot_id
         );
@@ -3448,9 +3467,10 @@ query Hello {
         ])
         .expect_err("conflicting examples show flags should fail");
 
-        assert!(err
-            .to_string()
-            .contains("--summary and --raw cannot be combined"));
+        assert!(
+            err.to_string()
+                .contains("--summary and --raw cannot be combined")
+        );
     }
 
     #[test]
@@ -3537,18 +3557,20 @@ query Hello {
         let err = parse_modules_search_args(&["web".to_string(), "--oops".to_string()])
             .expect_err("unknown modules search flag should fail");
 
-        assert!(err
-            .to_string()
-            .contains("expected --explain|--detail|--top|--min-score|--include-experimental"));
+        assert!(
+            err.to_string()
+                .contains("expected --explain|--detail|--top|--min-score|--include-experimental")
+        );
     }
 
     #[test]
     fn telemetry_export_requires_out_path_value() {
         let err = parse_telemetry_export_path(&["--out".to_string()])
             .expect_err("missing telemetry export --out value should fail");
-        assert!(err
-            .to_string()
-            .contains("telemetry export --out requires a path"));
+        assert!(
+            err.to_string()
+                .contains("telemetry export --out requires a path")
+        );
     }
 
     #[test]
@@ -3701,10 +3723,11 @@ query Hello {
         assert!(web.get("use_when").and_then(|v| v.as_str()).is_some());
         assert!(web.get("avoid_when").and_then(|v| v.as_str()).is_some());
         assert!(web.get("score").and_then(|v| v.as_f64()).is_some());
-        assert!(web
-            .get("related_examples")
-            .and_then(|v| v.as_array())
-            .is_some());
+        assert!(
+            web.get("related_examples")
+                .and_then(|v| v.as_array())
+                .is_some()
+        );
     }
 
     #[test]

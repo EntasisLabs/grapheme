@@ -1,8 +1,8 @@
 [package]
 name = "grapheme-signatures"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2024"
-rust-version = "1.92"
+rust-version = "1.94"
 description = "Shared operation signatures and effects metadata for Grapheme"
 license = "Apache-2.0"
 repository = "https://github.com/entasislabs/grapheme"

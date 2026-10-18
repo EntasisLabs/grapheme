@@ -4,7 +4,9 @@ Grapheme is a language and runtime for building governed automation workflows wi
 
 Write workflows in `.gr`, compile them into verified MIR artifacts, and run them with policy controls across host-backed and Wasix-backed module paths.
 
-**0.7.0 (language + Stage B):** executable parameters and tagged variables (RFC-0004), plus a Wasm-compilable Stage B AOT container with host fulfillment and Stage A parity (RFC-0005). Requires Rust **1.92+** / edition **2024**. See [CHANGELOG.md](CHANGELOG.md#070---2026-08-21).
+**0.7.2:** the `sql` capability uses sqlx 0.9 so a workspace can also depend on rusqlite 0.37 (`libsqlite3-sys` 0.35). Requires Rust **1.94+** / edition **2024**. See [CHANGELOG.md](CHANGELOG.md#072---2026-10-18).
+
+**0.7.0 (language + Stage B):** executable parameters and tagged variables (RFC-0004), plus a Wasm-compilable Stage B AOT container with host fulfillment and Stage A parity (RFC-0005). See [CHANGELOG.md](CHANGELOG.md#070---2026-08-21).
 
 **0.6.0 (extensible platform):** opt-in capability modules for embedders (`data`, `pdf`, `image`, `plot`, `media`), dynamic Wasm discovery with hotload, and typed `{ data, meta, error }` result envelopes. The CLI ships full by default; the SDK opts in via Cargo features. See [CHANGELOG.md](CHANGELOG.md#060---2026-06-03).
 
@@ -22,7 +24,7 @@ Write workflows in `.gr`, compile them into verified MIR artifacts, and run them
 
 ### Prerequisites
 
-- Rust **1.92+** stable + Cargo (edition 2024; see `rust-toolchain.toml`)
+- Rust **1.94+** stable + Cargo (edition 2024; see `rust-toolchain.toml`)
 - `wasm32-wasip1` target
 - Node.js + npm (for extension packaging/local extension work)
 

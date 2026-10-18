@@ -79,7 +79,9 @@ pub enum ModuleLoadError {
         path: String,
         source: std::io::Error,
     },
-    #[error("incompatible ABI update for module '{module_id}': active={active:?}, candidate={candidate:?}")]
+    #[error(
+        "incompatible ABI update for module '{module_id}': active={active:?}, candidate={candidate:?}"
+    )]
     AbiIncompatible {
         module_id: String,
         active: ModuleAbi,
@@ -96,9 +98,7 @@ pub enum ModuleLoadError {
         module_id: String,
         missing_ops: Vec<String>,
     },
-    #[error(
-        "module '{module_id}' activation denied by capability policy: {denied_capabilities:?}"
-    )]
+    #[error("module '{module_id}' activation denied by capability policy: {denied_capabilities:?}")]
     PolicyDeniedCapabilities {
         module_id: String,
         denied_capabilities: Vec<String>,
@@ -164,24 +164,25 @@ impl ModuleManager {
                     .map(|g| g.abi.clone())
             });
 
-        if let Some(active_abi) = active_abi {
-            if req.compatibility_mode == CompatibilityMode::Strict && active_abi != generation.abi {
-                generation.state = ModuleLifecycleState::Failed;
-                {
-                    let slot = self.slots.entry(req.module_id.clone()).or_default();
-                    slot.generations.insert(generation_id, generation.clone());
-                }
-                self.emit_event(
-                    ModuleLifecycleEventKind::ActivationFailed,
-                    &generation,
-                    Some("abi_incompatible".to_string()),
-                );
-                return Err(ModuleLoadError::AbiIncompatible {
-                    module_id: req.module_id,
-                    active: active_abi,
-                    candidate: req.abi,
-                });
+        if let Some(active_abi) = active_abi
+            && req.compatibility_mode == CompatibilityMode::Strict
+            && active_abi != generation.abi
+        {
+            generation.state = ModuleLifecycleState::Failed;
+            {
+                let slot = self.slots.entry(req.module_id.clone()).or_default();
+                slot.generations.insert(generation_id, generation.clone());
             }
+            self.emit_event(
+                ModuleLifecycleEventKind::ActivationFailed,
+                &generation,
+                Some("abi_incompatible".to_string()),
+            );
+            return Err(ModuleLoadError::AbiIncompatible {
+                module_id: req.module_id,
+                active: active_abi,
+                candidate: req.abi,
+            });
         }
 
         generation.state = ModuleLifecycleState::Validated;
@@ -344,7 +345,9 @@ impl ModuleManager {
 
     /// Export persistent hotload state for cross-command/session restore.
     pub fn export_hotload(&self) -> crate::module_hotload::HotloadStore {
-        use crate::module_hotload::{HotloadGenerationRecord, HotloadSlotRecord, HotloadStore, HOTLOAD_SCHEMA};
+        use crate::module_hotload::{
+            HOTLOAD_SCHEMA, HotloadGenerationRecord, HotloadSlotRecord, HotloadStore,
+        };
 
         let mut slots = HashMap::new();
         for (module_id, slot) in &self.slots {
@@ -487,10 +490,12 @@ mod tests {
             manager.active_generation("http"),
             Some(result.generation_id)
         );
-        assert!(manager
-            .lifecycle_events()
-            .iter()
-            .any(|e| e.kind == ModuleLifecycleEventKind::Activated));
+        assert!(
+            manager
+                .lifecycle_events()
+                .iter()
+                .any(|e| e.kind == ModuleLifecycleEventKind::Activated)
+        );
 
         let _ = fs::remove_file(wasm_path);
     }
@@ -593,10 +598,12 @@ mod tests {
         let rolled_back = manager.rollback("http").expect("rollback should succeed");
         assert_eq!(rolled_back.generation_id, first.generation_id);
         assert_eq!(manager.active_generation("http"), Some(first.generation_id));
-        assert!(manager
-            .lifecycle_events()
-            .iter()
-            .any(|e| e.kind == ModuleLifecycleEventKind::Rollback));
+        assert!(
+            manager
+                .lifecycle_events()
+                .iter()
+                .any(|e| e.kind == ModuleLifecycleEventKind::Rollback)
+        );
 
         let _ = fs::remove_file(wasm_a);
         let _ = fs::remove_file(wasm_b);

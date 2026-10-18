@@ -5,11 +5,11 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use grapheme_signatures::{
-    find_op_spec, host_envelope_output_fields, op_output_object_fields, op_specs, op_uses_host_envelope,
-    ArgType, OpSpec, HOST_ENVELOPE_SCHEMA,
+    ArgType, HOST_ENVELOPE_SCHEMA, OpSpec, find_op_spec, host_envelope_output_fields,
+    op_output_object_fields, op_specs, op_uses_host_envelope,
 };
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Mutex;
@@ -114,7 +114,7 @@ impl LanguageServer for Backend {
                                 work_done_progress: None,
                             },
                             legend: semantic_tokens_legend(),
-                            range: Some(false.into()),
+                            range: Some(false),
                             full: Some(SemanticTokensFullOptions::Bool(true)),
                         },
                     ),
@@ -213,82 +213,78 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
 
-        if let Some((module, op)) = op_at_position(line, position.character as usize) {
-            if let Some(spec) = find_op_spec(module, op) {
-                let arg_docs = signature_args_label(spec);
-                let return_shape = signature_return_shape(spec);
-                let markdown = format!(
-                    "**{}.{}**\n\n{}\n\n- args: `{}`\n- returns: `{}`\n- effect: `{}`",
-                    spec.module,
-                    spec.op,
-                    signature_summary(spec),
-                    arg_docs,
-                    return_shape,
-                    signature_effect_label(spec)
-                );
+        if let Some((module, op)) = op_at_position(line, position.character as usize)
+            && let Some(spec) = find_op_spec(module, op)
+        {
+            let arg_docs = signature_args_label(spec);
+            let return_shape = signature_return_shape(spec);
+            let markdown = format!(
+                "**{}.{}**\n\n{}\n\n- args: `{}`\n- returns: `{}`\n- effect: `{}`",
+                spec.module,
+                spec.op,
+                signature_summary(spec),
+                arg_docs,
+                return_shape,
+                signature_effect_label(spec)
+            );
 
-                return Ok(Some(Hover {
-                    contents: HoverContents::Markup(MarkupContent {
-                        kind: MarkupKind::Markdown,
-                        value: markdown,
-                    }),
-                    range: None,
-                }));
-            }
+            return Ok(Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: markdown,
+                }),
+                range: None,
+            }));
         }
 
-        if is_current_context(line, position.character as usize) {
-            if let Some((input_type, output_type)) =
+        if is_current_context(line, position.character as usize)
+            && let Some((input_type, output_type)) =
                 enclosing_executable_signature(&text, position.line as usize)
-            {
-                let ctx = current_field_context_at_position(line, position.character as usize);
-                let path_prefix = ctx.as_ref().map(|c| c.path_prefix.as_slice()).unwrap_or(&[]);
-                let mut fields = inferred_current_fields_at_line(
-                    &text,
-                    &uri,
-                    position.line as usize,
-                    path_prefix,
-                );
+        {
+            let ctx = current_field_context_at_position(line, position.character as usize);
+            let path_prefix = ctx
+                .as_ref()
+                .map(|c| c.path_prefix.as_slice())
+                .unwrap_or(&[]);
+            let mut fields =
+                inferred_current_fields_at_line(&text, &uri, position.line as usize, path_prefix);
 
-                if fields.is_empty() {
-                    fields = resolve_fields_for_type_ref(&text, &uri, &input_type);
-                }
+            if fields.is_empty() {
+                fields = resolve_fields_for_type_ref(&text, &uri, &input_type);
+            }
 
-                let mut markdown = format!("**$current**\n\n- input type: `{}`", input_type);
-                if let Some(output_type) = output_type {
-                    markdown.push_str(&format!("\n- output type: `{}`", output_type));
-                }
+            let mut markdown = format!("**$current**\n\n- input type: `{}`", input_type);
+            if let Some(output_type) = output_type {
+                markdown.push_str(&format!("\n- output type: `{}`", output_type));
+            }
 
-                if let Some((module, op)) =
-                    last_pipeline_op_in_scope(&text, position.line as usize)
-                {
-                    markdown.push_str(&format!("\n- inferred from: `{module}.{op}`"));
-                    if op_uses_host_envelope(&module, &op) {
-                        markdown.push_str(&format!(
+            if let Some((module, op)) = last_pipeline_op_in_scope(&text, position.line as usize) {
+                markdown.push_str(&format!("\n- inferred from: `{module}.{op}`"));
+                if op_uses_host_envelope(&module, &op) {
+                    markdown.push_str(&format!(
                             "\n- envelope: `{HOST_ENVELOPE_SCHEMA}` (`$current.data.*` for payload fields)"
                         ));
-                    }
                 }
-
-                if !fields.is_empty() {
-                    let scope = match path_prefix {
-                        [] => "$current".to_string(),
-                        segments => format!("$current.{}", segments.join(".")),
-                    };
-                    markdown.push_str(&format!("\n\nKnown fields on `{scope}`:\n"));
-                    for field in fields {
-                        markdown.push_str(&format!("- `{}`\n", field));
-                    }
-                }
-
-                return Ok(Some(Hover {
-                    contents: HoverContents::Markup(MarkupContent {
-                        kind: MarkupKind::Markdown,
-                        value: markdown,
-                    }),
-                    range: None,
-                }));
             }
+
+            if !fields.is_empty() {
+                let scope = match path_prefix {
+                    [] => "$current".to_string(),
+                    segments => format!("$current.{}", segments.join(".")),
+                };
+                markdown.push_str(&format!("\n\nKnown fields on `{scope}`:\n"));
+                for field in fields {
+                    markdown.push_str(&format!("- `{}`\n", field));
+                }
+            }
+
+            return Ok(Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: markdown,
+                }),
+                range: None,
+            }));
         }
 
         if let Some((namespace, type_name)) =
@@ -379,8 +375,7 @@ impl LanguageServer for Backend {
             });
         }
 
-        if let Some(ctx) = current_field_context_at_position(line, position.character as usize)
-        {
+        if let Some(ctx) = current_field_context_at_position(line, position.character as usize) {
             let fields = inferred_current_fields_at_line(
                 &text,
                 &uri,
@@ -1371,9 +1366,7 @@ fn current_field_context_at_position(line: &str, character: usize) -> Option<Cur
         return None;
     }
 
-    let path_str = after_current
-        .trim_start_matches('.')
-        .trim_end_matches('.');
+    let path_str = after_current.trim_start_matches('.').trim_end_matches('.');
     if path_str.is_empty() {
         return Some(CurrentFieldContext {
             path_prefix: Vec::new(),
@@ -1455,10 +1448,8 @@ fn last_pipeline_op_in_scope(text: &str, line_number: usize) -> Option<(String, 
             last_op = None;
         }
 
-        if in_executable {
-            if let Some(op) = parse_transform_call_from_line(line) {
-                last_op = Some(op);
-            }
+        if in_executable && let Some(op) = parse_transform_call_from_line(line) {
+            last_op = Some(op);
         }
 
         let opens = line.chars().filter(|c| *c == '{').count() as i32;
@@ -1481,10 +1472,7 @@ fn is_executable_block_start(trimmed: &str) -> bool {
 }
 
 fn object_field_names(fields: &[grapheme_signatures::ObjectFieldSpec]) -> Vec<String> {
-    fields
-        .iter()
-        .map(|field| field.name.to_string())
-        .collect()
+    fields.iter().map(|field| field.name.to_string()).collect()
 }
 
 fn inferred_current_fields_at_line(
@@ -1531,10 +1519,7 @@ fn current_field_completion_detail(
     Some(format!("field on {scope} from `{module}.{op}`"))
 }
 
-fn namespace_type_prefix_at_position<'a>(
-    line: &'a str,
-    character: usize,
-) -> Option<(&'a str, &'a str)> {
+fn namespace_type_prefix_at_position(line: &str, character: usize) -> Option<(&str, &str)> {
     if line.is_empty() {
         return None;
     }
@@ -2342,12 +2327,11 @@ fn workspace_roots_from_initialize(params: &InitializeParams) -> Vec<Url> {
         }
     }
 
-    if roots.is_empty() {
-        if let Some(root_uri) = &params.root_uri {
-            if root_uri.scheme() == "file" {
-                roots.push(root_uri.clone());
-            }
-        }
+    if roots.is_empty()
+        && let Some(root_uri) = &params.root_uri
+        && root_uri.scheme() == "file"
+    {
+        roots.push(root_uri.clone());
     }
 
     roots
@@ -2404,7 +2388,7 @@ fn is_grapheme_source_file(path: &Path) -> bool {
         .is_some_and(|ext| ext.eq_ignore_ascii_case("gr"))
 }
 
-fn should_skip_dir(path: &PathBuf) -> bool {
+fn should_skip_dir(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
     };
@@ -2487,10 +2471,7 @@ query PdfGenerateDemo {
     #[test]
     fn parse_transform_call_from_pipeline_line() {
         let op = parse_transform_call_from_line("  |> pdf.generate(title: $state.title)");
-        assert_eq!(
-            op,
-            Some(("pdf".to_string(), "generate".to_string()))
-        );
+        assert_eq!(op, Some(("pdf".to_string(), "generate".to_string())));
     }
 
     #[test]
@@ -2500,10 +2481,7 @@ query PdfGenerateDemo {
             .position(|line| line.contains("core.echo"))
             .expect("echo line");
         let last = last_pipeline_op_in_scope(PDF_PIPELINE, line_number);
-        assert_eq!(
-            last,
-            Some(("pdf".to_string(), "generate".to_string()))
-        );
+        assert_eq!(last, Some(("pdf".to_string(), "generate".to_string())));
     }
 
     #[test]
