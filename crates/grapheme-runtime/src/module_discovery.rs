@@ -160,10 +160,11 @@ fn load_discovered_module(wasm_path: &Path) -> Result<DiscoveredWasmModule, Wasm
         });
     }
 
-    let raw = fs::read_to_string(&manifest_path).map_err(|err| WasmDiscoveryError::InvalidManifest {
-        path: manifest_path.display().to_string(),
-        reason: format!("read failed: {err}"),
-    })?;
+    let raw =
+        fs::read_to_string(&manifest_path).map_err(|err| WasmDiscoveryError::InvalidManifest {
+            path: manifest_path.display().to_string(),
+            reason: format!("read failed: {err}"),
+        })?;
 
     let manifest: WasmModuleManifest =
         serde_json::from_str(&raw).map_err(|err| WasmDiscoveryError::InvalidManifest {
@@ -192,11 +193,7 @@ fn load_discovered_module(wasm_path: &Path) -> Result<DiscoveredWasmModule, Wasm
         abi: manifest.abi,
         wasm_path: resolved_wasm,
         manifest_path,
-        exported_ops: manifest
-            .exported_ops
-            .into_iter()
-            .map(|op| op.op)
-            .collect(),
+        exported_ops: manifest.exported_ops.into_iter().map(|op| op.op).collect(),
         required_capabilities: manifest.required_capabilities,
     })
 }
@@ -237,7 +234,9 @@ fn validate_manifest(manifest: &WasmModuleManifest, path: &Path) -> Result<(), W
 }
 
 /// Build a module activation request from a discovery scan record.
-pub fn discovered_module_to_load_request(module: &DiscoveredWasmModule) -> crate::module_manager::LoadModuleRequest {
+pub fn discovered_module_to_load_request(
+    module: &DiscoveredWasmModule,
+) -> crate::module_manager::LoadModuleRequest {
     use crate::module_manager::CompatibilityMode;
     use crate::module_manifest::ModuleAbi;
 
@@ -251,7 +250,10 @@ pub fn discovered_module_to_load_request(module: &DiscoveredWasmModule) -> crate
 }
 
 fn manifest_path_for_wasm(wasm_path: &Path) -> PathBuf {
-    let stem = wasm_path.file_stem().and_then(|s| s.to_str()).unwrap_or("module");
+    let stem = wasm_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("module");
     wasm_path
         .parent()
         .unwrap_or_else(|| Path::new("."))
@@ -271,10 +273,8 @@ mod tests {
 
     #[test]
     fn discovers_module_with_valid_sidecar() {
-        let base = std::env::temp_dir().join(format!(
-            "grapheme-discover-test-{}",
-            std::process::id()
-        ));
+        let base =
+            std::env::temp_dir().join(format!("grapheme-discover-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
 
         let wasm_path = base.join("pdf.wasm");
@@ -292,7 +292,7 @@ mod tests {
             }"#,
         );
 
-        let report = discover_wasm_modules(&[base.clone()]);
+        let report = discover_wasm_modules(std::slice::from_ref(&base));
         assert_eq!(report.count, 1);
         assert_eq!(report.modules[0].module_id, "pdf");
         assert_eq!(report.modules[0].exported_ops, vec!["generate".to_string()]);

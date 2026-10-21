@@ -1,4 +1,4 @@
-# SDK and CLI feature flags (0.7.1+)
+# SDK and CLI feature flags (0.7.2+)
 
 Grapheme 0.6.0 introduced **opt-in capability modules** for embedders while the CLI ships everything by default. The 0.7.0 train keeps that matrix and ships Stage B / tagged-variable work on top.
 
@@ -9,17 +9,17 @@ As of RFC-0005, `grapheme-stdlib` also layers **host** vs **wasm** profiles so S
 
 ## Quick reference
 
-| Crate | Version (0.7.1 train) | Default features | Full stack |
+| Crate | Version (0.7.2 train) | Default features | Full stack |
 | --- | --- | --- | --- |
-| `grapheme-cli` | 0.7.1 | `full` | All capabilities + WASIX runtime |
-| `grapheme-lsp` | 0.7.1 | `full` | Editor gets full signatures |
-| `grapheme-sdk` | 0.7.1 | `host` + `stage-b` | `slim`, `full`, or selected modules |
-| `grapheme-stdlib` | 0.7.1 | `host` | `host` + `data`, `pdf`, `image`, `plot`, `media` |
-| `grapheme-signatures` | 0.7.1 | *(none)* | Capability op metadata |
-| `grapheme-runtime` | 0.7.1 | `stage-b` | Execution engine + AOT support |
-| `grapheme-compiler` | 0.7.1 | `stage-b` | Compiler pipeline + AOT support |
-| `grapheme-aot-container` | 0.7.1 | Wasm-safe walker | Stage B WASI binary |
-| `grapheme-wasm` | 0.7.1 | compiler + runtime (no Wasix) | Runtime-in-Wasm WASI binary |
+| `grapheme-cli` | 0.7.2 | `full` | All capabilities + WASIX runtime |
+| `grapheme-lsp` | 0.7.2 | `full` | Editor gets full signatures |
+| `grapheme-sdk` | 0.7.2 | `host` + `stage-b` | `slim`, `full`, or selected modules |
+| `grapheme-stdlib` | 0.7.2 | `host` | `host` + `data`, `pdf`, `image`, `plot`, `media` |
+| `grapheme-signatures` | 0.7.2 | *(none)* | Capability op metadata |
+| `grapheme-runtime` | 0.7.2 | `stage-b` | Execution engine + AOT support |
+| `grapheme-compiler` | 0.7.2 | `stage-b` | Compiler pipeline + AOT support |
+| `grapheme-aot-container` | 0.7.2 | Wasm-safe walker | Stage B WASI binary |
+| `grapheme-wasm` | 0.7.2 | compiler + runtime (no Wasix) | Runtime-in-Wasm WASI binary |
 | `grapheme-artifact` | 0.3.0 | — | MIR envelope (independent semver) |
 
 ## Stdlib host vs Wasm profiles
@@ -30,6 +30,8 @@ As of RFC-0005, `grapheme-stdlib` also layers **host** vs **wasm** profiles so S
 | `transforms` / `wasm` | `csv`, `yaml`, `html` | yes |
 | `host` (default) | transforms + `http`, `web`, `net`, `email`, `sql`, `surreal` | no |
 | `data` / `media` / … | existing capability modules | no (host/plugin paths) |
+
+The `sql` feature (part of `host`) uses sqlx 0.9 with the bundled SQLite driver and Postgres. sqlx 0.9 allows `libsqlite3-sys >=0.30.1, <0.38.0`, so an embedder can also depend on rusqlite 0.37 (`libsqlite3-sys` 0.35) in the same workspace. Cargo unifies those onto one `libsqlite3-sys` 0.35.x crate. Do not patch `sqlx-sqlite` 0.8 over this release.
 
 Wasm recipe (Stage B prerequisite):
 
@@ -46,7 +48,7 @@ only needs core/json compilation and execution:
 
 ```toml
 [dependencies]
-grapheme-sdk = { version = "0.7.1", default-features = false, features = ["slim"] }
+grapheme-sdk = { version = "0.7.2", default-features = false, features = ["slim"] }
 ```
 
 The slim graph excludes the host capability stack, transforms, AOT container,
@@ -78,13 +80,13 @@ See `docs/internal/rfc/rfc-0006-runtime-in-wasm-v1.md` and `crates/grapheme-wasm
 
 ```toml
 [dependencies]
-grapheme-sdk = { version = "0.7.1", default-features = false, features = ["full"] }
+grapheme-sdk = { version = "0.7.2", default-features = false, features = ["full"] }
 ```
 
 Per-module opt-in:
 
 ```toml
-grapheme-sdk = { version = "0.7.1", default-features = false, features = ["data", "pdf"] }
+grapheme-sdk = { version = "0.7.2", default-features = false, features = ["data", "pdf"] }
 ```
 
 Available flags on `grapheme-sdk`:

@@ -3,24 +3,24 @@
 //! The SDK wraps compiler and runtime crates with an ergonomic builder API,
 //! structured output formatting, and AOT helper entrypoints.
 
-use grapheme_artifact::mir::MirFunctionKind;
-use grapheme_artifact::{AotEnvelope, ArtifactEnvelope, CapabilityPolicy, ExecutionResult};
 #[cfg(feature = "stage-b")]
 use grapheme_artifact::build_stage_b_container_from_aot;
+use grapheme_artifact::mir::MirFunctionKind;
+use grapheme_artifact::{AotEnvelope, ArtifactEnvelope, CapabilityPolicy, ExecutionResult};
 use grapheme_compiler::ast::{ScalarKind, TypeRef};
 use grapheme_compiler::hir::HirExecutableKind;
 use grapheme_compiler::verifier::LintWarning;
 use grapheme_compiler::{CompiledScript, Compiler, CompilerError, CompilerOptions};
 use grapheme_runtime::{
-    apply_hotload_store, default_hotload_store_path, discover_wasm_modules,
-    discovered_module_to_load_request, load_hotload_store, save_hotload_store, ActivationResult,
-    CapabilityCall, CapabilityHost, HostCallError, HotloadError, LoadModuleRequest,
-    ModuleLifecycleEvent, ModuleLoadError, PolicyGuard, RuntimeEngine, RuntimeError,
-    RuntimeOptions, TracePolicy,
+    ActivationResult, CapabilityCall, CapabilityHost, HostCallError, HotloadError,
+    LoadModuleRequest, ModuleLifecycleEvent, ModuleLoadError, PolicyGuard, RuntimeEngine,
+    RuntimeError, RuntimeOptions, TracePolicy, apply_hotload_store, default_hotload_store_path,
+    discover_wasm_modules, discovered_module_to_load_request, load_hotload_store,
+    save_hotload_store,
 };
 use grapheme_signatures::{
-    find_op_spec, op_output_object_fields, op_output_type, op_stability, op_stability_label,
-    ArgType,
+    ArgType, find_op_spec, op_output_object_fields, op_output_type, op_stability,
+    op_stability_label,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -1433,7 +1433,10 @@ fn executable_reflection_from_mir(
     ExecutableReflection {
         name: function.name.clone(),
         kind,
-        description: function.intent_config.as_ref().and_then(|cfg| cfg.goal.clone()),
+        description: function
+            .intent_config
+            .as_ref()
+            .and_then(|cfg| cfg.goal.clone()),
         input_type: None,
         output_type: None,
         loop_directive_count: usize::from(function.loop_config.is_some()),
@@ -1839,16 +1842,16 @@ pub fn discover_examples(
                 return false;
             }
 
-            if let Some(ref c) = complexity {
-                if item.complexity.to_lowercase() != *c {
-                    return false;
-                }
+            if let Some(ref c) = complexity
+                && item.complexity.to_lowercase() != *c
+            {
+                return false;
             }
 
-            if let Some(ref t) = tag {
-                if !item.tags.iter().any(|entry| entry.eq_ignore_ascii_case(t)) {
-                    return false;
-                }
+            if let Some(ref t) = tag
+                && !item.tags.iter().any(|entry| entry.eq_ignore_ascii_case(t))
+            {
+                return false;
             }
 
             if let Some(ref q) = query {
@@ -1896,10 +1899,10 @@ impl CapabilityHost for StdlibHost {
             observer(call);
         }
 
-        if let Some(interceptor) = &self.capability_interceptor {
-            if let Some(outcome) = interceptor(call) {
-                return outcome;
-            }
+        if let Some(interceptor) = &self.capability_interceptor
+            && let Some(outcome) = interceptor(call)
+        {
+            return outcome;
         }
 
         let module = Self::resolve_module(call);
@@ -1919,9 +1922,9 @@ mod tests {
     use super::*;
     use grapheme_artifact::Capability;
     use grapheme_artifact::ExecutionOutcome;
-    use grapheme_runtime::{CompatibilityMode, ModuleAbi, ModuleLifecycleEventKind};
     #[cfg(feature = "host")]
     use grapheme_runtime::PolicyGuard;
+    use grapheme_runtime::{CompatibilityMode, ModuleAbi, ModuleLifecycleEventKind};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
@@ -1977,15 +1980,19 @@ mod tests {
             first.get("module_id").and_then(|v| v.as_str()),
             Some("html")
         );
-        assert!(first
-            .get("summary")
-            .and_then(|v| v.as_str())
-            .is_some_and(|s| !s.is_empty()));
+        assert!(
+            first
+                .get("summary")
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| !s.is_empty())
+        );
         assert!(first.get("op_count").and_then(|v| v.as_u64()).is_some());
-        assert!(first
-            .get("effects")
-            .and_then(|v| v.as_array())
-            .is_some_and(|effects| !effects.is_empty()));
+        assert!(
+            first
+                .get("effects")
+                .and_then(|v| v.as_array())
+                .is_some_and(|effects| !effects.is_empty())
+        );
         assert_eq!(
             payload.get("stability_policy").and_then(|v| v.as_str()),
             Some("stable_preferred")
@@ -2028,12 +2035,16 @@ mod tests {
             .and_then(|v| v.as_array())
             .expect("matches array");
 
-        assert!(matches
-            .iter()
-            .any(|row| { row.get("module_id").and_then(|v| v.as_str()) == Some("core") }));
-        assert!(matches
-            .iter()
-            .all(|row| { row.get("stability").and_then(|v| v.as_str()) == Some("stable") }));
+        assert!(
+            matches
+                .iter()
+                .any(|row| { row.get("module_id").and_then(|v| v.as_str()) == Some("core") })
+        );
+        assert!(
+            matches
+                .iter()
+                .all(|row| { row.get("stability").and_then(|v| v.as_str()) == Some("stable") })
+        );
         assert!(matches.iter().any(|row| {
             row.get("op").and_then(|v| v.as_str()) == Some("echo")
                 && row.get("input_object_type").is_some()
@@ -2149,18 +2160,22 @@ mod tests {
             .and_then(|v| v.as_array())
             .expect("types array");
         assert_eq!(types.len(), 7);
-        assert!(types
-            .iter()
-            .all(|row| row.get("output_type").and_then(|v| v.as_str()) == Some("object")));
+        assert!(
+            types
+                .iter()
+                .all(|row| row.get("output_type").and_then(|v| v.as_str()) == Some("object"))
+        );
         let duckduckgo = types
             .iter()
             .find(|row| row.get("op").and_then(|v| v.as_str()) == Some("duckduckgo"))
             .expect("duckduckgo op row");
         assert!(duckduckgo.get("input_object_type").is_some());
-        assert!(duckduckgo
-            .get("args")
-            .and_then(|v| v.as_array())
-            .is_some_and(|args| !args.is_empty()));
+        assert!(
+            duckduckgo
+                .get("args")
+                .and_then(|v| v.as_array())
+                .is_some_and(|args| !args.is_empty())
+        );
         assert_eq!(
             duckduckgo.get("stability").and_then(|v| v.as_str()),
             Some("stable")
@@ -2181,12 +2196,16 @@ mod tests {
                 .and_then(|v| v.as_str()),
             Some("array")
         );
-        assert!(types
-            .iter()
-            .all(|row| row.get("input_schema_ref").is_none()));
-        assert!(types
-            .iter()
-            .all(|row| row.get("output_schema_ref").is_none()));
+        assert!(
+            types
+                .iter()
+                .all(|row| row.get("input_schema_ref").is_none())
+        );
+        assert!(
+            types
+                .iter()
+                .all(|row| row.get("output_schema_ref").is_none())
+        );
     }
 
     #[test]
@@ -2595,12 +2614,16 @@ query Hello {
         assert_eq!(rolled_back.generation_id, first.generation_id);
 
         let events = session.module_lifecycle_events();
-        assert!(events
-            .iter()
-            .any(|e| e.kind == ModuleLifecycleEventKind::Activated));
-        assert!(events
-            .iter()
-            .any(|e| e.kind == ModuleLifecycleEventKind::Rollback));
+        assert!(
+            events
+                .iter()
+                .any(|e| e.kind == ModuleLifecycleEventKind::Activated)
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| e.kind == ModuleLifecycleEventKind::Rollback)
+        );
 
         let _ = fs::remove_file(wasm_a);
         let _ = fs::remove_file(wasm_b);
@@ -2742,9 +2765,11 @@ query Hello {
         let rollback_err = session
             .rollback_module_generation("http")
             .expect_err("failed activation should not create rollback candidate");
-        assert!(rollback_err
-            .to_string()
-            .contains("has no prior generation to roll back to"));
+        assert!(
+            rollback_err
+                .to_string()
+                .contains("has no prior generation to roll back to")
+        );
 
         let events = session.module_lifecycle_events();
         assert!(events.iter().any(|e| {
@@ -2779,9 +2804,10 @@ query Hello {
             })
             .expect_err("activation should be denied by capability policy");
 
-        assert!(err
-            .to_string()
-            .contains("activation denied by capability policy"));
+        assert!(
+            err.to_string()
+                .contains("activation denied by capability policy")
+        );
 
         let _ = fs::remove_file(wasm);
     }
@@ -2822,13 +2848,17 @@ query Hello {
                 && !e.version.is_empty()
                 && !e.content_hash.is_empty()
         }));
-        assert!(events
-            .iter()
-            .any(|e| e.kind == ModuleLifecycleEventKind::ActivationFailed));
-        assert!(events
-            .iter()
-            .any(|e| e.kind == ModuleLifecycleEventKind::ActivationFailed
-                && e.reason.as_deref() == Some("abi_incompatible")));
+        assert!(
+            events
+                .iter()
+                .any(|e| e.kind == ModuleLifecycleEventKind::ActivationFailed)
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| e.kind == ModuleLifecycleEventKind::ActivationFailed
+                    && e.reason.as_deref() == Some("abi_incompatible"))
+        );
 
         let _ = fs::remove_file(wasm_a);
         let _ = fs::remove_file(wasm_b);
@@ -2854,12 +2884,14 @@ query SqlDenied {
             result.execution.outcome,
             ExecutionOutcome::FatalFailure
         ));
-        assert!(result
-            .execution
-            .message
-            .as_deref()
-            .unwrap_or_default()
-            .contains("sql module is disabled"));
+        assert!(
+            result
+                .execution
+                .message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("sql module is disabled")
+        );
     }
 
     #[cfg(feature = "host")]
@@ -2918,12 +2950,14 @@ query SurrealDenied {
             result.execution.outcome,
             ExecutionOutcome::FatalFailure
         ));
-        assert!(result
-            .execution
-            .message
-            .as_deref()
-            .unwrap_or_default()
-            .contains("surreal module is disabled"));
+        assert!(
+            result
+                .execution
+                .message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("surreal module is disabled")
+        );
     }
 
     #[cfg(feature = "host")]
@@ -3153,8 +3187,7 @@ query HelloAot {
             .and_then(|events| events.as_array())
             .map(|events| {
                 events.iter().any(|event| {
-                    event.get("kind").and_then(|v| v.as_str())
-                        == Some("aot.stage_b.host_fulfilled")
+                    event.get("kind").and_then(|v| v.as_str()) == Some("aot.stage_b.host_fulfilled")
                 })
             })
             .unwrap_or(false);
@@ -3184,12 +3217,14 @@ query HelloAot {
             .execute_aot(&stage_b)
             .expect("strict stage_b should execute in-process container");
 
-        assert!(result
-            .execution
-            .message
-            .as_deref()
-            .unwrap_or_default()
-            .contains("stage_b container executed in-process"));
+        assert!(
+            result
+                .execution
+                .message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("stage_b container executed in-process")
+        );
         let events = result
             .final_state
             .get("runtime_events")
@@ -3252,12 +3287,13 @@ query HelloParity {
         let a = engine.execute_aot(&stage_a).expect("stage_a execute");
         let b = engine.execute_aot(&stage_b).expect("stage_b execute");
         assert_stage_a_stage_b_current_parity(&a, &b);
-        assert!(b
-            .execution
-            .message
-            .as_deref()
-            .unwrap_or_default()
-            .contains("stage_b container executed in-process"));
+        assert!(
+            b.execution
+                .message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("stage_b container executed in-process")
+        );
     }
 
     #[cfg(feature = "stage-b")]

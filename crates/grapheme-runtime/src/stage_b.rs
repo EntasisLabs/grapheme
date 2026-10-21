@@ -6,13 +6,12 @@
 //! Wasix (when `prefer_stage_b_wasix` / `wasix-runtime` is enabled).
 
 use grapheme_aot_container::{
-    host::{is_host_call_error, CALL_CAPABILITY_IMPORT, STATE_READ_IMPORT, STATE_WRITE_IMPORT},
-    walk_result_from_json, ContainerWalkResult, ExecuteRequest, HostFulfillment,
+    ContainerWalkResult, ExecuteRequest, HostFulfillment,
+    host::{CALL_CAPABILITY_IMPORT, STATE_READ_IMPORT, STATE_WRITE_IMPORT, is_host_call_error},
+    walk_result_from_json,
 };
-use grapheme_artifact::{
-    AotEnvelope, Capability, ExecutionOutcome, ExecutionResult, TraceSummary,
-};
-use serde_json::{json, Map, Value as JsonValue};
+use grapheme_artifact::{AotEnvelope, Capability, ExecutionOutcome, ExecutionResult, TraceSummary};
+use serde_json::{Map, Value as JsonValue, json};
 
 use crate::error::RuntimeError as GraphemeError;
 use crate::host::{CapabilityCall, CapabilityHost, HostCallError};
@@ -29,6 +28,7 @@ pub struct StageBHostExecution {
 
 /// Shared multi-round Stage B loop. `run_round` executes one container walk
 /// (in-process or Wasix) for the given request.
+#[allow(clippy::explicit_counter_loop)]
 pub fn execute_stage_b_rounds<F>(
     aot: &AotEnvelope,
     host: &mut dyn CapabilityHost,
@@ -158,7 +158,9 @@ pub fn execute_stage_b_in_process(
 }
 
 /// Unwrap Wasix host envelope / raw walk JSON into a [`ContainerWalkResult`].
-pub fn walk_result_from_wasix_output(output: &JsonValue) -> Result<ContainerWalkResult, GraphemeError> {
+pub fn walk_result_from_wasix_output(
+    output: &JsonValue,
+) -> Result<ContainerWalkResult, GraphemeError> {
     let walk_json = if output.get("ok").is_some() && output.get("steps").is_some() {
         output.clone()
     } else if let Some(data) = output.get("data") {
@@ -176,9 +178,8 @@ pub fn walk_result_from_wasix_output(output: &JsonValue) -> Result<ContainerWalk
         ));
     };
 
-    walk_result_from_json(&walk_json).map_err(|e| {
-        GraphemeError::RuntimeError(format!("parse wasix stage_b walk result: {e}"))
-    })
+    walk_result_from_json(&walk_json)
+        .map_err(|e| GraphemeError::RuntimeError(format!("parse wasix stage_b walk result: {e}")))
 }
 
 fn fulfill_host_stub(
@@ -187,9 +188,9 @@ fn fulfill_host_stub(
     agent: &mut AgentState,
     step_index: usize,
 ) -> Result<JsonValue, GraphemeError> {
-    let error = stub.get("error").ok_or_else(|| {
-        GraphemeError::RuntimeError("host stub missing error object".to_string())
-    })?;
+    let error = stub
+        .get("error")
+        .ok_or_else(|| GraphemeError::RuntimeError("host stub missing error object".to_string()))?;
     let import = error
         .get("import")
         .and_then(|v| v.as_str())

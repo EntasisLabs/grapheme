@@ -1,4 +1,4 @@
-use serde_json::{json, Map, Value as JsonValue};
+use serde_json::{Map, Value as JsonValue, json};
 use sqlx::{AnyPool, Column, Row};
 use std::env;
 use std::sync::Once;
@@ -35,7 +35,7 @@ pub fn query(args: &JsonValue) -> JsonValue {
     {
         Ok(rt) => rt,
         Err(e) => {
-            return error_payload("runtime_error", "tokio_runtime_init_failed", &e.to_string())
+            return error_payload("runtime_error", "tokio_runtime_init_failed", &e.to_string());
         }
     };
 
@@ -45,7 +45,7 @@ pub fn query(args: &JsonValue) -> JsonValue {
             .await
             .map_err(|e| format!("connect failed: {e}"))?;
 
-        let query = match bind_params(sqlx::query(&sql), &params) {
+        let query = match bind_params(sqlx::query(sqlx::AssertSqlSafe(sql.as_str())), &params) {
             Ok(query) => query,
             Err(e) => return Err(e),
         };
@@ -55,14 +55,14 @@ pub fn query(args: &JsonValue) -> JsonValue {
             .await
             .map_err(|e| format!("query failed: {e}"))?;
 
-        if let Some(max_rows) = max_rows {
-            if rows.len() > max_rows as usize {
-                return Err(format!(
-                    "row count {} exceeds max_rows {}",
-                    rows.len(),
-                    max_rows
-                ));
-            }
+        if let Some(max_rows) = max_rows
+            && rows.len() > max_rows as usize
+        {
+            return Err(format!(
+                "row count {} exceeds max_rows {}",
+                rows.len(),
+                max_rows
+            ));
         }
 
         let mut out_rows = Vec::with_capacity(rows.len());
@@ -130,7 +130,7 @@ pub fn execute(args: &JsonValue) -> JsonValue {
     {
         Ok(rt) => rt,
         Err(e) => {
-            return error_payload("runtime_error", "tokio_runtime_init_failed", &e.to_string())
+            return error_payload("runtime_error", "tokio_runtime_init_failed", &e.to_string());
         }
     };
 
@@ -140,7 +140,7 @@ pub fn execute(args: &JsonValue) -> JsonValue {
             .await
             .map_err(|e| format!("connect failed: {e}"))?;
 
-        let query = match bind_params(sqlx::query(&sql), &params) {
+        let query = match bind_params(sqlx::query(sqlx::AssertSqlSafe(sql.as_str())), &params) {
             Ok(query) => query,
             Err(e) => return Err(e),
         };
@@ -182,7 +182,7 @@ pub fn health(args: &JsonValue) -> JsonValue {
     {
         Ok(rt) => rt,
         Err(e) => {
-            return error_payload("runtime_error", "tokio_runtime_init_failed", &e.to_string())
+            return error_payload("runtime_error", "tokio_runtime_init_failed", &e.to_string());
         }
     };
 
@@ -233,7 +233,7 @@ pub fn transaction(args: &JsonValue) -> JsonValue {
     {
         Ok(rt) => rt,
         Err(e) => {
-            return error_payload("runtime_error", "tokio_runtime_init_failed", &e.to_string())
+            return error_payload("runtime_error", "tokio_runtime_init_failed", &e.to_string());
         }
     };
 
@@ -258,7 +258,11 @@ pub fn transaction(args: &JsonValue) -> JsonValue {
         let mut results = Vec::with_capacity(steps.len());
 
         for (idx, step) in steps.iter().enumerate() {
-            let query = bind_params(sqlx::query(&step.sql), &step.params).map_err(|e| {
+            let query = bind_params(
+                sqlx::query(sqlx::AssertSqlSafe(step.sql.as_str())),
+                &step.params,
+            )
+            .map_err(|e| {
                 transaction_failure_payload(
                     &connection,
                     &results,
@@ -433,7 +437,7 @@ fn parse_transaction_steps(args: &JsonValue) -> Result<Vec<TransactionStep>, Str
                 return Err(format!(
                     "step[{idx}] has invalid mode '{}', expected query|execute",
                     other
-                ))
+                ));
             }
         };
 
@@ -450,9 +454,9 @@ fn parse_transaction_steps(args: &JsonValue) -> Result<Vec<TransactionStep>, Str
 }
 
 fn bind_params<'q>(
-    mut query: sqlx::query::Query<'q, sqlx::Any, sqlx::any::AnyArguments<'q>>,
+    mut query: sqlx::query::Query<'q, sqlx::Any, sqlx::any::AnyArguments>,
     params: &[JsonValue],
-) -> Result<sqlx::query::Query<'q, sqlx::Any, sqlx::any::AnyArguments<'q>>, String> {
+) -> Result<sqlx::query::Query<'q, sqlx::Any, sqlx::any::AnyArguments>, String> {
     for value in params {
         query = match value {
             JsonValue::Null => query.bind(Option::<String>::None),
@@ -474,7 +478,9 @@ fn bind_params<'q>(
             }
             JsonValue::String(v) => query.bind(v.clone()),
             JsonValue::Array(_) | JsonValue::Object(_) => {
-                return Err("only scalar params are supported (null/bool/number/string)".to_string())
+                return Err(
+                    "only scalar params are supported (null/bool/number/string)".to_string()
+                );
             }
         };
     }
@@ -499,22 +505,20 @@ fn resolve_connection(connection: &str) -> Result<String, String> {
             .collect::<String>()
     );
 
-    if let Ok(url) = env::var(&env_key) {
-        if !url.trim().is_empty() {
-            return Ok(url);
-        }
+    if let Ok(url) = env::var(&env_key)
+        && !url.trim().is_empty()
+    {
+        return Ok(url);
     }
 
-    if let Ok(map_raw) = env::var("GRAPHEME_SQL_CONNECTIONS") {
-        if let Ok(map_json) = serde_json::from_str::<JsonValue>(&map_raw) {
-            if let Some(url) = map_json
-                .get(connection)
-                .and_then(|v| v.as_str())
-                .map(ToOwned::to_owned)
-            {
-                return Ok(url);
-            }
-        }
+    if let Ok(map_raw) = env::var("GRAPHEME_SQL_CONNECTIONS")
+        && let Ok(map_json) = serde_json::from_str::<JsonValue>(&map_raw)
+        && let Some(url) = map_json
+            .get(connection)
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned)
+    {
+        return Ok(url);
     }
 
     Err(format!(
@@ -708,12 +712,13 @@ mod tests {
                 .and_then(|v| v.as_str()),
             Some("sql_query_failed")
         );
-        assert!(out
-            .get("error")
-            .and_then(|v| v.get("message"))
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .contains("exceeds max_rows"));
+        assert!(
+            out.get("error")
+                .and_then(|v| v.get("message"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .contains("exceeds max_rows")
+        );
     }
 
     #[test]
@@ -731,12 +736,13 @@ mod tests {
                 .and_then(|v| v.as_str()),
             Some("sql_query_failed")
         );
-        assert!(out
-            .get("error")
-            .and_then(|v| v.get("message"))
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .contains("exceeds max_payload_bytes"));
+        assert!(
+            out.get("error")
+                .and_then(|v| v.get("message"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .contains("exceeds max_payload_bytes")
+        );
     }
 
     #[test]

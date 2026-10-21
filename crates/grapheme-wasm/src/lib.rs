@@ -11,7 +11,7 @@ use grapheme_compiler::verifier::LintWarning;
 use grapheme_compiler::{Compiler, CompilerOptions};
 use grapheme_runtime::{RuntimeEngine, RuntimeOptions};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 
 use host::WasmStdlibHost;
 
@@ -122,9 +122,11 @@ pub fn execute(request: &ExecuteRequest) -> ExecuteResponse {
         Err(response) => return response,
     };
 
-    let mut options = RuntimeOptions::default();
-    options.strict_stage_b_container_execution = false;
-    options.prefer_stage_b_wasix = false;
+    let mut options = RuntimeOptions {
+        strict_stage_b_container_execution: false,
+        prefer_stage_b_wasix: false,
+        ..RuntimeOptions::default()
+    };
     if let Some(initial) = request.initial_current.clone() {
         options.initial_state_current = Some(initial);
     }
@@ -172,13 +174,16 @@ pub fn parse_stdin_request(raw: &str) -> Result<ExecuteRequest, String> {
     Err("request must include source or artifact at the root or under wasix args".to_string())
 }
 
+#[allow(clippy::result_large_err)]
 fn resolve_artifact(
     request: &ExecuteRequest,
 ) -> Result<(ArtifactEnvelope, Vec<LintWarning>), ExecuteResponse> {
     match (&request.source, &request.artifact) {
         (Some(source), None) => {
-            let mut options = CompilerOptions::default();
-            options.entrypoint = request.entrypoint.clone();
+            let options = CompilerOptions {
+                entrypoint: request.entrypoint.clone(),
+                ..CompilerOptions::default()
+            };
             match Compiler::compile_source(source, options) {
                 Ok(compiled) => Ok((compiled.artifact, compiled.compilation.lint_warnings)),
                 Err(err) => Err(ExecuteResponse::fail("COMPILE_ERROR", err.to_string())),

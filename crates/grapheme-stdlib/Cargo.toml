@@ -1,8 +1,8 @@
 [package]
 name = "grapheme-stdlib"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2024"
-rust-version = "1.92"
+rust-version = "1.94"
 description = "Standard library operation implementations for Grapheme"
 license = "Apache-2.0"
 repository = "https://github.com/entasislabs/grapheme"
@@ -38,10 +38,14 @@ html-to-markdown-rs = { version = "3.4.0", optional = true, features = ["serde"]
 tokio = { version = "1.48", optional = true, features = ["rt", "time", "net"] }
 websearch = { version = "0.1.1", optional = true }
 lettre = { version = "0.11", optional = true, default-features = false, features = ["builder", "smtp-transport", "rustls-tls"] }
-sqlx = { version = "0.8", optional = true, features = ["runtime-tokio-rustls", "any", "sqlite", "postgres", "json"] }
+# sqlx 0.9 accepts libsqlite3-sys >=0.30.1, <0.38 (sqlx 0.8 pinned ^0.30.1).
+# That range includes 0.35, so a consumer can link rusqlite 0.37 in the same build.
+# `runtime-tokio` + `tls-rustls` replaces the removed `runtime-tokio-rustls` feature
+# (still rustls/ring). `sqlite` stays bundled, matching 0.8.
+sqlx = { version = "0.9", optional = true, features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "postgres", "json"] }
 surrealdb = { version = "3.0.5", optional = true, default-features = false, features = ["protocol-http", "rustls"] }
 polars = { version = "0.46", optional = true, default-features = false, features = ["csv", "fmt"] }
 
 [dev-dependencies]
-grapheme-signatures = { path = "../grapheme-signatures", version = "0.7.1", features = ["full"] }
+grapheme-signatures = { path = "../grapheme-signatures", version = "0.7.2", features = ["full"] }
 tempfile = "3.20"

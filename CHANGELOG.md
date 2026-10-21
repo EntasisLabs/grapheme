@@ -7,15 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-18
+
+**SQLite link coexistence** — the `sql` capability stays on sqlx, moved to 0.9 so one Cargo build can also link rusqlite 0.37 (`libsqlite3-sys` 0.35).
+
+### Fixed
+
+- **`libsqlite3-sys` links conflict** — `grapheme-stdlib`'s `sql` feature (pulled in by the default `host` profile, and therefore by `grapheme-sdk` / `grapheme-cli` host and full builds) depended on sqlx 0.8.6. That release's `sqlx-sqlite` requires `libsqlite3-sys ^0.30.1`. Cargo allows only one crate with `links = "sqlite3"` per build, so a consumer on rusqlite 0.37 (`libsqlite3-sys ^0.35.0`, as used by locus-sqlite-adapter 0.1.0) could not compile the host stack. sqlx **0.9.0** declares `libsqlite3-sys >=0.30.1, <0.38.0`, which includes 0.35. `sql.query`, `sql.execute`, `sql.health`, and `sql.transaction` behave the same. sqlx 0.9 only treats `&'static str` as SQL-safe, so workflow SQL is passed through `AssertSqlSafe` (parameters stay bound).
+
+### Changed
+
+- **Toolchain** — Rust **1.94+** / edition 2024. sqlx 0.9's MSRV is 1.94. The combined `runtime-tokio-rustls` feature was removed upstream; the `sql` feature now enables `runtime-tokio` + `tls-rustls` (still rustls with ring) and the bundled `sqlite` driver.
+- `@timeout` no longer calls `Instant::now()` on `wasm32-unknown-unknown` (that target panics without a JS clock); step budget still applies. WASI/native clocks are unchanged. This replaces downstream patches that swapped in `web_time::Instant`.
+- CLI AOT build-manifest golden no longer pins rustc-dependent `aot_id` hashes (redacts to `aot-<derived>` and checks the `aot-<16 hex>` shape). This was already failing on main after 0.7.1.
+
 ### Added
 
 - **Runtime-in-Wasm (RFC-0006)** — `grapheme-wasm` WASI crate embeds `RuntimeEngine` + compiler + the wasm-safe stdlib profile so Grapheme can *run inside* Wasm (not only host Wasm plugins or Stage B workflow containers). Wasix stays host-only.
 - CI compile gates for `grapheme-runtime` / `grapheme-compiler` / slim SDK on `wasm32-wasip1` and `wasm32-unknown-unknown`, plus `grapheme-wasm` WASI check.
 
-### Changed
+### Crate versions (this release)
 
-- `@timeout` no longer calls `Instant::now()` on `wasm32-unknown-unknown` (that target panics without a JS clock); step budget still applies. WASI/native clocks are unchanged.
-- CLI AOT build-manifest golden no longer pins rustc-dependent `aot_id` hashes (redacts to `aot-<derived>` and checks the `aot-<16 hex>` shape). This was already failing on main after 0.7.1.
+Language crates ship at **0.7.2**. `grapheme-artifact` stays **0.3.0**. The VS Code extension stays **0.7.1** (LSP behavior is unchanged). The release tag is **v0.7.2**. Not published from this change.
+
+| Crate | Version |
+| --- | --- |
+| `grapheme-signatures` | 0.7.2 |
+| `grapheme-stdlib` | 0.7.2 |
+| `grapheme-aot-container` | 0.7.2 |
+| `grapheme-runtime` | 0.7.2 |
+| `grapheme-compiler` | 0.7.2 |
+| `grapheme-sdk` | 0.7.2 |
+| `grapheme-cli` | 0.7.2 |
+| `grapheme-lsp` | 0.7.2 |
+| `grapheme-wasm` | 0.7.2 |
+| VS Code extension | 0.7.1 |
+| `grapheme-artifact` | 0.3.0 |
 
 ## [0.7.1] - 2026-08-22
 

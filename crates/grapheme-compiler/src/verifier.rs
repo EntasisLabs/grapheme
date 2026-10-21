@@ -1,6 +1,6 @@
 use crate::error::GraphemeError;
 use grapheme_artifact::{CapabilityPolicy, MirProgram};
-use grapheme_signatures::{find_op_spec, op_specs, ArgType};
+use grapheme_signatures::{ArgType, find_op_spec, op_specs};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
@@ -269,11 +269,7 @@ fn apply_executable_kind_policy(
     );
     let message = format!(
         "definition '{}', pipeline {}, step {}: write-like op '{}' is restricted to mutation declarations (found in {})",
-        def_name,
-        pipeline_idx,
-        step_idx,
-        op_label,
-        kind_label
+        def_name, pipeline_idx, step_idx, op_label, kind_label
     );
 
     if matches!(policy_mode, ExecutableKindPolicyMode::StrictMutationOnly) {
@@ -1307,21 +1303,21 @@ fn verify_call_step(
         }
     }
 
-    if let Some(max_depth) = args.get("max_depth") {
-        if !is_variable_placeholder(max_depth) {
-            let value = max_depth.as_i64().ok_or_else(|| {
-                GraphemeError::TypeError(format!(
-                    "definition '{}', pipeline {}, step {}: call '{}': max_depth must be an integer",
-                    def_name, pipeline_idx, step_idx, step.op
-                ))
-            })?;
+    if let Some(max_depth) = args.get("max_depth")
+        && !is_variable_placeholder(max_depth)
+    {
+        let value = max_depth.as_i64().ok_or_else(|| {
+            GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: call '{}': max_depth must be an integer",
+                def_name, pipeline_idx, step_idx, step.op
+            ))
+        })?;
 
-            if value < 1 {
-                return Err(GraphemeError::TypeError(format!(
-                    "definition '{}', pipeline {}, step {}: call '{}': max_depth must be >= 1",
-                    def_name, pipeline_idx, step_idx, step.op
-                )));
-            }
+        if value < 1 {
+            return Err(GraphemeError::TypeError(format!(
+                "definition '{}', pipeline {}, step {}: call '{}': max_depth must be >= 1",
+                def_name, pipeline_idx, step_idx, step.op
+            )));
         }
     }
 
@@ -1427,6 +1423,7 @@ fn verify_step_types(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn verify_flow_branch_step(
     def_name: &str,
     pipeline_idx: usize,
@@ -1565,21 +1562,20 @@ fn verify_flow_branch_step(
         executable_names,
     )?;
 
-    if let Some((enum_field, enum_name)) = enum_context.as_ref() {
-        if let Some(sm) = state_machines_by_enum.get(enum_name) {
-            if let Some(from_state) = parse_enum_member_value(cmp_value) {
-                verify_branch_target_transition_from_status(
-                    def_name,
-                    pipeline_idx,
-                    step_idx,
-                    &then_target,
-                    enum_field,
-                    from_state,
-                    sm,
-                    executable_by_name,
-                )?;
-            }
-        }
+    if let Some((enum_field, enum_name)) = enum_context.as_ref()
+        && let Some(sm) = state_machines_by_enum.get(enum_name)
+        && let Some(from_state) = parse_enum_member_value(cmp_value)
+    {
+        verify_branch_target_transition_from_status(
+            def_name,
+            pipeline_idx,
+            step_idx,
+            &then_target,
+            enum_field,
+            from_state,
+            sm,
+            executable_by_name,
+        )?;
     }
 
     if let Some(else_value) = args.get("else") {
@@ -1639,6 +1635,7 @@ fn verify_branch_target(
     )))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn verify_flow_match_step(
     def_name: &str,
     pipeline_idx: usize,
@@ -1828,6 +1825,7 @@ fn verify_flow_match_step(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn verify_match_target_value(
     def_name: &str,
     pipeline_idx: usize,
@@ -1843,19 +1841,19 @@ fn verify_match_target_value(
     if let Some(target) = parse_branch_target(Some(value)) {
         verify_match_target_exists(def_name, pipeline_idx, step_idx, &target, executable_names)?;
 
-        if let (Some(from_state), Some(enum_name)) = (transition_from_state, enum_name) {
-            if let Some(sm) = state_machines_by_enum.get(enum_name) {
-                verify_branch_target_transition_from_status(
-                    def_name,
-                    pipeline_idx,
-                    step_idx,
-                    &target,
-                    enum_field,
-                    from_state,
-                    sm,
-                    executable_by_name,
-                )?;
-            }
+        if let (Some(from_state), Some(enum_name)) = (transition_from_state, enum_name)
+            && let Some(sm) = state_machines_by_enum.get(enum_name)
+        {
+            verify_branch_target_transition_from_status(
+                def_name,
+                pipeline_idx,
+                step_idx,
+                &target,
+                enum_field,
+                from_state,
+                sm,
+                executable_by_name,
+            )?;
         }
 
         return Ok(());
@@ -2046,6 +2044,7 @@ fn parse_enum_member_value(value: &JsonValue) -> Option<&str> {
         .and_then(|v| v.as_str())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn verify_branch_target_transition_from_status(
     def_name: &str,
     pipeline_idx: usize,
@@ -2088,7 +2087,14 @@ fn verify_branch_target_transition_from_status(
     if !allowed {
         return Err(GraphemeError::TypeError(format!(
             "definition '{}', pipeline {}, step {}: branch then target '{}' makes invalid transition for '{}' from '{}' to '{}' in state_machine '{}'",
-            def_name, pipeline_idx, step_idx, target, enum_field, from_state, to_state, state_machine.name
+            def_name,
+            pipeline_idx,
+            step_idx,
+            target,
+            enum_field,
+            from_state,
+            to_state,
+            state_machine.name
         )));
     }
 
@@ -2123,10 +2129,10 @@ fn first_literal_field_assignment<'a>(
                 continue;
             };
 
-            if let Some(value) = literal_patch.get(field) {
-                if let Some(member) = parse_literal_member(value) {
-                    return Some(member);
-                }
+            if let Some(value) = literal_patch.get(field)
+                && let Some(member) = parse_literal_member(value)
+            {
+                return Some(member);
             }
         }
     }

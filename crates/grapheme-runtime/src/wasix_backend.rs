@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Instant;
 
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 
 use crate::error::RuntimeError;
 use crate::module_registry::ResolvedModuleCall;
@@ -14,10 +14,9 @@ use wasmer::{Engine, Module};
 use wasmer_types::ModuleHash;
 #[cfg(feature = "wasix-runtime")]
 use wasmer_wasix::{
-    is_wasi_module,
+    Pipe, is_wasi_module,
     runners::wasi::{RuntimeOrEngine, WasiRunner},
     virtual_fs::{AsyncReadExt, AsyncWriteExt},
-    Pipe,
 };
 
 /// Placeholder for the upcoming Wasmer WASIX-backed execution engine.
@@ -249,6 +248,12 @@ impl WasixBackend {
     }
 }
 
+impl Default for WasixBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(feature = "wasix-runtime")]
 impl Drop for WasixBackend {
     fn drop(&mut self) {
@@ -280,10 +285,9 @@ impl Drop for WasixBackend {
 
 #[cfg(feature = "wasix-runtime")]
 fn normalize_host_envelope(raw: JsonValue) -> JsonValue {
-    if raw
-        .as_object()
-        .is_some_and(|obj| obj.contains_key("data") && obj.contains_key("meta") && obj.contains_key("error"))
-    {
+    if raw.as_object().is_some_and(|obj| {
+        obj.contains_key("data") && obj.contains_key("meta") && obj.contains_key("error")
+    }) {
         return raw;
     }
 
