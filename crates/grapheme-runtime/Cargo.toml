@@ -25,7 +25,7 @@ pdf = ["grapheme-signatures/pdf"]
 image = ["grapheme-signatures/image"]
 plot = ["grapheme-signatures/plot"]
 media = ["grapheme-signatures/media"]
-wasix-runtime = ["dep:wasmer-wasix", "dep:wasmer", "dep:wasmer-types", "dep:tokio", "wasmer/sys", "wasmer/cranelift"]
+wasix-runtime = ["dep:wasmer-wasix", "dep:wasmer", "dep:wasmer-types", "dep:tokio", "dep:rustls-webpki", "wasmer/sys", "wasmer/cranelift"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -39,7 +39,11 @@ grapheme-signatures = { path = "../grapheme-signatures", version = "0.7.2", defa
 wasmer = { version = "7.2.0-alpha.2", optional = true, default-features = false }
 wasmer-types = { version = "7.2.0-alpha.2", optional = true }
 wasmer-wasix = { version = "0.702.0-alpha.2", optional = true, default-features = false, features = ["sys-default"] }
-tokio = { version = "1", optional = true, features = ["rt-multi-thread"] }
+# RUSTSEC-2026-0386.
+tokio = { version = "1.53.3", optional = true, features = ["rt-multi-thread"] }
+# RUSTSEC-2026-0382. wasmer-wasix pulls reqwest 0.13 -> rustls, whose range
+# still allows rustls-webpki 0.103.13.
+rustls-webpki = { version = "0.103.16", default-features = false, optional = true }
 
 [dev-dependencies]
 grapheme-signatures = { path = "../grapheme-signatures", version = "0.7.2", features = ["full"] }

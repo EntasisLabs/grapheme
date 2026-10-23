@@ -1,11 +1,17 @@
-use serde_json::{json, Value as JsonValue};
+//! Web search providers.
+//!
+//! `reqwest` 0.13 with rustls replaces the `websearch` 0.1.1 crate, which pinned
+//! reqwest 0.11 and rustls 0.21 (`rustls-webpki` 0.101 / `webpki-roots` 0.25,
+//! neither of which has a fix). Public ops and the result fields the old crate
+//! serialized stay the same. Brave was already a direct Search API call.
+
+use serde_json::{Value as JsonValue, json};
 use std::env;
 use std::time::Duration;
-use websearch::{
-    providers::{DuckDuckGoProvider, ExaProvider, GoogleProvider, TavilyProvider},
-    types::SearchProvider,
-    web_search, SearchOptions,
-};
+
+const SEARCH_TIMEOUT: Duration = Duration::from_secs(15);
+const DUCKDUCKGO_HTML: &str = "https://html.duckduckgo.com/html";
+const DUCKDUCKGO_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
 
 pub fn search(args: &JsonValue) -> JsonValue {
     let request = SearchRequest::from_args(args);
@@ -53,16 +59,18 @@ pub fn capabilities(args: &JsonValue) -> JsonValue {
     json!({ "provider": provider.to_json() })
 }
 
-fn run_search(query: String, provider: String, max_results: Option<u32>) -> JsonValue {
-    if provider == "brave" {
-        return brave_search(query, max_results);
-    }
+enum ProviderAuth {
+    DuckDuckGo,
+    Google { api_key: String, cx: String },
+    Exa { api_key: String },
+    Tavily { api_key: String },
+    Brave { api_key: String },
+}
 
-    let provider_impl = match build_search_provider(&provider) {
-        Ok(provider_impl) => provider_impl,
-        Err(err) => {
-            return SearchResponse::failure(query, provider, err).to_json();
-        }
+fn run_search(query: String, provider: String, max_results: Option<u32>) -> JsonValue {
+    let auth = match provider_auth(&provider) {
+        Ok(auth) => auth,
+        Err(err) => return SearchResponse::failure(query, provider, err).to_json(),
     };
 
     let runtime = match tokio::runtime::Builder::new_current_thread()
@@ -71,60 +79,105 @@ fn run_search(query: String, provider: String, max_results: Option<u32>) -> Json
     {
         Ok(rt) => rt,
         Err(err) => {
-            return json!({ "error": format!("websearch runtime init failed: {err}") });
+            return json!({ "error": format!("web search runtime init failed: {err}") });
         }
     };
 
-    let search_result = runtime.block_on(async {
-        web_search(SearchOptions {
-            query: query.clone(),
-            max_results,
-            provider: provider_impl,
-            ..Default::default()
-        })
-        .await
-    });
+    runtime.block_on(async move {
+        let client = match search_client() {
+            Ok(client) => client,
+            Err(err) => {
+                return SearchResponse::failure(query, provider, err).to_json();
+            }
+        };
 
-    match search_result {
-        Ok(results) => {
-            let results_json =
-                serde_json::to_value(results).unwrap_or_else(|_| JsonValue::Array(Vec::new()));
-            SearchResponse::success(query, provider, results_json).to_json()
+        match dispatch_search(&client, &auth, &query, max_results).await {
+            Ok(results) => {
+                SearchResponse::success(query, provider, JsonValue::Array(results)).to_json()
+            }
+            Err(err) => SearchResponse::failure(query, provider, err).to_json(),
         }
-        Err(err) => SearchResponse::failure(query, provider, err.to_string()).to_json(),
+    })
+}
+
+fn search_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(SEARCH_TIMEOUT)
+        .user_agent(concat!("grapheme-stdlib/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|err| format!("web search client init failed: {err}"))
+}
+
+async fn dispatch_search(
+    client: &reqwest::Client,
+    auth: &ProviderAuth,
+    query: &str,
+    max_results: Option<u32>,
+) -> Result<Vec<JsonValue>, String> {
+    match auth {
+        ProviderAuth::DuckDuckGo => duckduckgo_search(client, query, max_results).await,
+        ProviderAuth::Google { api_key, cx } => {
+            google_search(client, query, api_key, cx, max_results).await
+        }
+        ProviderAuth::Exa { api_key } => exa_search(client, query, api_key, max_results).await,
+        ProviderAuth::Tavily { api_key } => {
+            tavily_search(client, query, api_key, max_results).await
+        }
+        ProviderAuth::Brave { api_key } => brave_search(client, query, api_key, max_results).await,
     }
 }
 
-fn build_search_provider(
-    provider_id: &str,
-) -> Result<Box<dyn SearchProvider>, String> {
+fn provider_auth(provider_id: &str) -> Result<ProviderAuth, String> {
     match provider_id {
-        "duckduckgo" => Ok(Box::new(DuckDuckGoProvider::new())),
+        "duckduckgo" => Ok(ProviderAuth::DuckDuckGo),
         "google" => {
-            let api_key = env::var("GOOGLE_API_KEY")
-                .map_err(|_| "missing GOOGLE_API_KEY environment variable".to_string())?;
-            let cx = env::var("GOOGLE_CX")
-                .map_err(|_| "missing GOOGLE_CX environment variable".to_string())?;
-            GoogleProvider::new(&api_key, &cx)
-                .map_err(|err| err.to_string())
-                .map(|provider| Box::new(provider) as Box<dyn SearchProvider>)
+            let api_key = require_env(
+                "GOOGLE_API_KEY",
+                "Configuration error: Google API key is required",
+            )?;
+            let cx = require_env(
+                "GOOGLE_CX",
+                "Configuration error: Google Search Engine ID (cx) is required",
+            )?;
+            Ok(ProviderAuth::Google { api_key, cx })
         }
         "xaviv" => {
-            let api_key = env::var("XAVIV_API_KEY")
-                .or_else(|_| env::var("EXA_API_KEY"))
-                .map_err(|_| {
-                    "missing XAVIV_API_KEY or EXA_API_KEY environment variable".to_string()
-                })?;
-            ExaProvider::new(&api_key)
-                .map_err(|err| err.to_string())
-                .map(|provider| Box::new(provider) as Box<dyn SearchProvider>)
+            let api_key = match env::var("XAVIV_API_KEY").or_else(|_| env::var("EXA_API_KEY")) {
+                Ok(key) if !key.is_empty() => key,
+                Ok(_) => {
+                    return Err("Configuration error: Exa API key is required".to_string());
+                }
+                Err(_) => {
+                    return Err(
+                        "missing XAVIV_API_KEY or EXA_API_KEY environment variable".to_string()
+                    );
+                }
+            };
+            Ok(ProviderAuth::Exa { api_key })
         }
         "tavily" => {
-            let api_key = env::var("TAVILY_API_KEY")
-                .map_err(|_| "missing TAVILY_API_KEY environment variable".to_string())?;
-            TavilyProvider::new(&api_key)
-                .map_err(|err| err.to_string())
-                .map(|provider| Box::new(provider) as Box<dyn SearchProvider>)
+            let api_key = match env::var("TAVILY_API_KEY") {
+                Ok(key) if !key.is_empty() => key,
+                Ok(_) => {
+                    return Err("Configuration error: Tavily API key is required".to_string());
+                }
+                Err(_) => {
+                    return Err("missing TAVILY_API_KEY environment variable".to_string());
+                }
+            };
+            if let Some(err) = tavily_key_format_error(&api_key) {
+                return Err(err);
+            }
+            Ok(ProviderAuth::Tavily { api_key })
+        }
+        "brave" => {
+            let api_key = match env::var("BRAVE_API_KEY") {
+                Ok(key) if !key.is_empty() => key,
+                _ => {
+                    return Err("missing BRAVE_API_KEY environment variable".to_string());
+                }
+            };
+            Ok(ProviderAuth::Brave { api_key })
         }
         other => Err(format!(
             "unsupported websearch provider '{other}'; supported: duckduckgo, google, xaviv, tavily, brave"
@@ -132,64 +185,366 @@ fn build_search_provider(
     }
 }
 
-fn brave_search(query: String, max_results: Option<u32>) -> JsonValue {
-    let provider = "brave".to_string();
-    let api_key = match env::var("BRAVE_API_KEY") {
-        Ok(key) if !key.is_empty() => key,
-        _ => {
-            return SearchResponse::failure(
-                query,
-                provider,
-                "missing BRAVE_API_KEY environment variable".to_string(),
-            )
-            .to_json();
-        }
-    };
+fn require_env(key: &str, empty_message: &str) -> Result<String, String> {
+    match env::var(key) {
+        Ok(value) if !value.is_empty() => Ok(value),
+        Ok(_) => Err(empty_message.to_string()),
+        Err(_) => Err(format!("missing {key} environment variable")),
+    }
+}
 
-    let count = max_results.unwrap_or(10).clamp(1, 20);
-    let encoded_query = percent_encode_query(&query);
-    let url = format!(
-        "https://api.search.brave.com/res/v1/web/search?q={encoded_query}&count={count}"
-    );
-
-    let mut request = ehttp::Request::get(&url);
-    request
-        .headers
-        .insert("Accept", "application/json");
-    request
-        .headers
-        .insert("X-Subscription-Token", api_key.as_str());
-    request.timeout = Some(Duration::from_secs(15));
-
-    let response = match ehttp::fetch_blocking(&request) {
-        Ok(response) => response,
-        Err(err) => {
-            return SearchResponse::failure(query, provider, format!("brave request failed: {err}"))
-                .to_json();
-        }
-    };
-
-    if response.status >= 400 {
-        let body = String::from_utf8_lossy(&response.bytes);
-        return SearchResponse::failure(
-            query,
-            provider,
-            format!("brave API error {}: {}", response.status, body.trim()),
+fn tavily_key_format_error(api_key: &str) -> Option<String> {
+    if api_key.starts_with("tvly-") {
+        None
+    } else {
+        Some(
+            "Configuration error: Invalid Tavily API key format. Keys should start with 'tvly-'"
+                .to_string(),
         )
-        .to_json();
+    }
+}
+
+async fn duckduckgo_search(
+    client: &reqwest::Client,
+    query: &str,
+    max_results: Option<u32>,
+) -> Result<Vec<JsonValue>, String> {
+    let response = client
+        .post(DUCKDUCKGO_HTML)
+        .header("User-Agent", DUCKDUCKGO_USER_AGENT)
+        .header("Referer", "https://html.duckduckgo.com/")
+        .form(&[("q", query), ("b", ""), ("kl", "wt-wt")])
+        .send()
+        .await
+        .map_err(|err| format!("duckduckgo request failed: {err}"))?;
+
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|err| format!("duckduckgo request failed: {err}"))?;
+    if !status.is_success() {
+        return Err(format!(
+            "duckduckgo API error {}: {}",
+            status.as_u16(),
+            body.trim()
+        ));
     }
 
-    let payload: JsonValue = match serde_json::from_slice(&response.bytes) {
-        Ok(payload) => payload,
-        Err(err) => {
-            return SearchResponse::failure(
-                query,
-                provider,
-                format!("brave response decode failed: {err}"),
-            )
-            .to_json();
+    parse_duckduckgo_html(&body, max_results.unwrap_or(10))
+}
+
+fn parse_duckduckgo_html(html: &str, max_results: u32) -> Result<Vec<JsonValue>, String> {
+    use scraper::{Html, Selector};
+
+    let document = Html::parse_document(html);
+    let result_selector = Selector::parse("h2.result__title a")
+        .map_err(|err| format!("duckduckgo result selector failed: {err}"))?;
+    let snippet_selector = Selector::parse(".result__snippet")
+        .map_err(|err| format!("duckduckgo snippet selector failed: {err}"))?;
+
+    let result_links: Vec<_> = document.select(&result_selector).collect();
+    let result_snippets: Vec<_> = document.select(&snippet_selector).collect();
+    let mut results = Vec::new();
+
+    for (index, link_element) in result_links.iter().enumerate() {
+        if results.len() >= max_results as usize {
+            break;
         }
-    };
+        let Some(href) = link_element.value().attr("href") else {
+            continue;
+        };
+        if href.contains("duckduckgo.com") || href.contains("google.com/search") {
+            continue;
+        }
+
+        let url = normalize_url(href);
+        let title = normalize_text(&link_element.inner_html());
+        let snippet = result_snippets
+            .get(index)
+            .map(|snippet_elem| normalize_text(&snippet_elem.inner_html()));
+
+        results.push(search_hit(
+            url.clone(),
+            title,
+            snippet,
+            extract_domain(&url),
+            None,
+            "duckduckgo",
+            None,
+        ));
+    }
+
+    Ok(results)
+}
+
+async fn google_search(
+    client: &reqwest::Client,
+    query: &str,
+    api_key: &str,
+    cx: &str,
+    max_results: Option<u32>,
+) -> Result<Vec<JsonValue>, String> {
+    let url = google_search_url(api_key, cx, query, max_results)?;
+    let payload = get_json(client, &url, "google").await?;
+    let items = payload
+        .get("items")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut results = Vec::with_capacity(items.len());
+    for item in items {
+        let url = item
+            .get("link")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let title = item
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let snippet = item
+            .get("snippet")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned);
+        let domain = item
+            .get("displayLink")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned)
+            .or_else(|| extract_domain(&url));
+        let published_date = item
+            .get("pagemap")
+            .and_then(|v| v.get("metatags"))
+            .and_then(|v| v.as_array())
+            .and_then(|tags| tags.first())
+            .and_then(|meta| {
+                meta.get("article:published_time")
+                    .or_else(|| meta.get("date"))
+                    .or_else(|| meta.get("og:updated_time"))
+            })
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned);
+
+        results.push(search_hit(
+            url,
+            title,
+            snippet,
+            domain,
+            published_date,
+            "google",
+            Some(item),
+        ));
+    }
+    Ok(results)
+}
+
+fn google_search_url(
+    api_key: &str,
+    cx: &str,
+    query: &str,
+    max_results: Option<u32>,
+) -> Result<String, String> {
+    let mut url = url::Url::parse("https://www.googleapis.com/customsearch/v1")
+        .map_err(|err| format!("google url: {err}"))?;
+    {
+        let mut pairs = url.query_pairs_mut();
+        pairs.append_pair("key", api_key);
+        pairs.append_pair("cx", cx);
+        pairs.append_pair("q", query);
+        if let Some(max_results) = max_results {
+            // Custom Search returns at most 10 hits per request.
+            pairs.append_pair("num", &max_results.min(10).to_string());
+        }
+        // websearch's SearchOptions default page is 1, which always sends start=1.
+        pairs.append_pair("start", "1");
+    }
+    Ok(url.to_string())
+}
+
+async fn exa_search(
+    client: &reqwest::Client,
+    query: &str,
+    api_key: &str,
+    max_results: Option<u32>,
+) -> Result<Vec<JsonValue>, String> {
+    // Same body websearch 0.1.1's ExaProvider::new sent (keyword model, no page text).
+    let body = json!({
+        "query": query,
+        "max_results": max_results,
+        "model": "keyword",
+        "include_contents": false,
+    });
+    let payload = post_json(client, "https://api.exa.ai/search", api_key, &body, "exa").await?;
+
+    let items = payload
+        .get("results")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let mut results = Vec::with_capacity(items.len());
+    for item in items {
+        let url = item
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let title = item
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let snippet = item
+            .get("text")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned);
+        let published_date = item
+            .get("publishedDate")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned);
+
+        let mut raw = serde_json::Map::new();
+        if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+            raw.insert("id".to_string(), JsonValue::String(id.to_string()));
+        }
+        if let Some(score) = item.get("score").cloned() {
+            raw.insert("score".to_string(), score);
+        }
+        if let Some(author) = item.get("author").and_then(|v| v.as_str()) {
+            raw.insert("author".to_string(), JsonValue::String(author.to_string()));
+        }
+        let raw = if raw.is_empty() {
+            None
+        } else {
+            Some(JsonValue::Object(raw))
+        };
+
+        // Per-hit provider stays "exa": that is the value websearch serialized.
+        // The response envelope still reports the Grapheme provider id "xaviv".
+        results.push(search_hit(
+            url.clone(),
+            title,
+            snippet,
+            extract_domain(&url),
+            published_date,
+            "exa",
+            raw,
+        ));
+    }
+    Ok(results)
+}
+
+async fn tavily_search(
+    client: &reqwest::Client,
+    query: &str,
+    api_key: &str,
+    max_results: Option<u32>,
+) -> Result<Vec<JsonValue>, String> {
+    let max_results = max_results.unwrap_or(10).min(50);
+    let body = json!({
+        "api_key": api_key,
+        "query": query,
+        "search_depth": "basic",
+        "include_answer": true,
+        "include_images": false,
+        "include_raw_content": false,
+        "max_results": max_results,
+        "include_domains": JsonValue::Null,
+        "exclude_domains": JsonValue::Null,
+    });
+
+    let response = client
+        .post("https://api.tavily.com/search")
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|err| format!("tavily request failed: {err}"))?;
+    let status = response.status();
+    let text = response
+        .text()
+        .await
+        .map_err(|err| format!("tavily request failed: {err}"))?;
+    if !status.is_success() {
+        return Err(format!(
+            "tavily API error {}: {}",
+            status.as_u16(),
+            text.trim()
+        ));
+    }
+    let payload: JsonValue = serde_json::from_str(&text)
+        .map_err(|err| format!("tavily response decode failed: {err}"))?;
+
+    let items = payload
+        .get("results")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let mut results = Vec::with_capacity(items.len());
+    for item in items {
+        let url = item
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let title = item
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let snippet = item
+            .get("content")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned);
+        let published_date = item
+            .get("published_date")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned);
+        results.push(search_hit(
+            url.clone(),
+            title,
+            snippet,
+            extract_domain(&url),
+            published_date,
+            "tavily",
+            Some(item),
+        ));
+    }
+    Ok(results)
+}
+
+async fn brave_search(
+    client: &reqwest::Client,
+    query: &str,
+    api_key: &str,
+    max_results: Option<u32>,
+) -> Result<Vec<JsonValue>, String> {
+    let count = max_results.unwrap_or(10).clamp(1, 20);
+    let encoded_query = percent_encode_query(query);
+    let url =
+        format!("https://api.search.brave.com/res/v1/web/search?q={encoded_query}&count={count}");
+
+    let response = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .header("X-Subscription-Token", api_key)
+        .send()
+        .await
+        .map_err(|err| format!("brave request failed: {err}"))?;
+
+    let status = response.status().as_u16();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|err| format!("brave request failed: {err}"))?;
+    if status >= 400 {
+        let body = String::from_utf8_lossy(&bytes);
+        return Err(format!("brave API error {status}: {}", body.trim()));
+    }
+
+    let payload: JsonValue = serde_json::from_slice(&bytes)
+        .map_err(|err| format!("brave response decode failed: {err}"))?;
 
     let results = payload
         .get("web")
@@ -218,8 +573,97 @@ fn brave_search(query: String, max_results: Option<u32>) -> JsonValue {
             })
         })
         .collect::<Vec<_>>();
+    Ok(results)
+}
 
-    SearchResponse::success(query, provider, JsonValue::Array(results)).to_json()
+async fn get_json(
+    client: &reqwest::Client,
+    url: &str,
+    provider: &str,
+) -> Result<JsonValue, String> {
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|err| format!("{provider} request failed: {err}"))?;
+    read_json(response, provider).await
+}
+
+async fn post_json(
+    client: &reqwest::Client,
+    url: &str,
+    bearer: &str,
+    body: &JsonValue,
+    provider: &str,
+) -> Result<JsonValue, String> {
+    let response = client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {bearer}"))
+        .json(body)
+        .send()
+        .await
+        .map_err(|err| format!("{provider} request failed: {err}"))?;
+    read_json(response, provider).await
+}
+
+async fn read_json(response: reqwest::Response, provider: &str) -> Result<JsonValue, String> {
+    let status = response.status();
+    let text = response
+        .text()
+        .await
+        .map_err(|err| format!("{provider} request failed: {err}"))?;
+    if !status.is_success() {
+        return Err(format!(
+            "{provider} API error {}: {}",
+            status.as_u16(),
+            text.trim()
+        ));
+    }
+    serde_json::from_str(&text).map_err(|err| format!("{provider} response decode failed: {err}"))
+}
+
+fn search_hit(
+    url: String,
+    title: String,
+    snippet: Option<String>,
+    domain: Option<String>,
+    published_date: Option<String>,
+    provider: &str,
+    raw: Option<JsonValue>,
+) -> JsonValue {
+    let mut hit = json!({
+        "url": url,
+        "title": title,
+        "snippet": snippet,
+        "domain": domain,
+        "published_date": published_date,
+        "provider": provider,
+    });
+    if let Some(raw) = raw {
+        hit["raw"] = raw;
+    }
+    hit
+}
+
+fn normalize_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn normalize_url(url: &str) -> String {
+    if url.starts_with("//") {
+        format!("https:{url}")
+    } else if !url.starts_with("http://") && !url.starts_with("https://") {
+        format!("https://{url}")
+    } else {
+        url.to_string()
+    }
+}
+
+fn extract_domain(url: &str) -> Option<String> {
+    url::Url::parse(url)
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(ToOwned::to_owned))
 }
 
 fn percent_encode_query(query: &str) -> String {
@@ -462,6 +906,13 @@ mod tests {
     }
 
     #[test]
+    fn tavily_provider_rejects_key_without_prefix() {
+        assert!(tavily_key_format_error("tvly-test").is_none());
+        let err = tavily_key_format_error("invalid-key").unwrap_or_default();
+        assert!(err.contains("tvly-"));
+    }
+
+    #[test]
     fn brave_provider_requires_api_key() {
         let prior = env::var("BRAVE_API_KEY").ok();
         unsafe {
@@ -497,6 +948,61 @@ mod tests {
     fn capabilities_rejects_unknown_provider() {
         let out = capabilities(&json!({ "provider": "unknown" }));
         assert!(out.get("error").and_then(|v| v.as_str()).is_some());
+    }
+
+    #[test]
+    fn duckduckgo_html_parser_keeps_result_shape() {
+        let html = r#"
+            <html><body>
+              <div class="result">
+                <h2 class="result__title">
+                  <a href="https://example.com/rust">Example <b>Rust</b></a>
+                </h2>
+                <a class="result__snippet" href="https://example.com/rust">A <b>snippet</b> here</a>
+              </div>
+              <div class="result">
+                <h2 class="result__title">
+                  <a href="https://duckduckgo.com/l/?q=skip">Skip me</a>
+                </h2>
+                <a class="result__snippet">ignored</a>
+              </div>
+              <div class="result">
+                <h2 class="result__title">
+                  <a href="//cdn.example.org/a">Protocol relative</a>
+                </h2>
+                <a class="result__snippet">second hit</a>
+              </div>
+            </body></html>
+        "#;
+
+        let hits = parse_duckduckgo_html(html, 10).expect("parse");
+        assert_eq!(hits.len(), 2);
+
+        assert_eq!(hits[0]["url"], "https://example.com/rust");
+        assert_eq!(hits[0]["title"], "Example <b>Rust</b>");
+        assert_eq!(hits[0]["snippet"], "A <b>snippet</b> here");
+        assert_eq!(hits[0]["domain"], "example.com");
+        assert_eq!(hits[0]["provider"], "duckduckgo");
+        assert!(hits[0].get("published_date").is_some());
+        assert!(hits[0].get("raw").is_none());
+
+        assert_eq!(hits[1]["url"], "https://cdn.example.org/a");
+        assert_eq!(hits[1]["snippet"], "second hit");
+        assert_eq!(hits[1]["domain"], "cdn.example.org");
+
+        let limited = parse_duckduckgo_html(html, 1).expect("parse");
+        assert_eq!(limited.len(), 1);
+        assert_eq!(limited[0]["url"], "https://example.com/rust");
+    }
+
+    #[test]
+    fn google_search_url_matches_websearch_defaults() {
+        let url = google_search_url("key", "cx-id", "rust async", Some(5)).expect("url");
+        assert!(url.contains("key=key"));
+        assert!(url.contains("cx=cx-id"));
+        assert!(url.contains("q=rust+async") || url.contains("q=rust%20async"));
+        assert!(url.contains("num=5"));
+        assert!(url.contains("start=1"));
     }
 
     fn restore_env(key: &str, value: Option<String>) {

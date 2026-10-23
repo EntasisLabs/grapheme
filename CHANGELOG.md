@@ -7,13 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.7.2] - 2026-10-18
+## [0.7.2] - 2026-10-23
 
-**SQLite link coexistence** — the `sql` capability stays on sqlx, moved to 0.9 so one Cargo build can also link rusqlite 0.37 (`libsqlite3-sys` 0.35).
+**SQLite link coexistence and TLS/tokio security floors.** The `sql` capability stays on sqlx, moved to 0.9 (#27) so one Cargo build can also link rusqlite 0.37 (`libsqlite3-sys` 0.35). Web search no longer pulls the unfixed `reqwest` 0.11 / `rustls` 0.21 line.
 
 ### Fixed
 
-- **`libsqlite3-sys` links conflict** — `grapheme-stdlib`'s `sql` feature (pulled in by the default `host` profile, and therefore by `grapheme-sdk` / `grapheme-cli` host and full builds) depended on sqlx 0.8.6. That release's `sqlx-sqlite` requires `libsqlite3-sys ^0.30.1`. Cargo allows only one crate with `links = "sqlite3"` per build, so a consumer on rusqlite 0.37 (`libsqlite3-sys ^0.35.0`, as used by locus-sqlite-adapter 0.1.0) could not compile the host stack. sqlx **0.9.0** declares `libsqlite3-sys >=0.30.1, <0.38.0`, which includes 0.35. `sql.query`, `sql.execute`, `sql.health`, and `sql.transaction` behave the same. sqlx 0.9 only treats `&'static str` as SQL-safe, so workflow SQL is passed through `AssertSqlSafe` (parameters stay bound).
+- **`libsqlite3-sys` links conflict** (#27) — `grapheme-stdlib`'s `sql` feature (pulled in by the default `host` profile, and therefore by `grapheme-sdk` / `grapheme-cli` host and full builds) depended on sqlx 0.8.6. That release's `sqlx-sqlite` requires `libsqlite3-sys ^0.30.1`. Cargo allows only one crate with `links = "sqlite3"` per build, so a consumer on rusqlite 0.37 (`libsqlite3-sys ^0.35.0`, as used by locus-sqlite-adapter 0.1.0) could not compile the host stack. sqlx **0.9.0** declares `libsqlite3-sys >=0.30.1, <0.38.0`, which includes 0.35. `sql.query`, `sql.execute`, `sql.health`, and `sql.transaction` behave the same. sqlx 0.9 only treats `&'static str` as SQL-safe, so workflow SQL is passed through `AssertSqlSafe` (parameters stay bound).
+
+### Security
+
+- **`websearch` 0.1.1 removed.** That crate pinned `reqwest` 0.11.27 and `rustls` 0.21, which pull `rustls-webpki` 0.101.x and `webpki-roots` 0.25.x. Those lines have no fix (RUSTSEC-2026-0381, RUSTSEC-2026-0382) and are gone from the tree. `web.*` and `websearch.*` now call DuckDuckGo, Google Custom Search, Exa (`xaviv`), Tavily, and Brave through the workspace `reqwest` 0.13 crate with rustls. Ops, credential env vars, and result fields (`url`, `title`, `snippet`, `domain`, `provider`, plus `published_date` / `raw` where the old crate emitted them) stay the same. Brave was already a direct API call. `websearch`'s other providers (ArXiv, SerpAPI, SearXNG) were not part of Grapheme's public catalog and are not reimplemented.
+- **Dependency floors** so a downstream resolver (Stasis) cannot select the vulnerable releases:
+  - `tokio` **1.53.3+** (RUSTSEC-2026-0386) on `grapheme-stdlib`, `grapheme-runtime`, and `grapheme-lsp`.
+  - `rustls-webpki` **0.103.16+** (RUSTSEC-2026-0382) on the stdlib features that pull rustls (`http` / `web` / `email` / `sql` / `surreal`) and on `grapheme-runtime`'s `wasix-runtime` feature.
+  - `webpki-roots` **1.0.10+** (RUSTSEC-2026-0381) on those same stdlib features. The `webpki-roots` 0.26 crate remains as the upstream shim over 1.x (`tokio-tungstenite`).
+- `plugins/http-rs` (ureq) lockfile and manifest use the same `webpki-roots` and `rustls-webpki` floors.
 
 ### Changed
 

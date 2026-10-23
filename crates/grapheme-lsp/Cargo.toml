@@ -17,7 +17,8 @@ default = ["full"]
 full = ["grapheme-signatures/full", "grapheme-compiler/full"]
 
 [dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std"] }
+# RUSTSEC-2026-0386.
+tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread", "io-std"] }
 tower-lsp = "0.20"
 grapheme-compiler = { path = "../grapheme-compiler", version = "0.7.2", default-features = false, features = ["full"] }
 grapheme-signatures = { path = "../grapheme-signatures", version = "0.7.2", default-features = false, features = ["full"] }
