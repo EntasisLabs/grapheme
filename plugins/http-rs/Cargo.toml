@@ -16,6 +16,8 @@ ureq = "3.3.0"
 # rustls-webpki 0.103.13.
 webpki-roots = "1.0.10"
 rustls-webpki = { version = "0.103.16", default-features = false }
+# RUSTSEC-2026-0285 / 0346 / 0348 / 0349. ureq 3.3 still allows rustls 0.23.40.
+rustls = { version = "0.23.46", default-features = false }
 
 [profile.release]
 opt-level = "z"

@@ -25,7 +25,7 @@ pdf = ["grapheme-signatures/pdf"]
 image = ["grapheme-signatures/image"]
 plot = ["grapheme-signatures/plot"]
 media = ["grapheme-signatures/media"]
-wasix-runtime = ["dep:wasmer-wasix", "dep:wasmer", "dep:wasmer-types", "dep:tokio", "dep:rustls-webpki", "wasmer/sys", "wasmer/cranelift"]
+wasix-runtime = ["dep:wasmer-wasix", "dep:wasmer", "dep:wasmer-types", "dep:tokio", "dep:rustls-webpki", "dep:rustls", "dep:webpki-root-certs", "wasmer/sys", "wasmer/cranelift"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -44,6 +44,12 @@ tokio = { version = "1.53.3", optional = true, features = ["rt-multi-thread"] }
 # RUSTSEC-2026-0382. wasmer-wasix pulls reqwest 0.13 -> rustls, whose range
 # still allows rustls-webpki 0.103.13.
 rustls-webpki = { version = "0.103.16", default-features = false, optional = true }
+# RUSTSEC-2026-0285 / 0346 / 0348 / 0349. Same reqwest edge still allows
+# rustls 0.23.40. 0.23.46 is the patched floor. default-features stays off
+# so wasm builds keep ring.
+rustls = { version = "0.23.46", default-features = false, optional = true }
+# RUSTSEC-2026-0383. Wasm root store behind rustls-platform-verifier.
+webpki-root-certs = { version = "1.0.11", optional = true }
 
 [dev-dependencies]
 grapheme-signatures = { path = "../grapheme-signatures", version = "0.7.2", features = ["full"] }

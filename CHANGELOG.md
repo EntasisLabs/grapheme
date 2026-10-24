@@ -22,7 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `tokio` **1.53.3+** (RUSTSEC-2026-0386) on `grapheme-stdlib`, `grapheme-runtime`, and `grapheme-lsp`.
   - `rustls-webpki` **0.103.16+** (RUSTSEC-2026-0382) on the stdlib features that pull rustls (`http` / `web` / `email` / `sql` / `surreal`) and on `grapheme-runtime`'s `wasix-runtime` feature.
   - `webpki-roots` **1.0.10+** (RUSTSEC-2026-0381) on those same stdlib features. The `webpki-roots` 0.26 crate remains as the upstream shim over 1.x (`tokio-tungstenite`).
-- `plugins/http-rs` (ureq) lockfile and manifest use the same `webpki-roots` and `rustls-webpki` floors.
+  - `rustls` **0.23.46+** (RUSTSEC-2026-0285, RUSTSEC-2026-0346, RUSTSEC-2026-0348, RUSTSEC-2026-0349) on those same stdlib features and on `grapheme-runtime`'s `wasix-runtime` feature.
+  - `webpki-root-certs` **1.0.11+** (RUSTSEC-2026-0383) on the stdlib `web` feature and on `wasix-runtime`. This is the wasm root store used by `rustls-platform-verifier`, a different crate from `webpki-roots`.
+- `plugins/http-rs` (ureq) uses the same `webpki-roots`, `rustls-webpki`, and `rustls` floors.
+- Lockfiles move the other reachable advisories and yanked crates: `h2` 0.4.20, `quinn-proto` 0.11.19, `ammonia` 4.2.4, `crossbeam-epoch` 0.9.21, `rkyv` 0.8.18 (0.7 removed via `rust_decimal` 1.43.0), `ctutils` 0.4.5, `chacha20` 0.10.2, `enumset` 1.1.15, `spin` 0.9.9, plus the warning-level `anyhow`, `event-listener`, `lru`, and `memmap2` 0.9 updates. `rsa` 0.9.10, `ruzstd` 0.8.3, and `memmap2` 0.6.2 stay because their parents do not allow the patched release.
 
 ### Changed
 
