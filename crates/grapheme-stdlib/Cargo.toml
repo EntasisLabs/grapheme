@@ -16,12 +16,12 @@ default = ["host"]
 wasm = ["transforms"]
 transforms = ["dep:csv", "dep:serde_yaml", "dep:html-to-markdown-rs"]
 host = ["transforms", "http", "web", "net", "email", "sql", "surreal"]
-http = ["dep:ehttp", "dep:webpki-roots", "dep:rustls-webpki"]
-web = ["dep:reqwest", "dep:scraper", "dep:url", "http", "dep:tokio", "transforms"]
+http = ["dep:ehttp", "dep:webpki-roots", "dep:rustls-webpki", "dep:rustls"]
+web = ["dep:reqwest", "dep:scraper", "dep:url", "http", "dep:tokio", "dep:webpki-root-certs", "transforms"]
 net = []
-email = ["dep:lettre", "dep:webpki-roots", "dep:rustls-webpki"]
-sql = ["dep:sqlx", "dep:tokio", "dep:webpki-roots", "dep:rustls-webpki"]
-surreal = ["dep:surrealdb", "dep:tokio", "dep:webpki-roots", "dep:rustls-webpki"]
+email = ["dep:lettre", "dep:webpki-roots", "dep:rustls-webpki", "dep:rustls"]
+sql = ["dep:sqlx", "dep:tokio", "dep:webpki-roots", "dep:rustls-webpki", "dep:rustls"]
+surreal = ["dep:surrealdb", "dep:tokio", "dep:webpki-roots", "dep:rustls-webpki", "dep:rustls"]
 full = ["host", "data", "pdf", "image", "plot", "media"]
 data = ["dep:polars"]
 pdf = []
@@ -50,6 +50,15 @@ url = { version = "2", optional = true }
 # webpki-roots crate stays; it is a shim over this 1.x line.
 webpki-roots = { version = "1.0.10", optional = true }
 rustls-webpki = { version = "0.103.16", default-features = false, optional = true }
+# RUSTSEC-2026-0285 / 0346 / 0348 / 0349. reqwest, ureq (via ehttp), lettre,
+# sqlx, and surrealdb still allow rustls 0.23.40. 0.23.46 covers every
+# advisory on this line. default-features stays off so this floor does not
+# force the aws-lc-rs provider over ring.
+rustls = { version = "0.23.46", default-features = false, optional = true }
+# RUSTSEC-2026-0383. rustls-platform-verifier 0.7 (reqwest's rustls feature)
+# still allows webpki-root-certs 1.0.7, which wasm uses as the root store.
+# Distinct from the webpki-roots crate above.
+webpki-root-certs = { version = "1.0.11", optional = true }
 lettre = { version = "0.11", optional = true, default-features = false, features = ["builder", "smtp-transport", "rustls-tls"] }
 # sqlx 0.9 accepts libsqlite3-sys >=0.30.1, <0.38 (sqlx 0.8 pinned ^0.30.1).
 # That range includes 0.35, so a consumer can link rusqlite 0.37 in the same build.
