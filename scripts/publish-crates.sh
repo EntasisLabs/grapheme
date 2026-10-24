@@ -32,6 +32,12 @@ Publishes workspace crates to crates.io in dependency-safe order.
 Default mode is dry-run.
 Crate versions that already exist on crates.io are skipped.
 
+Dry-run packages every unpublished crate in one `cargo publish` invocation.
+Cargo 1.90+ overlays those crates on the registry while it packages and
+verifies them, so a new version can depend on a sibling that is not on
+crates.io yet. One-crate dry-runs cannot do that. Real publishes stay
+one crate at a time, with a wait for index propagation between them.
+
 Options:
   --publish              Perform real publish (default: dry-run).
   --dry-run              Force dry-run publish checks (default).
@@ -154,11 +160,6 @@ if [[ $DRY_RUN -eq 1 ]]; then
   COMMON_FLAGS+=("--dry-run")
 fi
 
-SKIP=0
-if [[ -n "$FROM_CRATE" ]]; then
-  SKIP=1
-fi
-
 crate_version_is_published() {
   local crate="$1"
   local version="$2"
@@ -185,6 +186,14 @@ crate_version_is_published() {
   esac
 }
 
+SKIP=0
+if [[ -n "$FROM_CRATE" ]]; then
+  SKIP=1
+fi
+
+TO_PUBLISH=()
+TO_PUBLISH_VERSIONS=()
+
 for crate in "${PUBLISH_ORDER[@]}"; do
   if [[ $SKIP -eq 1 ]]; then
     if [[ "$crate" != "$FROM_CRATE" ]]; then
@@ -209,19 +218,48 @@ for crate in "${PUBLISH_ORDER[@]}"; do
     fi
   fi
 
-  echo
-  echo "=== Publishing $crate $version ==="
-  if [[ ${#COMMON_FLAGS[@]} -eq 0 ]]; then
-    cargo publish -p "$crate"
-  else
-    cargo publish -p "$crate" "${COMMON_FLAGS[@]}"
-  fi
-
-  if [[ $DRY_RUN -eq 0 && "$crate" != "grapheme-lsp" && "$WAIT_SECONDS" -gt 0 ]]; then
-    echo "Waiting ${WAIT_SECONDS}s for crates.io index propagation..."
-    sleep "$WAIT_SECONDS"
-  fi
+  TO_PUBLISH+=("$crate")
+  TO_PUBLISH_VERSIONS+=("$version")
 done
+
+if [[ ${#TO_PUBLISH[@]} -eq 0 ]]; then
+  echo
+  echo "Nothing to publish."
+  exit 0
+fi
+
+if [[ $DRY_RUN -eq 1 ]]; then
+  echo
+  echo "=== Dry-run publish (${#TO_PUBLISH[@]} crates, one cargo invocation) ==="
+  for i in "${!TO_PUBLISH[@]}"; do
+    echo "  - ${TO_PUBLISH[$i]} ${TO_PUBLISH_VERSIONS[$i]}"
+  done
+  echo
+  echo "Cargo overlays these crates on crates.io for this invocation so unpublished workspace versions resolve."
+
+  specs=()
+  for crate in "${TO_PUBLISH[@]}"; do
+    specs+=("-p" "$crate")
+  done
+  cargo publish "${specs[@]}" "${COMMON_FLAGS[@]}"
+else
+  for i in "${!TO_PUBLISH[@]}"; do
+    crate="${TO_PUBLISH[$i]}"
+    version="${TO_PUBLISH_VERSIONS[$i]}"
+    echo
+    echo "=== Publishing $crate $version ==="
+    if [[ ${#COMMON_FLAGS[@]} -eq 0 ]]; then
+      cargo publish -p "$crate"
+    else
+      cargo publish -p "$crate" "${COMMON_FLAGS[@]}"
+    fi
+
+    if [[ "$crate" != "grapheme-lsp" && "$WAIT_SECONDS" -gt 0 ]]; then
+      echo "Waiting ${WAIT_SECONDS}s for crates.io index propagation..."
+      sleep "$WAIT_SECONDS"
+    fi
+  done
+fi
 
 echo
 if [[ $DRY_RUN -eq 1 ]]; then

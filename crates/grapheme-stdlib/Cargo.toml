@@ -16,12 +16,12 @@ default = ["host"]
 wasm = ["transforms"]
 transforms = ["dep:csv", "dep:serde_yaml", "dep:html-to-markdown-rs"]
 host = ["transforms", "http", "web", "net", "email", "sql", "surreal"]
-http = ["dep:ehttp"]
-web = ["dep:websearch", "http", "dep:tokio", "transforms"]
+http = ["dep:ehttp", "dep:webpki-roots", "dep:rustls-webpki"]
+web = ["dep:reqwest", "dep:scraper", "dep:url", "http", "dep:tokio", "transforms"]
 net = []
-email = ["dep:lettre"]
-sql = ["dep:sqlx", "dep:tokio"]
-surreal = ["dep:surrealdb", "dep:tokio"]
+email = ["dep:lettre", "dep:webpki-roots", "dep:rustls-webpki"]
+sql = ["dep:sqlx", "dep:tokio", "dep:webpki-roots", "dep:rustls-webpki"]
+surreal = ["dep:surrealdb", "dep:tokio", "dep:webpki-roots", "dep:rustls-webpki"]
 full = ["host", "data", "pdf", "image", "plot", "media"]
 data = ["dep:polars"]
 pdf = []
@@ -35,8 +35,21 @@ csv = { version = "1.3", optional = true }
 serde_yaml = { version = "0.9", optional = true }
 ehttp = { version = "0.7.1", optional = true }
 html-to-markdown-rs = { version = "3.4.0", optional = true, features = ["serde"] }
-tokio = { version = "1.48", optional = true, features = ["rt", "time", "net"] }
-websearch = { version = "0.1.1", optional = true }
+# RUSTSEC-2026-0386: 1.52.x and earlier are vulnerable. 1.53.3 is the first
+# patched release on this line (1.54 keeps MSRV 1.85, under our 1.94 floor).
+tokio = { version = "1.53.3", optional = true, features = ["rt", "time", "net"] }
+# Replaces websearch 0.1.1, which pinned reqwest 0.11.27 and rustls 0.21
+# (rustls-webpki 0.101 / webpki-roots 0.25, no fix). 0.13 is the reqwest
+# line already in the workspace via surrealdb and wasmer-wasix.
+reqwest = { version = "0.13", default-features = false, features = ["json", "form", "rustls"], optional = true }
+scraper = { version = "0.23", optional = true }
+url = { version = "2", optional = true }
+# RUSTSEC-2026-0381 / 0382. sqlx, lettre, ureq (via ehttp), and
+# tokio-tungstenite still allow the vulnerable 1.0.7 and 0.103.13 releases.
+# Direct floors stop dependents (Stasis) from resolving them. The 0.26
+# webpki-roots crate stays; it is a shim over this 1.x line.
+webpki-roots = { version = "1.0.10", optional = true }
+rustls-webpki = { version = "0.103.16", default-features = false, optional = true }
 lettre = { version = "0.11", optional = true, default-features = false, features = ["builder", "smtp-transport", "rustls-tls"] }
 # sqlx 0.9 accepts libsqlite3-sys >=0.30.1, <0.38 (sqlx 0.8 pinned ^0.30.1).
 # That range includes 0.35, so a consumer can link rusqlite 0.37 in the same build.
