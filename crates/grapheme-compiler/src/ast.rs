@@ -159,6 +159,33 @@ pub struct StructDef {
     pub fields: Vec<StructFieldDef>,
 }
 
+/// How a store field is written and retained (RFC-0007 A.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StoreFieldKind {
+    Plain,
+    Const,
+    Transient,
+    Derive,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoreFieldDef {
+    pub name: String,
+    pub kind: StoreFieldKind,
+    pub type_ref: TypeRef,
+    /// Default for stored fields; the computed expression for derives.
+    pub value: Value,
+}
+
+/// `state Name { ... }`: a typed, revisioned state store (RFC-0007 Part A).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoreDef {
+    pub name: String,
+    pub lifetime: Option<String>,
+    pub owner: Option<String>,
+    pub fields: Vec<StoreFieldDef>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnumDef {
     pub name: String,
@@ -402,6 +429,7 @@ pub enum Definition {
     Struct(StructDef),
     Enum(EnumDef),
     StateMachine(StateMachineDef),
+    Store(StoreDef),
     Tag(TagDef),
     Using(UsingDecl),
     Schema(SchemaDef),

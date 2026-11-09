@@ -6,23 +6,25 @@
 pub mod ast;
 pub mod compiler_api;
 pub mod error;
+mod expr_types;
 pub mod hir;
 pub mod mir_lower;
 pub mod parser;
 pub mod pipeline;
+mod stores;
 pub mod verifier;
 
 use crate::ast::Definition;
-use grapheme_artifact::{
-    build_aot_from_artifact, build_artifact_from_mir, AotEnvelope, ArtifactEnvelope,
-};
 #[cfg(feature = "stage-b")]
 use grapheme_artifact::build_stage_b_container_from_aot;
+use grapheme_artifact::{
+    AotEnvelope, ArtifactEnvelope, build_aot_from_artifact, build_artifact_from_mir,
+};
 
 pub use compiler_api::{CompiledAotScript, CompiledScript, Compiler, CompilerOptions};
 pub use error::CompilerError;
 pub use parser::parse;
-pub use pipeline::{compile_program, CompilationArtifact, CompileOptions};
+pub use pipeline::{CompilationArtifact, CompileOptions, compile_program};
 
 /// Parse and compile Grapheme source into a verified compilation artifact.
 pub fn compile(source: &str) -> Result<CompilationArtifact, CompilerError> {
@@ -46,17 +48,25 @@ pub fn compile_to_artifact(
             .definitions
             .iter()
             .filter_map(|def| match def {
-                Definition::Query(q) => Some(format!("query {}", q.name)),
-                Definition::Mutation(m) => Some(format!("mutation {}", m.name)),
+                Definition::Query(q)
+                    if !crate::stores::is_store_bound(&ast, q.signature.as_ref()) =>
+                {
+                    Some(format!("query {}", q.name))
+                }
+                Definition::Mutation(m)
+                    if !crate::stores::is_store_bound(&ast, m.signature.as_ref()) =>
+                {
+                    Some(format!("mutation {}", m.name))
+                }
                 _ => None,
             })
             .collect::<Vec<_>>();
 
         if executable_roots.len() > 1 {
             return Err(CompilerError::TypeError(format!(
-				"ambiguous entrypoint: file has multiple query/mutation roots ({}) and no glyph; add `glyph <Name> {{ ... }}` or pass an explicit entrypoint",
-				executable_roots.join(", ")
-			)));
+                "ambiguous entrypoint: file has multiple query/mutation roots ({}) and no glyph; add `glyph <Name> {{ ... }}` or pass an explicit entrypoint",
+                executable_roots.join(", ")
+            )));
         }
     }
     let compilation = compile_program(ast, CompileOptions::default())?;
@@ -291,6 +301,195 @@ query Hello {
         assert_eq!(snapshot, expected);
     }
 
+    const EXPR_TYPES_PRELUDE: &str = r#"
+enum Density { compact, comfortable }
+struct Counter {
+    count: Int
+    ratio?: Float
+    density: Density
+    name: String
+    tags?: [String]
+    on: Bool
+}
+"#;
+
+    fn compile_with_policy(
+        body: &str,
+        mode: ExecutableKindPolicyMode,
+    ) -> Result<CompilationArtifact, crate::error::GraphemeError> {
+        let source = format!("{EXPR_TYPES_PRELUDE}{body}");
+        let ast = parse(&source).expect("parse should succeed");
+        compile_program(
+            ast,
+            CompileOptions {
+                capability_policy: grapheme_artifact::CapabilityPolicy::default(),
+                executable_kind_policy_mode: mode,
+            },
+        )
+    }
+
+    #[test]
+    fn strict_policy_accepts_well_typed_expressions() {
+        compile_with_policy(
+            r#"query Q on Counter -> Counter {
+    set {
+        count: $state.count + 1,
+        ratio: $state.count / 2,
+        name: $state.name + "!",
+        on: $state.tags.count > 2 && !$state.on,
+        density: if $state.on then compact else comfortable
+    }
+}"#,
+            ExecutableKindPolicyMode::StrictMutationOnly,
+        )
+        .expect("well-typed expressions compile under strict");
+    }
+
+    #[test]
+    fn strict_policy_rejects_ill_typed_expressions() {
+        let cases = [
+            (
+                "count: $state.count + 0.5",
+                "field 'count' has type Int but its expression has type Float",
+            ),
+            (
+                "count: if $state.on then 1 else \"x\"",
+                "'if' branches must have the same type, found Int and String",
+            ),
+            (
+                "density: if $state.on then compact else comfy",
+                "field 'density': 'comfy' is not a member of enum 'Density'",
+            ),
+            ("on: $state.name > 3", "cannot apply '>' to String and Int"),
+            ("on: $state.count && true", "'&&' expects Bool, found Int"),
+            (
+                "on: $state.density == fast",
+                "'fast' is not a member of enum 'Density'",
+            ),
+            (
+                "on: if $state.count then true else false",
+                "'if' condition must be Bool, found Int",
+            ),
+            (
+                "name: $state.name - 1",
+                "cannot apply '-' to String and Int",
+            ),
+        ];
+        for (patch, expected) in cases {
+            let body = format!("query Q on Counter -> Counter {{ set {{ {patch} }} }}");
+            let err = compile_with_policy(&body, ExecutableKindPolicyMode::StrictMutationOnly)
+                .expect_err(patch);
+            assert!(
+                err.to_string().contains(expected),
+                "{patch}: expected '{expected}', got '{err}'"
+            );
+        }
+    }
+
+    #[test]
+    fn compatibility_policy_reports_expression_types_as_lints() {
+        let artifact = compile_with_policy(
+            "query Q on Counter -> Counter { set { count: $state.count + 0.5 } }",
+            ExecutableKindPolicyMode::Compatibility,
+        )
+        .expect("compat mode should compile");
+        assert!(artifact.lint_warnings.iter().any(
+            |w| w.code == "expression-type" && w.message.contains("field 'count' has type Int")
+        ));
+    }
+
+    #[test]
+    fn expression_query_body_lowers_to_one_value_step() {
+        let artifact = compile_with_policy(
+            "query Q on Counter -> Int { $state.count * 2 }",
+            ExecutableKindPolicyMode::StrictMutationOnly,
+        )
+        .expect("expression body compiles");
+        let function = artifact
+            .mir
+            .functions
+            .iter()
+            .find(|f| f.name == "Q")
+            .expect("Q");
+        let calls: Vec<_> = function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.instructions)
+            .filter_map(|inst| match inst {
+                grapheme_artifact::MirInst::Call { module, op, .. } => {
+                    Some((module.as_deref(), op.as_str()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(calls, vec![(Some("core"), "value")]);
+    }
+
+    #[test]
+    fn expression_query_bodies_check_the_declared_output_type() {
+        let ok = [
+            "query Q on Counter -> Int { $state.count + 1 }",
+            "query Q on Counter -> Float { $state.count }",
+            "query Q on Counter -> Bool { $state.count > 1 && $state.on }",
+            "query Q on Counter -> Density { if $state.on then compact else comfortable }",
+            "query Q on Counter -> Int { $state.tags.count }",
+            "query Q on Counter -> String { \"n: \" + $state.name }",
+        ];
+        for body in ok {
+            compile_with_policy(body, ExecutableKindPolicyMode::StrictMutationOnly)
+                .unwrap_or_else(|err| panic!("{body}: {err}"));
+        }
+        let cases = [
+            (
+                "query Q on Counter -> Int { $state.name }",
+                "expression body has type String but the declared output type is Int",
+            ),
+            (
+                "query Q on Counter -> Int { $state.count + 0.5 }",
+                "expression body has type Float but the declared output type is Int",
+            ),
+            (
+                "query Q on Counter -> Density { if $state.on then compact else comfy }",
+                "'comfy' is not a member of enum 'Density'",
+            ),
+            (
+                "query Q on Counter -> Bool { $state.count && true }",
+                "'&&' expects Bool, found Int",
+            ),
+        ];
+        for (body, expected) in cases {
+            let err = compile_with_policy(body, ExecutableKindPolicyMode::StrictMutationOnly)
+                .expect_err(body);
+            assert!(
+                err.to_string().contains(expected),
+                "{body}: expected '{expected}', got '{err}'"
+            );
+        }
+        let artifact = compile_with_policy(
+            "query Q on Counter -> Int { $state.name }",
+            ExecutableKindPolicyMode::Compatibility,
+        )
+        .expect("compat mode should compile");
+        assert!(artifact
+            .lint_warnings
+            .iter()
+            .any(|w| w.code == "expression-type" && w.message.contains("expression body")));
+    }
+
+    #[test]
+    fn mutation_bodies_stay_pipelines() {
+        assert!(parse("mutation M on Counter -> Int { $state.count }").is_err());
+    }
+
+    #[test]
+    fn expression_types_skip_untyped_operands() {
+        compile_with_policy(
+            "query Q($step: Any) on Counter -> Counter { set { count: $step + 1, on: $item == 3 } }",
+            ExecutableKindPolicyMode::StrictMutationOnly,
+        )
+        .expect("unknown operand types are not rejected");
+    }
+
     #[test]
     fn strict_kind_policy_rejects_write_like_core_set_path_in_query() {
         let source = r#"
@@ -326,10 +525,12 @@ query Q {
         };
 
         let artifact = compile_program(ast, options).expect("compat mode should compile");
-        assert!(artifact
-            .lint_warnings
-            .iter()
-            .any(|w| w.code == "kind-write-outside-mutation"));
+        assert!(
+            artifact
+                .lint_warnings
+                .iter()
+                .any(|w| w.code == "kind-write-outside-mutation")
+        );
     }
 
     #[test]
@@ -550,11 +751,13 @@ fragment SharedPrep on Any {
             compile(source).expect("compile should accept fragment syntax in phase A");
         assert!(compilation.mir.functions.iter().any(|f| f.name == "Run"));
         assert!(compilation.mir.functions.iter().any(|f| f.name == "Worker"));
-        assert!(!compilation
-            .mir
-            .functions
-            .iter()
-            .any(|f| f.name == "SharedPrep"));
+        assert!(
+            !compilation
+                .mir
+                .functions
+                .iter()
+                .any(|f| f.name == "SharedPrep")
+        );
     }
 
     #[test]
@@ -618,11 +821,13 @@ fragment SharedPrep on Any {
             _ => panic!("expected inlined fragment call instruction"),
         }
 
-        assert!(!compilation
-            .mir
-            .functions
-            .iter()
-            .any(|f| f.name == "SharedPrep"));
+        assert!(
+            !compilation
+                .mir
+                .functions
+                .iter()
+                .any(|f| f.name == "SharedPrep")
+        );
     }
 
     #[test]
@@ -1442,7 +1647,10 @@ iterator Greet($label: String) on Any {
         match call {
             grapheme_artifact::MirInst::Call { args, op, .. } => {
                 assert_eq!(op, "Greet");
-                assert_eq!(args.get("label"), Some(&serde_json::json!({ "$var": "label" })));
+                assert_eq!(
+                    args.get("label"),
+                    Some(&serde_json::json!({ "$var": "label" }))
+                );
             }
             _ => panic!("expected call"),
         }
@@ -1630,7 +1838,10 @@ mutation Approve on Request -> Request {
         let grapheme_artifact::MirInst::Call { args, .. } = first_inst else {
             panic!("expected set_fields call, got {first_inst:?}");
         };
-        let fields = args.get("fields").and_then(|f| f.as_object()).expect("fields");
+        let fields = args
+            .get("fields")
+            .and_then(|f| f.as_object())
+            .expect("fields");
         assert_eq!(fields.get("status"), Some(&serde_json::json!("approved")));
         assert!(!fields.contains_key("state.status"));
     }
@@ -2117,5 +2328,178 @@ iterator Worker on Any @timeout(ms: 0, on_timeout: return) {
         let err = compile(source).expect_err("compile should reject invalid @timeout ms");
         let msg = err.to_string();
         assert!(msg.contains("@timeout ms must be >= 1"));
+    }
+
+    const STORE_PRELUDE: &str = r#"
+enum Mode { idle, busy }
+state_machine Work on Mode {
+  transition idle -> busy
+  terminal busy
+}
+state Counter {
+  count: Int = 0
+  const step: Int = 2
+  transient pulse: Int = 0
+  mode: Mode = idle
+  derive double: Int = $count * 2
+}
+"#;
+
+    fn store_error(body: &str) -> String {
+        let source = format!("{STORE_PRELUDE}\n{body}");
+        match compile(&source) {
+            Ok(_) => panic!("expected an error for:\n{body}"),
+            Err(err) => err.to_string(),
+        }
+    }
+
+    #[test]
+    fn store_mutations_compile_with_bare_field_reads_and_no_entrypoint_ambiguity() {
+        let source = format!(
+            "{STORE_PRELUDE}\nmutation Inc on Counter {{ apply {{ count: $count + $step + $double }} }}\nmutation Go on Counter {{ transition $mode -> busy }}"
+        );
+        let artifact = compile_to_artifact(&source, None).expect("store program compiles");
+        let mir = &artifact.payload.mir;
+        assert_eq!(mir.stores.len(), 1);
+        assert_eq!(mir.stores[0].fields.len(), 5);
+        let inc = mir.functions.iter().find(|f| f.name == "Inc").unwrap();
+        assert_eq!(inc.store.as_deref(), Some("Counter"));
+        let args = serde_json::to_string(&inc.blocks[0].instructions).unwrap();
+        assert!(args.contains("\"set_fields\""), "{args}");
+        assert!(
+            args.contains("state.count") && args.contains("state.step"),
+            "{args}"
+        );
+        assert!(!args.contains("double"), "derive is inlined: {args}");
+    }
+
+    #[test]
+    fn programs_without_stores_serialize_without_store_fields() {
+        let artifact = compile_to_artifact("query Q {\n  core.echo(message: \"x\")\n}\n", None)
+            .expect("compiles");
+        let json = serde_json::to_string(&artifact.payload.mir).unwrap();
+        assert!(
+            !json.contains("\"stores\"") && !json.contains("\"store\""),
+            "{json}"
+        );
+    }
+
+    #[test]
+    fn store_write_rules_are_compile_errors() {
+        let cases = [
+            (
+                "mutation M on Counter { apply { step: 3 } }",
+                "const field 'step'",
+            ),
+            (
+                "mutation M on Counter { apply { double: 3 } }",
+                "derived field 'double'",
+            ),
+            (
+                "mutation M on Counter { apply { nope: 3 } }",
+                "not a field of the store",
+            ),
+            (
+                "mutation M on Counter { apply { mode: busy } }",
+                "lifecycle field",
+            ),
+            (
+                "mutation M on Counter { transition $count -> busy }",
+                "has no state machine",
+            ),
+            (
+                "mutation M on Counter { set { count: 1 } }",
+                "core.set_fields",
+            ),
+            (
+                "mutation M on Counter { apply state { count: 1 } }",
+                "core.apply_lane",
+            ),
+            (
+                "mutation M($count: Int) on Counter { apply { count: $count } }",
+                "same name as a field",
+            ),
+            (
+                "mutation M { apply { count: 1 } }",
+                "needs an executable declared on a state store",
+            ),
+            (
+                "query Q on Counter { apply { count: 1 } }",
+                "store queries are read-only",
+            ),
+            (
+                "query Q on Counter { transition $mode -> busy }",
+                "store queries are read-only",
+            ),
+            (
+                "mutation W on Counter { apply { count: 1 } }\nquery Q on Counter { call W }",
+                "can only call queries",
+            ),
+            (
+                "subscription S on Counter { core.echo(message: \"x\") }",
+                "only queries and mutations",
+            ),
+            (
+                "mutation Other { core.echo(message: \"x\") }\nmutation M on Counter { call Other }",
+                "not declared on 'Counter'",
+            ),
+        ];
+        for (body, expected) in cases {
+            let err = store_error(body);
+            assert!(
+                err.contains(expected),
+                "{body}: expected '{expected}' in '{err}'"
+            );
+        }
+    }
+
+    #[test]
+    fn store_declaration_rules_are_compile_errors() {
+        let cases = [
+            (
+                "state S { a: Int = 0\n derive b: Int = $c }",
+                "not a field of the store",
+            ),
+            (
+                "state S { derive a: Int = $b\n derive b: Int = $a }",
+                "derive cycle",
+            ),
+            (
+                "state S { a: Int = 0\n b: Int = $a }",
+                "may not read fields",
+            ),
+            ("state S { a: Int = 0\n a: Int = 1 }", "more than once"),
+            (
+                "enum E { x, y }\nstate S { e: E = z }",
+                "not a member of enum 'E'",
+            ),
+            (
+                "singleton state S { a: Int = 0 }",
+                "lifetimes are not supported yet",
+            ),
+            (
+                "transient state S { a: Int = 0 }",
+                "lifetimes are not supported yet",
+            ),
+        ];
+        for (body, expected) in cases {
+            let err = match compile(body) {
+                Ok(_) => panic!("expected an error for {body}"),
+                Err(err) => err.to_string(),
+            };
+            assert!(
+                err.contains(expected),
+                "{body}: expected '{expected}' in '{err}'"
+            );
+        }
+    }
+
+    #[test]
+    fn bare_fields_outside_stores_keep_the_old_error() {
+        let err = match compile("mutation M {\n  transition $status -> done\n}\n") {
+            Ok(_) => panic!("expected an error"),
+            Err(err) => err.to_string(),
+        };
+        assert!(err.contains("must reference $state.<field>"), "{err}");
     }
 }

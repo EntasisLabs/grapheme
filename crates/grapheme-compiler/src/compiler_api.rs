@@ -1,7 +1,9 @@
 use grapheme_artifact::artifact::ArtifactError;
-use grapheme_artifact::{build_aot_from_artifact, build_artifact_from_mir, AotEnvelope, ArtifactEnvelope};
 #[cfg(feature = "stage-b")]
 use grapheme_artifact::build_stage_b_container_from_aot;
+use grapheme_artifact::{
+    AotEnvelope, ArtifactEnvelope, build_aot_from_artifact, build_artifact_from_mir,
+};
 
 use crate::ast::{Definition, Program};
 use crate::error::CompilerError;
@@ -131,8 +133,16 @@ fn glyph_entrypoint(ast: &Program) -> Result<Option<String>, CompilerError> {
             .definitions
             .iter()
             .filter_map(|def| match def {
-                Definition::Query(q) => Some(format!("query {}", q.name)),
-                Definition::Mutation(m) => Some(format!("mutation {}", m.name)),
+                Definition::Query(q)
+                    if !crate::stores::is_store_bound(ast, q.signature.as_ref()) =>
+                {
+                    Some(format!("query {}", q.name))
+                }
+                Definition::Mutation(m)
+                    if !crate::stores::is_store_bound(ast, m.signature.as_ref()) =>
+                {
+                    Some(format!("mutation {}", m.name))
+                }
                 _ => None,
             })
             .collect::<Vec<_>>();

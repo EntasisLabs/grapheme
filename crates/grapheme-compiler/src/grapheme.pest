@@ -124,6 +124,22 @@ state_machine_def = {
     ~ "}"
 }
 
+// State store (RFC-0007 Part A): `[singleton|transient] state Name [on View] { items }`
+kw_state     = @{ "state" ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_derive    = @{ "derive" ~ !(ASCII_ALPHANUMERIC | "_") }
+store_lifetime   = @{ ("singleton" | "transient") ~ !(ASCII_ALPHANUMERIC | "_") }
+store_field_kind = @{ ("const" | "transient") ~ !(ASCII_ALPHANUMERIC | "_") }
+
+store_derive = { kw_derive ~ ident ~ ":" ~ type_ref ~ "=" ~ value }
+store_field  = { store_field_kind? ~ ident ~ ":" ~ type_ref ~ "=" ~ value }
+store_item   = _{ store_derive | store_field }
+
+store_def = {
+    store_lifetime? ~ kw_state ~ ident ~ ("on" ~ ident)? ~ "{"
+    ~ store_item ~ (","? ~ store_item)* ~ ","?
+    ~ "}"
+}
+
 type_def = {
     "type" ~ ident ~ directive* ~ "{"
     ~ field_def+
@@ -286,7 +302,7 @@ set_step = {
 
 apply_step = {
     "apply"
-    ~ ident
+    ~ ident?
     ~ object_value
 }
 
@@ -337,9 +353,12 @@ glyph_def = {
     ~ "}"
 }
 
+// A query body is a pipeline, or a single expression whose value is the result (RFC-0007 B.5).
+expr_body = { value }
+
 query_def = {
     "query" ~ ident ~ variable_defs? ~ executable_signature? ~ directive* ~ "{"
-    ~ pipeline+
+    ~ (pipeline+ ~ &"}" | expr_body)
     ~ "}"
 }
 
@@ -403,6 +422,7 @@ definition = {
     | struct_def
     | enum_def
     | state_machine_def
+    | store_def
     | tag_def
     | using_decl
   | schema_def

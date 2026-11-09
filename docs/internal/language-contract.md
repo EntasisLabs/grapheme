@@ -158,7 +158,71 @@ Precedence, loosest first: `if … then … else`, `||`, `&&`, comparison (`==` 
 - Expressions cannot call executables or module ops; calls stay pipeline steps.
 - Expressions lower to `{"$expr": {"op": "+", "args": [..]}}` in HIR/MIR and are evaluated by both Stage A and Stage B runtimes.
 
-Not yet: static operand typing under `--type-policy strict`, `.count`, and single-expression bodies (RFC-0007 B.1–B.3, B.5). Field references inside expressions are still checked against the input type.
+`.count` on a list or string reads its length (`$state.items.count`). A struct field named `count` still wins.
+
+Operand types come from the input type, typed params and literals. Under `--type-policy strict` a definite mismatch is a type error; under `warn` it is an `expression-type` lint. Checked:
+
+- arithmetic and ordering operands (`"a" - 1`, `$name > 3`);
+- `&&`, `||`, `!` and `if` conditions take `Bool`;
+- both `if` branches have the same type;
+- a `set`/`core.merge` field's expression matches the field type (`Int` widens to `Float`);
+- bare symbols compared with or assigned to an enum are members of it.
+
+Operands with no declared type (locals, loop items, `Any`) are not checked.
+
+A query body may be a single expression instead of a pipeline; its value is the query's result (RFC-0007 B.5):
+
+```gr
+query Doubled on Counter -> Int { $state.count * 2 }
+query Label on Counter -> String { if $state.on then "on" else "off" }
+```
+
+- It lowers to one `core.value(value: <expr>)` step, so the run's final `current` is the value itself (a scalar, list or object), not the input object.
+- Under `strict` the expression's type must fit the declared `-> T` (`Int` widens to `Float`; enum symbols must be members); under `warn` a mismatch is an `expression-type` lint.
+- Only queries take expression bodies. Mutation, iterator and fragment bodies stay pipelines.
+- A body that parses as a pipeline (for example a bare op name like `{ ping }`) stays a pipeline.
+
+## State Stores (RFC-0007 Part A, step 1)
+
+A `state` declaration is a store: a runtime object separate from the pipeline state, with typed fields and per-store revisions.
+
+```gr
+enum Mode { idle, busy }
+
+state_machine Work on Mode {
+  transition idle -> busy
+  transition busy -> idle
+}
+
+state Counter {
+  count: Int = 0
+  const step: Int = 2
+  transient pulse: Int = 0
+  mode: Mode = idle
+  derive double: Int = $count * 2
+}
+
+mutation Increment on Counter {
+  apply { count: $count + $step, pulse: $pulse + 1 }
+}
+
+mutation Start on Counter {
+  transition $mode -> busy
+}
+
+query Total on Counter {
+  set { total: $count + $double }
+}
+```
+
+- **Fields.** A plain field is written by `apply`. `const` is never written after creation. `transient` is written by `apply` and appears in runtime diffs but not history diffs. `derive` is computed from fields and other derives and is read-only. An enum field whose enum has exactly one `state_machine` is a lifecycle field, written only by `transition`.
+- **Names.** Inside an executable `on Counter`, fields are bare `$count`; `$state.count` still works. Derives are inlined where they are read. A parameter named like a field is a compile error.
+- **Writes.** `apply { … }` (no lane) writes the executable's own store. `apply state { … }` and `apply data { … }` keep their lane meaning. `apply` naming a const, derive, lifecycle or unknown field is a compile error, as is lane-less `apply` outside a store executable.
+- **Mutations** on a store may only `apply`, `transition`, branch, and call executables on the same store; module/capability ops are not allowed yet. **Queries** on a store are read-only: no `apply` or `transition`, and they may only call queries.
+- **Defaults** may not read fields or variables; an enum default must be a member. Derive cycles are compile errors.
+- **Transactions.** A mutation is one transaction: it runs against the latest committed fields and commits one revision `{store, revision, cause, diff, history_diff}` with `diff: {field: [old, new]}`. A run that changes nothing commits no revision. A failed step commits nothing. Each `transition` is checked against the state machine at commit time (illegal edge or terminal member → `invalid_transition`); a declared self-edge counts as a change.
+- **Running.** Store executables are not file entrypoints. They run through a store session: `GraphemeEngine::store_session(source)` in the SDK, `StoreSession` in `grapheme-runtime`, or `grapheme session file.gr --invoke Increment --invoke 'Add:{"by":3}' --query Total`, which prints revisions, query results and each store's snapshot (fields plus derives) as JSON.
+- **Not yet:** `singleton`/`transient state` lifetimes, `state … on View`, registries, `history`/`undo`, hot reload, `by Machine` for enums with several machines, store subscriptions and tasks. Lifetimes and `on View` are compile errors for now.
 
 ## State Contract
 
@@ -229,7 +293,7 @@ Core std helper expansion (current behavior):
 
 - Core transform ops now include list/object/string helpers such as:
 	- list/object: `map`, `filter`, `find`, `reduce`, `group_by`, `merge`, `pick`, `validate_schema`, `get_path`, `set_path`, `has_path`
-	- flow/data helpers: `tap`, `pack_state_data`, `get_state`, `get_data`
+	- flow/data helpers: `tap`, `value`, `pack_state_data`, `get_state`, `get_data`
 	- string/text: `split`, `join`, `replace`, `trim`, `lower`, `upper`, `contains`
 - These ops are exposed via module manifest discovery (`grapheme modules info/types core`) and enforced by verifier arg checks.
 

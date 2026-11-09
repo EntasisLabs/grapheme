@@ -15,30 +15,32 @@ pub mod runtime;
 #[cfg(feature = "stage-b")]
 pub mod stage_b;
 pub mod state;
+pub mod store_session;
 #[cfg(feature = "wasix-runtime")]
 pub mod wasix_backend;
 
 pub use error::RuntimeError;
 pub use host::{CapabilityCall, CapabilityHost, HostCallError};
 pub use module_discovery::{
-    discover_wasm_modules, discovered_module_to_load_request, DiscoveredWasmModule,
-    WasmDiscoveryReport, WasmModuleManifest, MANIFEST_SCHEMA,
+    DiscoveredWasmModule, MANIFEST_SCHEMA, WasmDiscoveryReport, WasmModuleManifest,
+    discover_wasm_modules, discovered_module_to_load_request,
 };
 pub use module_hotload::{
-    apply_hotload_store, default_hotload_store_path, export_hotload, hotload_status_payload,
-    import_hotload, load_hotload_store, save_hotload_store, sync_registry_from_manager,
-    HotloadError, HotloadStore, HOTLOAD_SCHEMA,
+    HOTLOAD_SCHEMA, HotloadError, HotloadStore, apply_hotload_store, default_hotload_store_path,
+    export_hotload, hotload_status_payload, import_hotload, load_hotload_store, save_hotload_store,
+    sync_registry_from_manager,
 };
 pub use module_manager::{
     ActivationResult, CompatibilityMode, LoadModuleRequest, ModuleGeneration, ModuleLifecycleEvent,
     ModuleLifecycleEventKind, ModuleLifecycleState, ModuleLoadError, ModuleManager,
 };
 pub use module_manifest::{
-    core_v1_manifests, EffectKind, ExportedOp, ModuleAbi, ModuleManifest, ResourceLimits,
+    EffectKind, ExportedOp, ModuleAbi, ModuleManifest, ResourceLimits, core_v1_manifests,
 };
 pub use module_registry::{ModuleBinding, ModuleRegistry, ResolvedModuleCall};
 pub use policy::PolicyGuard;
 pub use runtime::{RuntimeEngine, RuntimeOptions};
 pub use state::{AgentState, TracePolicy, TraceProjection};
+pub use store_session::{StoreCommit, StoreRevision, StoreSession};
 #[cfg(feature = "wasix-runtime")]
 pub use wasix_backend::WasixBackend;

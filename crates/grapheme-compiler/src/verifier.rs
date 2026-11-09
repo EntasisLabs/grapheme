@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use super::hir::{HirExecutable, HirExecutableKind, HirProgram, HirStateMachineDef, HirStep};
 use crate::ast::ImportKind;
 use crate::ast::TypeRef;
+use crate::expr_types::ExprTypeContext;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LintWarning {
@@ -154,6 +155,13 @@ pub fn verify_hir_with_lints_mode(
                 )));
             }
 
+            let expr_types = ExprTypeContext {
+                input_type: def.input_type.as_ref(),
+                output_type: def.output_type.as_ref(),
+                params: &def.params,
+                struct_field_types: &struct_field_types_by_name,
+                enum_members: &enum_members_by_name,
+            };
             for (step_idx, step) in pipeline.steps.iter().enumerate() {
                 verify_step_types(&def.name, i, step_idx, step)?;
                 verify_call_step(
@@ -197,6 +205,22 @@ pub fn verify_hir_with_lints_mode(
                     def.input_type.as_ref(),
                     &struct_fields_by_name,
                 )?;
+                for message in expr_types.check_step(step) {
+                    let message = format!(
+                        "definition '{}', pipeline {}, step {}: {}",
+                        def.name, i, step_idx, message
+                    );
+                    if policy_mode == ExecutableKindPolicyMode::StrictMutationOnly {
+                        return Err(GraphemeError::TypeError(message));
+                    }
+                    lint_warnings.push(LintWarning {
+                        code: "expression-type".to_string(),
+                        message,
+                        definition: def.name.clone(),
+                        pipeline: i,
+                        step: step_idx,
+                    });
+                }
                 apply_executable_kind_policy(
                     &mut lint_warnings,
                     policy_mode,

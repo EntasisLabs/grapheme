@@ -205,3 +205,41 @@ query Divide on Counter -> Counter {
     assert!(!response.ok || body.contains("EXPRESSION_ERROR"), "{body}");
     assert!(body.contains("division by zero in '/'"), "{body}");
 }
+
+#[test]
+fn count_property_reads_list_and_string_length() {
+    let source = r#"
+struct Inbox {
+    items: [String]
+    title: String
+    total?: Int
+    long?: Bool
+}
+
+query Count on Inbox -> Inbox {
+    set { total: $state.items.count, long: $state.title.count > 3 }
+}
+"#;
+    let response = execute(&ExecuteRequest {
+        source: Some(source.to_string()),
+        artifact: None,
+        initial_current: Some(json!({ "items": ["a", "b"], "title": "mail" })),
+        args: None,
+        entrypoint: None,
+    });
+
+    assert!(
+        response.ok,
+        "expected ok, error={:?}",
+        response.error.as_ref().map(|e| &e.message)
+    );
+    let current = response
+        .final_state
+        .as_ref()
+        .and_then(|state| state.get("current"))
+        .cloned();
+    assert_eq!(
+        current,
+        Some(json!({ "items": ["a", "b"], "title": "mail", "total": 2, "long": true }))
+    );
+}

@@ -159,6 +159,7 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
                     Rule::state_machine_def => {
                         definitions.push(Definition::StateMachine(parse_state_machine_def(def)?))
                     }
+                    Rule::store_def => definitions.push(Definition::Store(parse_store_def(def)?)),
                     Rule::tag_def => definitions.push(Definition::Tag(parse_tag_def(def)?)),
                     Rule::using_decl => definitions.push(Definition::Using(parse_using_decl(def)?)),
                     Rule::schema_def => definitions.push(Definition::Schema(parse_schema(def)?)),
@@ -261,6 +262,63 @@ fn parse_struct_def(pair: Pair<Rule>) -> Result<StructDef, GraphemeError> {
     }
 
     Ok(StructDef { name, fields })
+}
+
+fn parse_store_def(pair: Pair<Rule>) -> Result<StoreDef, GraphemeError> {
+    let mut lifetime = None;
+    let mut owner = None;
+    let mut name = None;
+    let mut fields = Vec::new();
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::store_lifetime => lifetime = Some(p.as_str().to_string()),
+            Rule::kw_state => {}
+            Rule::ident if name.is_none() => name = Some(p.as_str().to_string()),
+            Rule::ident => owner = Some(p.as_str().to_string()),
+            Rule::store_field | Rule::store_derive => {
+                let derive = p.as_rule() == Rule::store_derive;
+                let mut kind = if derive {
+                    StoreFieldKind::Derive
+                } else {
+                    StoreFieldKind::Plain
+                };
+                let mut field_name = None;
+                let mut type_ref = None;
+                let mut value = None;
+                for part in p.into_inner() {
+                    match part.as_rule() {
+                        Rule::kw_derive => {}
+                        Rule::store_field_kind => {
+                            kind = match part.as_str() {
+                                "const" => StoreFieldKind::Const,
+                                _ => StoreFieldKind::Transient,
+                            }
+                        }
+                        Rule::ident => field_name = Some(part.as_str().to_string()),
+                        Rule::type_ref => type_ref = Some(parse_type_ref(part)?),
+                        _ => value = Some(parse_value(part)?),
+                    }
+                }
+                fields.push(StoreFieldDef {
+                    name: field_name.unwrap_or_default(),
+                    kind,
+                    type_ref: type_ref.ok_or_else(|| {
+                        GraphemeError::ParseError("store field missing type".to_string())
+                    })?,
+                    value: value.ok_or_else(|| {
+                        GraphemeError::ParseError("store field missing value".to_string())
+                    })?,
+                });
+            }
+            r => return Err(GraphemeError::UnexpectedRule(format!("{r:?}"))),
+        }
+    }
+    Ok(StoreDef {
+        name: name.unwrap_or_default(),
+        lifetime,
+        owner,
+        fields,
+    })
 }
 
 fn parse_enum_def(pair: Pair<Rule>) -> Result<EnumDef, GraphemeError> {
@@ -741,11 +799,26 @@ fn parse_operation_body<'a>(
             }
             Rule::directive => directives.push(parse_directive(p)?),
             Rule::pipeline => pipelines.push(parse_pipeline(p, state)?),
+            Rule::expr_body => pipelines.push(parse_expr_body(p)?),
             _ => {}
         }
     }
 
     Ok((variables, signature, directives, pipelines))
+}
+
+/// `{ expr }` lowers to one `core.value(value: expr)` step, whose output is the result.
+fn parse_expr_body(pair: Pair<Rule>) -> Result<Pipeline, GraphemeError> {
+    let value = parse_value(pair.into_inner().next().unwrap())?;
+    Ok(Pipeline {
+        steps: vec![PipelineStep::Field(FieldCall {
+            module: Some("core".to_string()),
+            name: "value".to_string(),
+            args: vec![("value".to_string(), value)],
+            directives: vec![],
+            selection: None,
+        })],
+    })
 }
 
 fn parse_executable_signature(pair: Pair<Rule>) -> Result<ExecutableSignature, GraphemeError> {
@@ -943,8 +1016,28 @@ fn parse_set_step_as_set_fields_call(pair: Pair<Rule>) -> Result<FieldCall, Grap
     })
 }
 
+/// Op emitted for `apply { ... }` with no lane; HIR lowering resolves it against the store.
+pub(crate) const STORE_APPLY_OP: &str = "apply_store";
+
 fn parse_apply_step_as_apply_lane_call(pair: Pair<Rule>) -> Result<FieldCall, GraphemeError> {
-    let mut inner = pair.into_inner();
+    let mut inner = pair.into_inner().peekable();
+    if inner.peek().map(|p| p.as_rule()) == Some(Rule::object_value) {
+        let object = inner.next().unwrap();
+        let mut fields = Vec::new();
+        for field in object.into_inner() {
+            let mut fi = field.into_inner();
+            let key = fi.next().unwrap().as_str().to_string();
+            let value = parse_value(fi.next().unwrap())?;
+            fields.push((key, value));
+        }
+        return Ok(FieldCall {
+            module: Some("core".to_string()),
+            name: STORE_APPLY_OP.to_string(),
+            args: vec![("fields".to_string(), Value::Object(fields))],
+            directives: vec![],
+            selection: None,
+        });
+    }
     let lane = inner
         .next()
         .ok_or_else(|| GraphemeError::ParseError("apply-step missing lane name".to_string()))?
@@ -1017,7 +1110,7 @@ fn parse_transition_step_as_set_fields_call(pair: Pair<Rule>) -> Result<FieldCal
 
     Ok(FieldCall {
         module: Some("core".to_string()),
-        name: "set_fields".to_string(),
+        name: TRANSITION_OP.to_string(),
         args: vec![("fields".to_string(), Value::Object(fields))],
         directives: vec![],
         selection: None,
@@ -1295,11 +1388,21 @@ fn parse_current_field_name(var_expr: &str, context: &str) -> Result<String, Gra
         return Ok(format!("state.{path}"));
     }
 
+    if !var_name.is_empty() && !var_name.contains(':') {
+        return Ok(format!("{BARE_FIELD_PREFIX}{var_name}"));
+    }
+
     Err(GraphemeError::ParseError(format!(
         "{} expression must reference $state.<field> or $item.<field>",
         context
     )))
 }
+
+/// Marks a bare `$field` path in transition/if/match; HIR resolves it against the store in scope.
+pub(crate) const BARE_FIELD_PREFIX: &str = "$bare:";
+
+/// Op emitted for `transition`; HIR lowering checks it against the store and lowers it to `set_fields`.
+pub(crate) const TRANSITION_OP: &str = "transition_fields";
 
 fn parse_struct_init_step(pair: Pair<Rule>) -> Result<StructInitStep, GraphemeError> {
     let mut inner = pair.into_inner();

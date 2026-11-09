@@ -7,6 +7,44 @@ use super::capability::Capability;
 pub struct MirProgram {
     pub functions: Vec<MirFunction>,
     pub capabilities: Vec<Capability>,
+    /// `state` stores declared by the program (RFC-0007 Part A).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stores: Vec<MirStore>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirStore {
+    pub name: String,
+    pub fields: Vec<MirStoreField>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MirStoreFieldKind {
+    Plain,
+    Const,
+    Transient,
+    Derive,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirStoreField {
+    pub name: String,
+    pub kind: MirStoreFieldKind,
+    pub type_name: String,
+    /// Default value expression for stored fields; computed expression for derives.
+    pub value: JsonValue,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle: Option<MirLifecycle>,
+}
+
+/// The `state_machine` governing a lifecycle field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirLifecycle {
+    pub machine: String,
+    pub transitions: Vec<(String, String)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub terminals: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,6 +71,9 @@ pub struct MirFunction {
     pub intent_config: Option<MirIntentConfig>,
     pub loop_config: Option<MirLoopConfig>,
     pub blocks: Vec<MirBlock>,
+    /// Store this function is declared `on`; its runs commit store revisions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -63,8 +63,7 @@ fn resolve_local_reference(reference: &str, scope: &TemplateScope<'_>) -> Option
     }
     if let Some(path) = reference.strip_prefix("args.") {
         return Some(
-            select_json_path(&JsonValue::Object(scope.locals.clone()), path)
-                .cloned()
+            grapheme_artifact::expr::select_path(&JsonValue::Object(scope.locals.clone()), path)
                 .unwrap_or(JsonValue::Null),
         );
     }
@@ -75,8 +74,7 @@ fn resolve_local_reference(reference: &str, scope: &TemplateScope<'_>) -> Option
         && let Some(value) = scope.locals.get(name)
     {
         return Some(
-            select_json_path(value, path)
-                .cloned()
+            grapheme_artifact::expr::select_path(value, path)
                 .unwrap_or(JsonValue::Null),
         );
     }
@@ -94,13 +92,11 @@ fn resolve_variable_reference(reference: &str, scope: &TemplateScope<'_>) -> Jso
         return scope.current.clone();
     }
     if let Some(path) = reference.strip_prefix("state.") {
-        return select_json_path(scope.state, path)
-            .cloned()
+        return grapheme_artifact::expr::select_path(scope.state, path)
             .unwrap_or(JsonValue::Null);
     }
     if let Some(path) = reference.strip_prefix("current.") {
-        return select_json_path(scope.current, path)
-            .cloned()
+        return grapheme_artifact::expr::select_path(scope.current, path)
             .unwrap_or(JsonValue::Null);
     }
     JsonValue::String(format!("${reference}"))
@@ -122,15 +118,13 @@ fn resolve_string_template(template: &str, scope: &TemplateScope<'_>) -> JsonVal
     if let Some(path) = template.strip_prefix("$state.")
         && path.chars().all(is_selector_char)
     {
-        return select_json_path(scope.state, path)
-            .cloned()
+        return grapheme_artifact::expr::select_path(scope.state, path)
             .unwrap_or(JsonValue::Null);
     }
     if let Some(path) = template.strip_prefix("$current.")
         && path.chars().all(is_selector_char)
     {
-        return select_json_path(scope.current, path)
-            .cloned()
+        return grapheme_artifact::expr::select_path(scope.current, path)
             .unwrap_or(JsonValue::Null);
     }
     JsonValue::String(template.to_string())

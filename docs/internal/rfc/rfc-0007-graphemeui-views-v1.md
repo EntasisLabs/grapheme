@@ -374,6 +374,8 @@ grant      = "read" Store | "write" Store | "use" module ("." op)?
 
 Separators between store items and registry entries are newlines or commas. No store or field semantics use `@` directives. `singleton`, `transient`, `const`, `derive`, `history`, `undo`, `register`, `read`, `write`, `use` and `expose` are contextual keywords: reserved only at the start of a top-level definition, store item, registry entry or glyph clause, so existing identifiers and op names keep working. Only `const` is already a keyword (`using const`).
 
+**Implementation status:** A.1–A.4, A.7 and the store half of Part E are implemented for plain `state` stores, with a headless store session (`invoke`, `query`, `snapshot`, `revisions`) in the runtime, SDK and `grapheme session`. Not yet: lifetimes and `on View` (A.5), registries (A.6), `history`/`undo` (A.8), hot reload (A.9), `by Machine` (A.4.4), host-seeded `const` fields outside the runtime API, and store subscriptions. Store mutations cannot call module ops yet.
+
 ### A.1 Fields
 
 | Keyword | Written by | Runtime diff | History and undo | Hot reload |
@@ -546,7 +548,7 @@ primary = value | variable | "(" expr ")" | "if" expr "then" expr "else" expr
 
 This was already on the language-ergonomics roadmap; it ships first because everything else uses it.
 
-**Implementation status:** the grammar, precedence and runtime semantics in this part (including `Int` truncating division and overflow as a runtime error) are implemented in Stage A and Stage B. Static operand typing (1–2), `.count` (3) and expression bodies (5) are not yet.
+**Implementation status:** the grammar, precedence and runtime semantics in this part (including `Int` truncating division and overflow as a runtime error) are implemented in Stage A and Stage B, as are static typing (1–2; a lint under `warn`) and `.count` (3). Expression bodies (5) are implemented for queries, including store queries, and are checked against the declared `-> T`; derive and view expression bodies arrive with their declarations (derive fields already take a single expression).
 
 ## Part C — Views
 

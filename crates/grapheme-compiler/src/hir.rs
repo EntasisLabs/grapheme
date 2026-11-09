@@ -5,8 +5,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ast::ImportKind;
 use crate::ast::{
-    Definition, Directive, FragmentDef, OpKind, Pipeline, PipelineStep, Program, StructDef,
-    TypeRef, Value, VariableDef,
+    Definition, Directive, FragmentDef, OpKind, Pipeline, PipelineStep, Program, StoreFieldKind,
+    StructDef, TypeRef, Value, VariableDef,
 };
 use crate::error::GraphemeError;
 
@@ -18,6 +18,29 @@ pub struct HirProgram {
     pub state_machines: Vec<HirStateMachineDef>,
     pub executable_defs: Vec<HirExecutable>,
     pub capabilities: Vec<Capability>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stores: Vec<HirStore>,
+}
+
+/// A `state` store (RFC-0007 Part A). Its stored fields are also exposed as a
+/// struct of the same name so `on Store` executables type-check against it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HirStore {
+    pub name: String,
+    pub fields: Vec<HirStoreField>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HirStoreField {
+    pub name: String,
+    pub kind: StoreFieldKind,
+    pub type_ref: TypeRef,
+    /// Lowered default for stored fields; the computed expression for derives,
+    /// with field reads rewritten to `$state.<field>` and nested derives inlined.
+    pub value: JsonValue,
+    /// Name of the `state_machine` governing this field, if it is a lifecycle field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +108,9 @@ pub struct HirExecutable {
     pub timeout_directive_count: usize,
     pub timeout_args: Option<JsonValue>,
     pub intent_args: Option<JsonValue>,
+    /// The store this executable is bound to via `on Store`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<String>,
     pub pipelines: Vec<HirPipeline>,
 }
 
@@ -134,6 +160,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
             | Definition::Struct(_)
             | Definition::Enum(_)
             | Definition::StateMachine(_)
+            | Definition::Store(_)
             | Definition::Tag(_)
             | Definition::Using(_)
             | Definition::Schema(_)
@@ -141,7 +168,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
         })
         .collect::<HashSet<_>>();
 
-    let struct_defs = program
+    let mut struct_defs = program
         .definitions
         .iter()
         .filter_map(|def| match def {
@@ -213,6 +240,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
                 timeout_directive_count: 0,
                 timeout_args: None,
                 intent_args: None,
+                store: None,
                 pipelines: lower_pipelines(
                     &g.name,
                     &g.pipelines,
@@ -242,6 +270,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
                     timeout_directive_count: timeout_directive_count(&directives),
                     timeout_args: first_timeout_args(&directives),
                     intent_args: first_intent_args(&directives),
+                    store: None,
                     pipelines: lower_pipelines(
                         &q.name,
                         &q.pipelines,
@@ -272,6 +301,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
                     timeout_directive_count: timeout_directive_count(&directives),
                     timeout_args: first_timeout_args(&directives),
                     intent_args: first_intent_args(&directives),
+                    store: None,
                     pipelines: lower_pipelines(
                         &m.name,
                         &m.pipelines,
@@ -302,6 +332,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
                     timeout_directive_count: timeout_directive_count(&directives),
                     timeout_args: first_timeout_args(&directives),
                     intent_args: first_intent_args(&directives),
+                    store: None,
                     pipelines: lower_pipelines(
                         &s.name,
                         &s.pipelines,
@@ -332,6 +363,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
                     timeout_directive_count: timeout_directive_count(&directives),
                     timeout_args: first_timeout_args(&directives),
                     intent_args: first_intent_args(&directives),
+                    store: None,
                     pipelines: lower_pipelines(
                         &f.name,
                         &f.pipelines,
@@ -346,12 +378,21 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
             | Definition::Struct(_)
             | Definition::Enum(_)
             | Definition::StateMachine(_)
+            | Definition::Store(_)
             | Definition::Tag(_)
             | Definition::Using(_)
             | Definition::Schema(_)
             | Definition::ModuleProposal(_) => {}
         }
     }
+
+    let stores = crate::stores::bind_stores(
+        program,
+        &mut struct_defs,
+        &enum_defs,
+        &state_machines,
+        &mut executable_defs,
+    )?;
 
     let mut capabilities = executable_defs
         .iter()
@@ -370,6 +411,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
         state_machines,
         executable_defs,
         capabilities,
+        stores,
     })
 }
 
@@ -587,7 +629,10 @@ fn lower_step(
                         crate::ast::UsingMutability::Const => "const",
                         crate::ast::UsingMutability::Mutable => "mutable",
                     };
-                    activation.insert("mutability".to_string(), JsonValue::String(label.to_string()));
+                    activation.insert(
+                        "mutability".to_string(),
+                        JsonValue::String(label.to_string()),
+                    );
                 }
                 activation.insert("fields".to_string(), JsonValue::Object(fields));
                 activations.push(JsonValue::Object(activation));
@@ -634,7 +679,6 @@ fn lower_step(
         }
     }
 }
-
 
 fn lower_params(variables: &[VariableDef]) -> Vec<HirParam> {
     variables
@@ -703,7 +747,7 @@ fn normalize_executable_directives(
                 return Err(GraphemeError::TypeError(format!(
                     "definition '{}': @resilient unknown key '{}'",
                     executable_name, other
-                )))
+                )));
             }
         };
 
@@ -811,7 +855,7 @@ fn maybe_inject_recursive_max_depth(
     args_map.insert("max_depth".to_string(), JsonValue::from(max_depth));
 }
 
-fn value_to_json(value: &Value) -> JsonValue {
+pub(crate) fn value_to_json(value: &Value) -> JsonValue {
     match value {
         Value::Int(v) => JsonValue::from(*v),
         Value::Float(v) => JsonValue::from(*v),
@@ -850,11 +894,12 @@ fn expr_to_json(expr: &crate::ast::ValueExpr) -> JsonValue {
     };
     let (op, args) = match expr {
         crate::ast::ValueExpr::Unary(op, value) => (op.as_str(), vec![operand(value)]),
-        crate::ast::ValueExpr::Binary(op, left, right) => (op.as_str(), vec![operand(left), operand(right)]),
-        crate::ast::ValueExpr::If(cond, then, otherwise) => (
-            "if",
-            vec![operand(cond), operand(then), operand(otherwise)],
-        ),
+        crate::ast::ValueExpr::Binary(op, left, right) => {
+            (op.as_str(), vec![operand(left), operand(right)])
+        }
+        crate::ast::ValueExpr::If(cond, then, otherwise) => {
+            ("if", vec![operand(cond), operand(then), operand(otherwise)])
+        }
     };
     serde_json::json!({ "$expr": { "op": op, "args": args } })
 }

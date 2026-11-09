@@ -5,6 +5,10 @@ pub fn echo(args: &JsonValue) -> JsonValue {
     json!({ "message": message })
 }
 
+pub fn value(args: &JsonValue) -> JsonValue {
+    args.get("value").cloned().unwrap_or(JsonValue::Null)
+}
+
 pub fn tap(args: &JsonValue) -> JsonValue {
     args.get("__input").cloned().unwrap_or_else(|| {
         let message = core_arg_message(args, "message");

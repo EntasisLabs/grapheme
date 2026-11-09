@@ -76,6 +76,11 @@ const CORE_TAP_ARGS: &[ArgSpec] = &[ArgSpec {
     ty: ArgType::String,
     required: false,
 }];
+const CORE_VALUE_ARGS: &[ArgSpec] = &[ArgSpec {
+    name: "value",
+    ty: ArgType::Any,
+    required: true,
+}];
 const CORE_PACK_STATE_DATA_ARGS: &[ArgSpec] = &[
     ArgSpec {
         name: "state",
@@ -1188,6 +1193,14 @@ pub const OP_SPECS: &[OpSpec] = &[
     },
     OpSpec {
         module: "core",
+        op: "value",
+        args: CORE_VALUE_ARGS,
+        effect: SignatureEffect::Pure,
+        input_schema_ref: None,
+        output_schema_ref: None,
+    },
+    OpSpec {
+        module: "core",
         op: "pack_state_data",
         args: CORE_PACK_STATE_DATA_ARGS,
         effect: SignatureEffect::Pure,
@@ -2023,6 +2036,7 @@ pub fn host_envelope_output_fields() -> &'static [ObjectFieldSpec] {
 pub fn op_output_type(module: &str, op: &str) -> ArgType {
     match (module, op) {
         ("core", "tap")
+        | ("core", "value")
         | ("core", "get_state")
         | ("core", "get_data")
         | ("core", "find")
