@@ -399,6 +399,89 @@ struct Counter {
     }
 
     #[test]
+    fn expression_query_body_lowers_to_one_value_step() {
+        let artifact = compile_with_policy(
+            "query Q on Counter -> Int { $state.count * 2 }",
+            ExecutableKindPolicyMode::StrictMutationOnly,
+        )
+        .expect("expression body compiles");
+        let function = artifact
+            .mir
+            .functions
+            .iter()
+            .find(|f| f.name == "Q")
+            .expect("Q");
+        let calls: Vec<_> = function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.instructions)
+            .filter_map(|inst| match inst {
+                grapheme_artifact::MirInst::Call { module, op, .. } => {
+                    Some((module.as_deref(), op.as_str()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(calls, vec![(Some("core"), "value")]);
+    }
+
+    #[test]
+    fn expression_query_bodies_check_the_declared_output_type() {
+        let ok = [
+            "query Q on Counter -> Int { $state.count + 1 }",
+            "query Q on Counter -> Float { $state.count }",
+            "query Q on Counter -> Bool { $state.count > 1 && $state.on }",
+            "query Q on Counter -> Density { if $state.on then compact else comfortable }",
+            "query Q on Counter -> Int { $state.tags.count }",
+            "query Q on Counter -> String { \"n: \" + $state.name }",
+        ];
+        for body in ok {
+            compile_with_policy(body, ExecutableKindPolicyMode::StrictMutationOnly)
+                .unwrap_or_else(|err| panic!("{body}: {err}"));
+        }
+        let cases = [
+            (
+                "query Q on Counter -> Int { $state.name }",
+                "expression body has type String but the declared output type is Int",
+            ),
+            (
+                "query Q on Counter -> Int { $state.count + 0.5 }",
+                "expression body has type Float but the declared output type is Int",
+            ),
+            (
+                "query Q on Counter -> Density { if $state.on then compact else comfy }",
+                "'comfy' is not a member of enum 'Density'",
+            ),
+            (
+                "query Q on Counter -> Bool { $state.count && true }",
+                "'&&' expects Bool, found Int",
+            ),
+        ];
+        for (body, expected) in cases {
+            let err = compile_with_policy(body, ExecutableKindPolicyMode::StrictMutationOnly)
+                .expect_err(body);
+            assert!(
+                err.to_string().contains(expected),
+                "{body}: expected '{expected}', got '{err}'"
+            );
+        }
+        let artifact = compile_with_policy(
+            "query Q on Counter -> Int { $state.name }",
+            ExecutableKindPolicyMode::Compatibility,
+        )
+        .expect("compat mode should compile");
+        assert!(artifact
+            .lint_warnings
+            .iter()
+            .any(|w| w.code == "expression-type" && w.message.contains("expression body")));
+    }
+
+    #[test]
+    fn mutation_bodies_stay_pipelines() {
+        assert!(parse("mutation M on Counter -> Int { $state.count }").is_err());
+    }
+
+    #[test]
     fn expression_types_skip_untyped_operands() {
         compile_with_policy(
             "query Q($step: Any) on Counter -> Counter { set { count: $step + 1, on: $item == 3 } }",

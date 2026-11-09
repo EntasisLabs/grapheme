@@ -53,6 +53,14 @@ query Total on Counter {
   set { total: $count + $double, mode: $mode }
 }
 
+query Doubled on Counter -> Int { $double }
+
+query IsBusy on Counter -> Bool { $mode == busy }
+
+query Describe($prefix: String) on Counter -> String { $prefix + $label }
+
+query PerStep on Counter -> Int { 10 / $count }
+
 mutation Bump on Counter {
   if $count > 3 then Start else Increment
 }
@@ -262,4 +270,32 @@ fn queries_read_the_latest_revision_and_commit_nothing() {
     assert_eq!(total["mode"], json!("idle"));
     assert_eq!(session.revision("Counter"), Some(1));
     assert_eq!(session.snapshot("Counter").unwrap().get("total"), None);
+}
+
+#[test]
+fn expression_query_bodies_return_their_value() {
+    let mut session = session();
+    assert_eq!(session.query("Doubled", None).unwrap(), json!(0));
+    assert_eq!(session.query("IsBusy", None).unwrap(), json!(false));
+    session.invoke("Increment", None).unwrap();
+    session.invoke("Start", None).unwrap();
+    assert_eq!(session.query("Doubled", None).unwrap(), json!(4));
+    assert_eq!(session.query("IsBusy", None).unwrap(), json!(true));
+    assert_eq!(
+        session
+            .query("Describe", Some(json!({ "prefix": "label: " })))
+            .unwrap(),
+        json!("label: c")
+    );
+    assert_eq!(session.revision("Counter"), Some(2));
+}
+
+#[test]
+fn a_failing_expression_query_reports_the_error_and_commits_nothing() {
+    let mut session = session();
+    let err = session.query("PerStep", None).unwrap_err();
+    assert!(err.to_string().contains("division by zero"), "{err}");
+    session.invoke("Increment", None).unwrap();
+    assert_eq!(session.query("PerStep", None).unwrap(), json!(5));
+    assert_eq!(session.revision("Counter"), Some(1));
 }
