@@ -274,6 +274,33 @@ impl GraphemeEngine {
         }
     }
 
+    /// Compile source and open a headless session over its `state` stores,
+    /// each at revision 0 built from field defaults.
+    pub fn store_session(&self, source: &str) -> Result<GraphemeStoreSession, GraphemeSdkError> {
+        let compiled = Compiler::compile_source(source, self.compiler_options.clone())?;
+        self.store_session_for_artifact(compiled.artifact)
+    }
+
+    /// Open a store session over a prebuilt artifact.
+    pub fn store_session_for_artifact(
+        &self,
+        artifact: ArtifactEnvelope,
+    ) -> Result<GraphemeStoreSession, GraphemeSdkError> {
+        let mut options = self.runtime_options.clone();
+        for (module, path) in &self.module_bindings {
+            options
+                .module_registry
+                .set_wasm_path(module.as_str(), path.clone());
+        }
+        Ok(GraphemeStoreSession {
+            session: grapheme_runtime::StoreSession::new(artifact)?,
+            runtime_options: options,
+            host_factory: self.host_factory.clone(),
+            capability_observer: self.capability_observer.clone(),
+            capability_interceptor: self.capability_interceptor.clone(),
+        })
+    }
+
     /// Compile and execute source in one call.
     pub fn execute_source(&self, source: &str) -> Result<ExecuteResultPayload, GraphemeSdkError> {
         let compiled = Compiler::compile_source(source, self.compiler_options.clone())?;
@@ -458,6 +485,78 @@ impl GraphemeEngine {
 }
 
 /// Stateful SDK runtime session preserving module activation lifecycle state.
+/// A headless state-store session (RFC-0007 Part A): one instance of every
+/// `state` store in a program, written by invoking its store mutations.
+pub struct GraphemeStoreSession {
+    session: grapheme_runtime::StoreSession,
+    runtime_options: RuntimeOptions,
+    host_factory: Option<HostFactory>,
+    capability_observer: Option<CapabilityObserver>,
+    capability_interceptor: Option<CapabilityInterceptor>,
+}
+
+impl GraphemeStoreSession {
+    /// Runs a store mutation and commits its writes as one revision.
+    pub fn invoke(
+        &mut self,
+        mutation: &str,
+        args: Option<JsonValue>,
+    ) -> Result<grapheme_runtime::StoreCommit, GraphemeSdkError> {
+        let options = self.runtime_options.clone();
+        let commit = if let Some(factory) = &self.host_factory {
+            let mut host = factory();
+            self.session
+                .invoke(mutation, args, options, host.as_mut())?
+        } else {
+            let mut host = StdlibHost {
+                capability_observer: self.capability_observer.clone(),
+                capability_interceptor: self.capability_interceptor.clone(),
+            };
+            self.session.invoke(mutation, args, options, &mut host)?
+        };
+        Ok(commit)
+    }
+
+    /// Runs a read-only store query and returns its result.
+    pub fn query(
+        &self,
+        query: &str,
+        args: Option<JsonValue>,
+    ) -> Result<JsonValue, GraphemeSdkError> {
+        let options = self.runtime_options.clone();
+        let value = if let Some(factory) = &self.host_factory {
+            let mut host = factory();
+            self.session.query(query, args, options, host.as_mut())?
+        } else {
+            let mut host = StdlibHost {
+                capability_observer: self.capability_observer.clone(),
+                capability_interceptor: self.capability_interceptor.clone(),
+            };
+            self.session.query(query, args, options, &mut host)?
+        };
+        Ok(value)
+    }
+
+    /// Stored fields plus derives of `store` at its latest revision.
+    pub fn snapshot(&self, store: &str) -> Result<JsonValue, GraphemeSdkError> {
+        Ok(self.session.snapshot(store)?)
+    }
+
+    /// Every committed revision, oldest first.
+    pub fn revisions(&self) -> &[grapheme_runtime::StoreRevision] {
+        self.session.revisions()
+    }
+
+    /// Latest committed revision of `store`.
+    pub fn revision(&self, store: &str) -> Option<u64> {
+        self.session.revision(store)
+    }
+
+    pub fn store_names(&self) -> Vec<String> {
+        self.session.store_names().map(str::to_string).collect()
+    }
+}
+
 pub struct GraphemeRuntimeSession {
     runtime: RuntimeEngine,
     compiler_options: CompilerOptions,

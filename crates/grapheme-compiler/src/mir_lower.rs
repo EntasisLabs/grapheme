@@ -1,8 +1,8 @@
 use grapheme_artifact::mir::MirCompareOp;
 use grapheme_artifact::{
-    MirBlock, MirFunction, MirFunctionKind, MirInst, MirIntentConfig, MirLoopConfig,
+    MirBlock, MirFunction, MirFunctionKind, MirInst, MirIntentConfig, MirLifecycle, MirLoopConfig,
     MirLoopMergeMode, MirLoopUntil, MirMatchCase, MirMatchTarget, MirParam, MirProgram,
-    MirRetryConfig, MirTerminator, MirTimeoutConfig,
+    MirRetryConfig, MirStore, MirStoreField, MirStoreFieldKind, MirTerminator, MirTimeoutConfig,
 };
 use serde_json::Value as JsonValue;
 
@@ -59,6 +59,7 @@ pub fn lower_from_hir(hir: &HirProgram) -> MirProgram {
                 intent_config: lower_intent_config(def.intent_args.as_ref()),
                 loop_config: lower_loop_config(def.loop_args.as_ref()),
                 blocks: vec![block],
+                store: def.store.clone(),
             }
         })
         .collect();
@@ -66,6 +67,41 @@ pub fn lower_from_hir(hir: &HirProgram) -> MirProgram {
     MirProgram {
         functions,
         capabilities: hir.capabilities.clone(),
+        stores: hir.stores.iter().map(|s| lower_store(hir, s)).collect(),
+    }
+}
+
+fn lower_store(hir: &HirProgram, store: &crate::hir::HirStore) -> MirStore {
+    use crate::ast::StoreFieldKind;
+    MirStore {
+        name: store.name.clone(),
+        fields: store
+            .fields
+            .iter()
+            .map(|f| MirStoreField {
+                name: f.name.clone(),
+                kind: match f.kind {
+                    StoreFieldKind::Plain => MirStoreFieldKind::Plain,
+                    StoreFieldKind::Const => MirStoreFieldKind::Const,
+                    StoreFieldKind::Transient => MirStoreFieldKind::Transient,
+                    StoreFieldKind::Derive => MirStoreFieldKind::Derive,
+                },
+                type_name: type_ref_label(&f.type_ref),
+                value: f.value.clone(),
+                lifecycle: f.lifecycle.as_ref().and_then(|name| {
+                    let machine = hir.state_machines.iter().find(|m| &m.name == name)?;
+                    Some(MirLifecycle {
+                        machine: name.clone(),
+                        transitions: machine
+                            .transitions
+                            .iter()
+                            .map(|t| (t.from.clone(), t.to.clone()))
+                            .collect(),
+                        terminals: machine.terminals.clone(),
+                    })
+                }),
+            })
+            .collect(),
     }
 }
 

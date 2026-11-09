@@ -13,6 +13,7 @@ grapheme plugins build [all|core|docs|io|http|memory|tcp|smtp|secrets ...]
 grapheme examples [list] [--yaml|--json] [--query q] [--tag tag] [--complexity level] [--native-only]
 grapheme examples show <name> [--summary] [--raw] [--yaml|--json]
 grapheme examples init [--out dir]
+grapheme session <file.gr> [--invoke Name[:<json-object>] ...] [--query Name[:<json-object>] ...]
 grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules]
                     [--state-json '<json>' | --state-file path.json]
                     [--args-json '<json-object>']
@@ -162,6 +163,16 @@ Trace tuning:
 ```bash
 cargo run -- run examples/core-merge.gr --native-modules --trace-profile debug --trace-steps 512 --trace-projection full --trace-max-string-bytes 2048
 ```
+
+### `session`
+
+Opens a store session for a program that declares `state` stores (RFC-0007 Part A), then runs `--invoke` (mutations) and `--query` (queries) in the order given. Each flag takes the executable name, optionally followed by `:` and a JSON object of arguments.
+
+```bash
+grapheme session counter.gr --invoke Increment --invoke 'Add:{"by":3}' --query Total
+```
+
+Prints JSON with `revisions` (each `{store, revision, cause, diff, history_diff}`, where `diff` maps a field to `[old, new]`), `queries` (`{query, result}`) and `stores` (each store's `fields`, derives included, and current `revision`). A failed invoke exits non-zero and commits nothing.
 
 ### `plugins build`
 
