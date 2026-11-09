@@ -968,4 +968,21 @@ matches:
     - missing
   output_type: object
   stability: stable
+- args:
+  - name: value
+    required: true
+    ty: any
+  effect: pure
+  input_object_type:
+    kind: object
+    properties:
+      value:
+        required: true
+        ty: any
+    required:
+    - value
+  module_id: core
+  op: value
+  output_type: any
+  stability: stable
 query: core

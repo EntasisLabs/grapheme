@@ -269,25 +269,43 @@ impl ExprTypeContext<'_> {
         })
     }
 
-    fn check_assignable(&self, field: &str, target: &Ty, value: &Ty) -> Result<(), String> {
-        let ok = match (target, value) {
+    fn assignable(&self, target: &Ty, value: &Ty) -> Result<bool, String> {
+        Ok(match (target, value) {
             (Ty::Unknown, _) | (_, Ty::Unknown) | (_, Ty::Null) => true,
             (Ty::Float, Ty::Int) => true,
             (Ty::Str, Ty::Lit(_)) => true,
             (Ty::Enum(name), Ty::Lit(literal)) => {
-                self.check_member(name, literal)
-                    .map_err(|message| format!("field '{field}': {message}"))?;
+                self.check_member(name, literal)?;
                 true
             }
             (Ty::List(_), Ty::List(_)) => true,
             (a, b) => a == b,
-        };
-        if ok {
-            Ok(())
-        } else {
-            Err(format!(
+        })
+    }
+
+    fn check_assignable(&self, field: &str, target: &Ty, value: &Ty) -> Result<(), String> {
+        match self.assignable(target, value) {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(format!(
                 "field '{field}' has type {target} but its expression has type {value}"
-            ))
+            )),
+            Err(message) => Err(format!("field '{field}': {message}")),
+        }
+    }
+
+    /// An expression body's value must fit the declared `-> T`.
+    fn check_body_result(&self, value: &JsonValue) -> Result<(), String> {
+        let ty = self.infer(value)?;
+        let Some(output) = self.output_type else {
+            return Ok(());
+        };
+        let target = self.ty_of(output);
+        match self.assignable(&target, &ty) {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(format!(
+                "expression body has type {ty} but the declared output type is {target}"
+            )),
+            Err(message) => Err(format!("expression body: {message}")),
         }
     }
 
@@ -304,6 +322,12 @@ impl ExprTypeContext<'_> {
     /// Type errors in the value expressions of one step.
     pub(crate) fn check_step(&self, step: &HirStep) -> Vec<String> {
         let mut errors = Vec::new();
+        if step.module.as_deref() == Some("core") && step.op == "value" {
+            if let Some(Err(message)) = step.args.get("value").map(|v| self.check_body_result(v)) {
+                errors.push(message);
+            }
+            return errors;
+        }
         let patch = match (step.module.as_deref(), step.op.as_str()) {
             (Some("core"), "set_fields") => step.args.get("fields"),
             (Some("core"), "merge") => step.args.get("right"),

@@ -168,7 +168,19 @@ Operand types come from the input type, typed params and literals. Under `--type
 - a `set`/`core.merge` field's expression matches the field type (`Int` widens to `Float`);
 - bare symbols compared with or assigned to an enum are members of it.
 
-Operands with no declared type (locals, loop items, `Any`) are not checked. Single-expression bodies (RFC-0007 B.5) are not implemented yet.
+Operands with no declared type (locals, loop items, `Any`) are not checked.
+
+A query body may be a single expression instead of a pipeline; its value is the query's result (RFC-0007 B.5):
+
+```gr
+query Doubled on Counter -> Int { $state.count * 2 }
+query Label on Counter -> String { if $state.on then "on" else "off" }
+```
+
+- It lowers to one `core.value(value: <expr>)` step, so the run's final `current` is the value itself (a scalar, list or object), not the input object.
+- Under `strict` the expression's type must fit the declared `-> T` (`Int` widens to `Float`; enum symbols must be members); under `warn` a mismatch is an `expression-type` lint.
+- Only queries take expression bodies. Mutation, iterator and fragment bodies stay pipelines.
+- A body that parses as a pipeline (for example a bare op name like `{ ping }`) stays a pipeline.
 
 ## State Stores (RFC-0007 Part A, step 1)
 
@@ -281,7 +293,7 @@ Core std helper expansion (current behavior):
 
 - Core transform ops now include list/object/string helpers such as:
 	- list/object: `map`, `filter`, `find`, `reduce`, `group_by`, `merge`, `pick`, `validate_schema`, `get_path`, `set_path`, `has_path`
-	- flow/data helpers: `tap`, `pack_state_data`, `get_state`, `get_data`
+	- flow/data helpers: `tap`, `value`, `pack_state_data`, `get_state`, `get_data`
 	- string/text: `split`, `join`, `replace`, `trim`, `lower`, `upper`, `contains`
 - These ops are exposed via module manifest discovery (`grapheme modules info/types core`) and enforced by verifier arg checks.
 

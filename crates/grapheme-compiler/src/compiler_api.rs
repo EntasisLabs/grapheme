@@ -134,12 +134,12 @@ fn glyph_entrypoint(ast: &Program) -> Result<Option<String>, CompilerError> {
             .iter()
             .filter_map(|def| match def {
                 Definition::Query(q)
-                    if !crate::stores::is_store_bound(&ast, q.signature.as_ref()) =>
+                    if !crate::stores::is_store_bound(ast, q.signature.as_ref()) =>
                 {
                     Some(format!("query {}", q.name))
                 }
                 Definition::Mutation(m)
-                    if !crate::stores::is_store_bound(&ast, m.signature.as_ref()) =>
+                    if !crate::stores::is_store_bound(ast, m.signature.as_ref()) =>
                 {
                     Some(format!("mutation {}", m.name))
                 }

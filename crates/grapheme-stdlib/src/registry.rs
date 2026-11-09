@@ -105,6 +105,10 @@ const CORE_OPS: &[RegisteredOp] = &[
         handler: core::tap,
     },
     RegisteredOp {
+        op: "value",
+        handler: core::value,
+    },
+    RegisteredOp {
         op: "pack_state_data",
         handler: core::pack_state_data,
     },

@@ -353,9 +353,12 @@ glyph_def = {
     ~ "}"
 }
 
+// A query body is a pipeline, or a single expression whose value is the result (RFC-0007 B.5).
+expr_body = { value }
+
 query_def = {
     "query" ~ ident ~ variable_defs? ~ executable_signature? ~ directive* ~ "{"
-    ~ pipeline+
+    ~ (pipeline+ ~ &"}" | expr_body)
     ~ "}"
 }
 

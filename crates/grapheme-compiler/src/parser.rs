@@ -799,11 +799,26 @@ fn parse_operation_body<'a>(
             }
             Rule::directive => directives.push(parse_directive(p)?),
             Rule::pipeline => pipelines.push(parse_pipeline(p, state)?),
+            Rule::expr_body => pipelines.push(parse_expr_body(p)?),
             _ => {}
         }
     }
 
     Ok((variables, signature, directives, pipelines))
+}
+
+/// `{ expr }` lowers to one `core.value(value: expr)` step, whose output is the result.
+fn parse_expr_body(pair: Pair<Rule>) -> Result<Pipeline, GraphemeError> {
+    let value = parse_value(pair.into_inner().next().unwrap())?;
+    Ok(Pipeline {
+        steps: vec![PipelineStep::Field(FieldCall {
+            module: Some("core".to_string()),
+            name: "value".to_string(),
+            args: vec![("value".to_string(), value)],
+            directives: vec![],
+            selection: None,
+        })],
+    })
 }
 
 fn parse_executable_signature(pair: Pair<Rule>) -> Result<ExecutableSignature, GraphemeError> {
