@@ -374,7 +374,7 @@ Separators between store items and registry entries are newlines or commas. No s
 ### A.2 Derives
 
 1. A derive is a read-only field computed from fields, other derives and pure module ops. It is read like a field: `$items`.
-2. The verifier rejects capability calls and writes in a derive. Module ops it calls must be declared `pure query …` in their signature.
+2. The verifier rejects capability calls and writes in a derive. Module ops it calls must be declared `pure query …` in their signature. A trailing `@pure` directive is accepted as an alias.
 3. The compiler records each derive's read set (`items` reads `page_size` and `shuffles`). The runtime recomputes a derive only when a field in its read set changes, and lazily, on first read after that change.
 4. Derive cycles are a compile error.
 
@@ -421,6 +421,7 @@ A store's lifetime is declared on the store, with the same words a field uses:
 1. `transient` means **wipeable** at both levels. A transient field is a wipeable value inside a durable store; a transient store is wipeable as a whole.
 2. A transient store's `on` names a view, not a store. Inside that view it is read qualified (`$ButtonHint.shown`). A mutation `on ButtonHint` bound to an event inside that view runs against the instance owned by the node that raised the event (identified by its View IR key).
 3. Transient stores are never logged or undone.
+4. A row realized by a virtualized container (`VirtualList`) unmounts when it leaves the visible window, so stores attached to its row view are wiped on scroll-out. This matches rndr, whose virtual-list row subtrees are destroyed before a recycled row is rebound, with only the logical focus key kept by item id. Per-item state that must survive scrolling belongs in a durable store keyed by item id, not in a transient store.
 
 ### A.6 Registries
 
@@ -737,10 +738,10 @@ Rules:
 
 ## Open questions
 
-1. **Registries without a store.** Should a glyph-level `register Name { … }` exist for programs with no store, or is the host policy enough there?
-2. **Singleton initialisation.** A `singleton state` is created at start-up from its defaults. Should the host be able to seed it (for example from saved preferences) before the first glyph runs?
-3. **Transient wipes beyond unmount.** Should a `VirtualList` row scrolling out of view count as an unmount for stores attached to its row view? This RFC says yes.
-4. **Trailing `@pure`.** Keep it as an accepted alias for `pure query`, or reject it once this lands?
+None outstanding for this revision. Deferred by decision:
+
+- **Registries without a store.** No glyph-level `register Name { … }` for now; programs with no store use the host policy.
+- **Seeding singletons.** A `singleton state` starts from its defaults; host seeding is out of scope for this RFC.
 
 Resolved since r2:
 
@@ -750,6 +751,8 @@ Resolved since r2:
 - Stores are available to non-UI glyphs from the start (A.1.4).
 - Tasks are not undoable in this RFC (A.8).
 - Store and field semantics are keywords, not directives (principle 9).
+- Trailing `@pure` stays accepted as an alias for `pure query` (A.2).
+- A virtualized row scrolling out of view is an unmount (A.5), matching rndr's row recycling.
 
 Resolved since r1: state lane (a store, A.1.4); commas (optional inside view, style and state blocks only); `view` versus `fragment` (a new kind).
 
