@@ -47,7 +47,7 @@ pub struct GraphemeParser;
 pub fn parse(source: &str) -> Result<Program, GraphemeError> {
     let normalized_source = normalize_intent_attributes(source);
     let pairs = GraphemeParser::parse(Rule::program, &normalized_source)
-        .map_err(|e| GraphemeError::ParseError(e.to_string()))?;
+        .map_err(|e| GraphemeError::ParseError(readable_parse_error(e)))?;
 
     let program_pair = pairs
         .into_iter()
@@ -1457,9 +1457,96 @@ fn parse_selected_field(pair: Pair<Rule>) -> Result<SelectedField, GraphemeError
 
 // ── Values ────────────────────────────────────────────────────
 
+fn is_operator_rule(rule: &Rule) -> bool {
+    matches!(
+        rule,
+        Rule::or_op | Rule::and_op | Rule::value_cmp_op | Rule::add_op | Rule::mul_op
+    )
+}
+
+/// Reports the binary-operator alternatives after a value as one "operator".
+fn readable_parse_error(mut error: pest::error::Error<Rule>) -> String {
+    if let pest::error::ErrorVariant::ParsingError { positives, .. } = &mut error.variant {
+        let mut seen_operator = false;
+        positives.retain(|rule| {
+            if !is_operator_rule(rule) {
+                return true;
+            }
+            !std::mem::replace(&mut seen_operator, true)
+        });
+    }
+    error
+        .renamed_rules(|rule| {
+            if is_operator_rule(rule) {
+                "operator".to_string()
+            } else {
+                format!("{rule:?}")
+            }
+        })
+        .to_string()
+}
+
 fn parse_value(pair: Pair<Rule>) -> Result<Value, GraphemeError> {
     let inner = pair.into_inner().next().unwrap();
+    parse_value_expr(inner)
+}
+
+fn parse_value_expr(pair: Pair<Rule>) -> Result<Value, GraphemeError> {
+    match pair.as_rule() {
+        Rule::value | Rule::paren_value => parse_value_expr(pair.into_inner().next().unwrap()),
+        Rule::if_value => {
+            let mut operands = pair
+                .into_inner()
+                .filter(|p| p.as_rule() == Rule::value)
+                .map(parse_value);
+            let cond = operands.next().unwrap()?;
+            let then = operands.next().unwrap()?;
+            let otherwise = operands.next().unwrap()?;
+            Ok(Value::Expr(Box::new(ValueExpr::If(cond, then, otherwise))))
+        }
+        Rule::or_value | Rule::and_value | Rule::cmp_value | Rule::add_value | Rule::mul_value => {
+            let mut inner = pair.into_inner();
+            let mut left = parse_value_expr(inner.next().unwrap())?;
+            while let Some(op) = inner.next() {
+                let op = BinaryOp::from_token(op.as_str().trim()).ok_or_else(|| {
+                    GraphemeError::ParseError(format!("unknown operator '{}'", op.as_str()))
+                })?;
+                let right = parse_value_expr(inner.next().unwrap())?;
+                left = Value::Expr(Box::new(ValueExpr::Binary(op, left, right)));
+            }
+            Ok(left)
+        }
+        Rule::unary_value => {
+            let mut ops = Vec::new();
+            let mut operand = None;
+            for p in pair.into_inner() {
+                if p.as_rule() == Rule::unary_op {
+                    ops.push(if p.as_str().starts_with('!') {
+                        UnaryOp::Not
+                    } else {
+                        UnaryOp::Neg
+                    });
+                } else {
+                    operand = Some(parse_value_atom(p)?);
+                }
+            }
+            let mut value = operand.unwrap();
+            for op in ops.into_iter().rev() {
+                value = match (op, value) {
+                    (UnaryOp::Neg, Value::Int(v)) => Value::Int(-v),
+                    (UnaryOp::Neg, Value::Float(v)) => Value::Float(-v),
+                    (op, operand) => Value::Expr(Box::new(ValueExpr::Unary(op, operand))),
+                };
+            }
+            Ok(value)
+        }
+        _ => parse_value_atom(pair),
+    }
+}
+
+fn parse_value_atom(inner: Pair<Rule>) -> Result<Value, GraphemeError> {
     match inner.as_rule() {
+        Rule::paren_value => parse_value_expr(inner),
         Rule::int_lit => Ok(Value::Int(inner.as_str().parse().unwrap())),
         Rule::float_lit => Ok(Value::Float(inner.as_str().parse().unwrap())),
         Rule::bool_lit => Ok(Value::Bool(inner.as_str() == "true")),
@@ -1540,7 +1627,7 @@ fn parse_string_lit(pair: Pair<Rule>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Definition, PipelineStep, Value};
+    use crate::ast::{BinaryOp, Definition, PipelineStep, UnaryOp, Value, ValueExpr};
 
     fn first_call_arg(source: &str, arg_name: &str) -> Value {
         let program = parse(source).expect("parse should succeed");
@@ -1594,5 +1681,102 @@ query Escapes {
             first_call_arg(source, "message"),
             Value::String("path C:\\tmp\\\"quote\"".to_string())
         );
+    }
+
+    fn expr_arg(expr: &str) -> Value {
+        first_call_arg(
+            &format!("query Q {{\n  core.echo(value: {expr})\n}}\n"),
+            "value",
+        )
+    }
+
+    fn binary(op: BinaryOp, left: Value, right: Value) -> Value {
+        Value::Expr(Box::new(ValueExpr::Binary(op, left, right)))
+    }
+
+    fn var(name: &str) -> Value {
+        Value::Variable(name.to_string())
+    }
+
+    #[test]
+    fn value_expressions_follow_precedence() {
+        assert_eq!(
+            expr_arg("$a + $b * 2"),
+            binary(
+                BinaryOp::Add,
+                var("a"),
+                binary(BinaryOp::Mul, var("b"), Value::Int(2))
+            )
+        );
+        assert_eq!(
+            expr_arg("($a + $b) * 2"),
+            binary(
+                BinaryOp::Mul,
+                binary(BinaryOp::Add, var("a"), var("b")),
+                Value::Int(2)
+            )
+        );
+        assert_eq!(
+            expr_arg("$a - 1 - 2"),
+            binary(
+                BinaryOp::Sub,
+                binary(BinaryOp::Sub, var("a"), Value::Int(1)),
+                Value::Int(2)
+            )
+        );
+        assert_eq!(
+            expr_arg("$a > 1 && !$b || $c == done"),
+            binary(
+                BinaryOp::Or,
+                binary(
+                    BinaryOp::And,
+                    binary(BinaryOp::Gt, var("a"), Value::Int(1)),
+                    Value::Expr(Box::new(ValueExpr::Unary(UnaryOp::Not, var("b"))))
+                ),
+                binary(BinaryOp::Eq, var("c"), Value::Symbol("done".to_string()))
+            )
+        );
+    }
+
+    #[test]
+    fn if_value_and_literals_stay_plain() {
+        assert_eq!(
+            expr_arg("if $n != 0 then busy else idle"),
+            Value::Expr(Box::new(ValueExpr::If(
+                binary(BinaryOp::Ne, var("n"), Value::Int(0)),
+                Value::Symbol("busy".to_string()),
+                Value::Symbol("idle".to_string())
+            )))
+        );
+        assert_eq!(expr_arg("-3"), Value::Int(-3));
+        assert_eq!(expr_arg("- 2.5"), Value::Float(-2.5));
+        assert_eq!(expr_arg("ifx"), Value::Symbol("ifx".to_string()));
+        assert_eq!(
+            expr_arg("[1, -2, $a]"),
+            Value::List(vec![Value::Int(1), Value::Int(-2), var("a")])
+        );
+    }
+
+    #[test]
+    fn expressions_leave_existing_step_syntax_intact() {
+        let source = r#"
+enum Status { draft, approved }
+
+state_machine Lifecycle on Status {
+    transition draft -> approved
+}
+
+struct Request { status: Status }
+
+query Route on Request {
+    match $state.status {
+        case draft, approved => core.echo(message: "known")
+        default => core.echo(message: "other")
+    }
+    |> transition $state.status -> approved
+    |> if $state.status == approved then core.echo(message: "yes") else core.echo(message: "no")
+}
+"#;
+        parse(source).expect("existing step syntax should still parse");
     }
 }

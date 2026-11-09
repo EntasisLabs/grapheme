@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Value expressions (RFC-0007 Part B).** Any value position now accepts `+ - * / %`, comparisons (`== != < <= > >=`), `&& || !`, parentheses and `if … then … else`: `set { count: $state.count + 1, mode: if $busy then pulsing else idle }`. `Int op Int` stays `Int` (`/` truncates); overflow, division by zero and type mismatches fail the step with `EXPRESSION_ERROR`. Stage A and Stage B evaluate the same `{"$expr": …}` MIR form. Static operand typing under `--type-policy strict` is not in this release yet. No new commands, flags or environment variables. Existing programs parse unchanged; parse errors after a value now say "expected operator" where they used to list literal rules.
+
 ### Fixed
 
 - **`transition $state.<field>` writes the root field.** The step lowered to `core.set_fields` with a literal `state.status` key, so the field kept its old value and a typed output (`-> T`) rejected it with "field 'state.status' is not declared". It now writes `status`. `examples/mutation-state-machine-apply.gr` (tutorial 02) compiles again under both type policies and ends with `status: approved`; `examples/core-validate-schema.gr` now updates `status` instead of adding a `state.status` key. (RFC-0007 Part J.3)

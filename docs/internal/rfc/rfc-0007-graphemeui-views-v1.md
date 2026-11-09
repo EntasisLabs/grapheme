@@ -141,7 +141,7 @@ Checked with `grapheme compile --emit hir --type-policy strict` and `grapheme ru
 
 What does **not** fit today, and why r2 adds syntax instead:
 
-- `value` admits only literals, variables, symbols, lists and objects. `1 + 2` and `$a == $b` do not parse in values; comparisons exist only in `if`/`match` steps.
+- Before Part B, `value` admitted only literals, variables, symbols, lists and objects; `1 + 2` and `$a == $b` did not parse in values. Part B's grammar and runtime now ship (see Part B status).
 - A bare expression (`$state.selected`) is not a valid query body.
 - Objects become `serde_json` maps without `preserve_order`, so named children cannot be carried by object literals. Views need their own grammar.
 - `fragment` cannot take arguments, cannot be called, rejects directives and rejects cycles. Views need all four.
@@ -545,6 +545,8 @@ primary = value | variable | "(" expr ")" | "if" expr "then" expr "else" expr
 5. A query, derive or view body may be a single expression, whose value is the result (`query ReadSelected on Panel -> Int { $selected }`).
 
 This was already on the language-ergonomics roadmap; it ships first because everything else uses it.
+
+**Implementation status:** the grammar, precedence and runtime semantics in this part (including `Int` truncating division and overflow as a runtime error) are implemented in Stage A and Stage B. Static operand typing (1–2), `.count` (3) and expression bodies (5) are not yet.
 
 ## Part C — Views
 

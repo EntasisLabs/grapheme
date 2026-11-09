@@ -285,6 +285,14 @@ fn dispatch_call(
         locals,
     };
     let call_args = args_with_pipeline_input(args, &current, &scope);
+    if let Some(message) = grapheme_artifact::expr::first_error(&call_args) {
+        return Err(WalkError {
+            code: "EXPRESSION_ERROR".to_string(),
+            message: message.to_string(),
+            capability: Some(capability.0.clone()),
+            step_index,
+        });
+    }
 
     if module == Some("call") {
         invoke_named(functions, op, state, locals, call_depth, max_call_depth)?;

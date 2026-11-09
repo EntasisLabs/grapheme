@@ -2156,11 +2156,10 @@ fn is_variable_placeholder(value: &JsonValue) -> bool {
         return true;
     }
 
-    value
-        .as_object()
-        .and_then(|map| map.get("$var"))
-        .and_then(|v| v.as_str())
-        .is_some()
+    value.as_object().is_some_and(|map| {
+        map.get("$var").and_then(|v| v.as_str()).is_some()
+            || grapheme_artifact::expr::expr_parts(map).is_some()
+    })
 }
 
 fn value_matches_arg_type(value: &JsonValue, expected: ArgType) -> bool {

@@ -28,6 +28,11 @@ pub fn resolve_templates(value: &JsonValue, scope: &TemplateScope<'_>) -> JsonVa
             if let Some(var_ref) = variable_ref_from_object(map) {
                 return resolve_variable_reference(var_ref, scope);
             }
+            if let Some((op, args)) = grapheme_artifact::expr::expr_parts(map) {
+                return grapheme_artifact::expr::evaluate(op, args, |arg| {
+                    resolve_templates(arg, scope)
+                });
+            }
             let mapped = map
                 .iter()
                 .map(|(k, v)| (k.clone(), resolve_templates(v, scope)))
@@ -144,4 +149,30 @@ pub fn select_json_path<'a>(root: &'a JsonValue, path: &str) -> Option<&'a JsonV
         current = current.as_object()?.get(part)?;
     }
     Some(current)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn resolve_templates_evaluates_value_expressions() {
+        let current = json!({"count": 4, "done": false});
+        let locals = Map::new();
+        let scope = TemplateScope {
+            current: &current,
+            state: &current,
+            locals: &locals,
+        };
+        let args = json!({
+            "next": {"$expr": {"op": "*", "args": [{"$var": "state.count"}, 3]}},
+            "open": {"$expr": {"op": "!", "args": [{"$var": "current.done"}]}}
+        });
+
+        assert_eq!(
+            resolve_templates(&args, &scope),
+            json!({"next": 12, "open": true})
+        );
+    }
 }

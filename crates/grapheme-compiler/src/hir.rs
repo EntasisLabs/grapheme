@@ -836,7 +836,27 @@ fn value_to_json(value: &Value) -> JsonValue {
             }
             JsonValue::Object(object)
         }
+        Value::Expr(expr) => expr_to_json(expr),
     }
+}
+
+/// Lowers an expression to `{"$expr": {"op": .., "args": [..]}}`. Enum
+/// members written as bare symbols become strings, matching how they are
+/// stored at runtime.
+fn expr_to_json(expr: &crate::ast::ValueExpr) -> JsonValue {
+    let operand = |value: &Value| match value {
+        Value::Symbol(name) => JsonValue::from(name.clone()),
+        other => value_to_json(other),
+    };
+    let (op, args) = match expr {
+        crate::ast::ValueExpr::Unary(op, value) => (op.as_str(), vec![operand(value)]),
+        crate::ast::ValueExpr::Binary(op, left, right) => (op.as_str(), vec![operand(left), operand(right)]),
+        crate::ast::ValueExpr::If(cond, then, otherwise) => (
+            "if",
+            vec![operand(cond), operand(then), operand(otherwise)],
+        ),
+    };
+    serde_json::json!({ "$expr": { "op": op, "args": args } })
 }
 
 pub fn op_kind_to_str(kind: &OpKind) -> &'static str {
