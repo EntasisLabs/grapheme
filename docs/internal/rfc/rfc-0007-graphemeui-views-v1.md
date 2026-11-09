@@ -1,6 +1,6 @@
 # RFC-0007: GraphemeUI — State Stores, Views and Tasks v1
 
-Status: Accepted — Implementation Pending (revision 4)
+Status: Accepted — Implementation in progress (revision 4; rollout steps 0–2 and Part H headless mount)
 Authors: language + runtime
 Created: 2026-11-07
 Revised: 2026-11-09
@@ -734,6 +734,8 @@ Clauses:
 - `expose Name, …` makes queries readable, mutations and tasks invocable, and views mountable in a host slot, outside the rendered tree.
 - Hot reload has no clause; it follows A.9.
 
+**Implementation status:** `glyph Name on Store { expose …; Element }` parses and lowers to `MirUiGlyph` (a bare view reference reuses that view; any other element becomes a synthetic view named after the glyph). `expose` accepts mutations and queries on the glyph's store, and views on that store. `StoreSession::mount` / `app_snapshot` and `grapheme session --mount` return the app snapshot; exposed mutations appear as `expose:<Name>` actions. Workflow glyphs (`glyph Name { pipeline }`) are unchanged. Not yet: registry singletons at start-up, exposing tasks, host-slot mounting of exposed views, and hot reload.
+
 ## Part I — View IR and the headless app session
 
 ### I.1 View IR
@@ -794,7 +796,7 @@ Three identities exist and are never interchangeable:
 3. A store id never appears in an action id. The store a binding targets is resolved from the binding's target, at invocation, through the registry (A.6).
 4. Action ids are opaque to clients; they may only be obtained from `snapshot()` or an `expose` list.
 
-**Implementation status (rollout step 2):** I.1 node keys, roles and the `view-accessibility` lint (rule 4), `grapheme compile --emit view-ir`; I.2 as a store session (`render(view)` with the action list, `invoke_action(id)` with `stale_action`); I.3 binding epochs. Not yet: lazy memoised `$view` evaluation, `$derive` handles, `expose`, `expect_revision`, `origin: "agent"`, `revisions(since)`, `undo`/`redo`, and virtualized-row keys.
+**Implementation status:** I.1 node keys, roles and the `view-accessibility` lint (rule 4), `grapheme compile --emit view-ir`; I.2 as a store session (`render(view)` with the action list, `invoke_action(id)` with `stale_action`) and as an app session over a mounted UI glyph (`mount` / `app_snapshot`, with `expose:<Name>` actions for exposed mutations); I.3 binding epochs. Not yet: lazy memoised `$view` evaluation, `$derive` handles, `expect_revision`, `origin: "agent"`, `revisions(since)`, `undo`/`redo`, and virtualized-row keys.
 
 ## Part J — Independent fixes
 

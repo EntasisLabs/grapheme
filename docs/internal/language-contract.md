@@ -224,7 +224,7 @@ query Total on Counter {
 - **Running.** Store executables are not file entrypoints. They run through a store session: `GraphemeEngine::store_session(source)` in the SDK, `StoreSession` in `grapheme-runtime`, or `grapheme session file.gr --invoke Increment --invoke 'Add:{"by":3}' --query Total`, which prints revisions, query results and each store's snapshot (fields plus derives) as JSON.
 - **Not yet:** `singleton`/`transient state` lifetimes, `state … on View`, registries, `history`/`undo`, hot reload, `by Machine` for enums with several machines, store subscriptions and tasks. Lifetimes and `on View` are compile errors for now.
 
-## Views (RFC-0007 Parts C, D, I; step 2)
+## Views (RFC-0007 Parts C, D, H, I)
 
 A `view` declares an element tree over a store. It is data: the compiler lowers it to View IR and the runtime evaluates it against the store's latest revision.
 
@@ -259,7 +259,8 @@ view Footer {
 - **Accessibility.** An element with an event binding and neither a `label` prop nor a `Text` descendant produces a `view-accessibility` lint.
 - **Output.** `grapheme compile file.gr --emit view-ir` prints `{"$ir": "grapheme-ui/1", "views": [...]}`, with nodes `{"$prim"|"$view", key, role, props, events: {click: {"$action", args}}, children}`. Programs without views compile to the same MIR as before.
 - **Rendering.** `StoreSession::render(view)` (SDK: `GraphemeStoreSession::render`; CLI: `grapheme session file.gr --render CounterView`) evaluates props and binding arguments against the store snapshot, inlines referenced views, and returns `{view, store, revision, ir, actions}`. Each action is `{id, key, event, target, bound_args, payload_params, role, label}`; its `id` is the node key, the event and a **binding epoch** (`CounterView/add_five#click@1`), also written into the node's `events.<event>.id`. The epoch advances when the binding's target or evaluated arguments change. `invoke_action(id)` (CLI: `--action <id>`) re-evaluates the rendered views, rejects an id that is no longer current with `stale_action`, and otherwise runs the target exactly like `invoke`: one transaction, one revision.
-- **Not yet:** styles, view params and event declarations (so `payload_params` is always empty and actions take no payload), slots, `if`/`for`, `VirtualList`, `transient state` on views, `glyph`, `expose`, lazy/memoised `$view` evaluation, `expect_revision`, and any renderer.
+- **UI glyphs.** `glyph CounterApp on Counter { expose Increment; CounterView }` mounts a store-backed app (RFC-0007 Part H). The body is one root element (a view reference or an inline tree); `expose Name, …` lists mutations, queries and views reachable outside the tree. `StoreSession::mount` / `GraphemeStoreSession::mount` (CLI: `grapheme session file.gr --mount`) returns `{glyph, store, revision, ir, actions}` where `actions` is the tree's bindings plus `expose:<Name>` entries for exposed mutations. `invoke_action("expose:Increment")` runs an exposed no-arg mutation; exposed queries stay on `query()`. Workflow glyphs (`glyph Name { pipeline }`) are unchanged and remain the only artifact entrypoints.
+- **Not yet:** styles, view params and event declarations (so tree-bound `payload_params` is always empty), slots, `if`/`for`, `VirtualList`, `transient state` on views, lazy/memoised `$view` evaluation, `expect_revision`, `origin: "agent"`, and any renderer.
 
 ## State Contract
 

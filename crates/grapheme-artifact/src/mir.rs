@@ -15,6 +15,21 @@ pub struct MirProgram {
     /// `view` declarations, already in `grapheme-ui/1` node form (RFC-0007 Parts C, I.1).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub views: Vec<MirView>,
+    /// UI glyphs: `glyph Name on Store { … }` (RFC-0007 Part H).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ui_glyphs: Vec<MirUiGlyph>,
+}
+
+/// A UI application rooted on a store (RFC-0007 Part H).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MirUiGlyph {
+    pub name: String,
+    pub store: String,
+    /// View that is the glyph's rendered root (a declared view or a synthetic one).
+    pub root: String,
+    /// Executables and views reachable outside the rendered tree via `expose`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expose: Vec<String>,
 }
 
 /// The View IR format version (RFC-0007 I.1).

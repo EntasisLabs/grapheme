@@ -112,23 +112,34 @@ impl Compiler {
 }
 
 fn glyph_entrypoint(ast: &Program) -> Result<Option<String>, CompilerError> {
-    let glyphs = ast
+    let all_glyphs = ast
         .definitions
         .iter()
         .filter_map(|def| match def {
-            Definition::Glyph(g) => Some(g.name.clone()),
+            Definition::Glyph(g) => Some(g),
             _ => None,
         })
         .collect::<Vec<_>>();
 
-    if glyphs.len() > 1 {
+    if all_glyphs.len() > 1 {
         return Err(CompilerError::TypeError(format!(
             "only one glyph is allowed per file, found: {}",
-            glyphs.join(", ")
+            all_glyphs
+                .iter()
+                .map(|g| g.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         )));
     }
 
-    if glyphs.is_empty() {
+    // Only workflow glyphs (`glyph Name { … }`) are artifact entrypoints.
+    // UI glyphs (`glyph Name on Store { … }`) mount through a store session.
+    let workflow = all_glyphs
+        .iter()
+        .find(|g| g.store.is_none())
+        .map(|g| g.name.clone());
+
+    if workflow.is_none() {
         let executable_roots = ast
             .definitions
             .iter()
@@ -155,7 +166,7 @@ fn glyph_entrypoint(ast: &Program) -> Result<Option<String>, CompilerError> {
         }
     }
 
-    Ok(glyphs.into_iter().next())
+    Ok(workflow)
 }
 
 fn map_artifact_error(err: ArtifactError) -> CompilerError {

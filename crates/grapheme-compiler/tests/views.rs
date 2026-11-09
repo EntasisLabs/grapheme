@@ -263,9 +263,86 @@ fn counter_example_compiles_under_strict_policy() {
     )
     .expect("strict compile");
     assert_eq!(artifact.mir.views.len(), 2);
+    assert_eq!(artifact.mir.ui_glyphs.len(), 1);
+    assert_eq!(artifact.mir.ui_glyphs[0].name, "CounterApp");
+    assert_eq!(artifact.mir.ui_glyphs[0].root, "CounterView");
+    assert_eq!(artifact.mir.ui_glyphs[0].expose, vec!["Increment"]);
     assert!(
         artifact.lint_warnings.is_empty(),
         "{:?}",
         artifact.lint_warnings
     );
+}
+
+#[test]
+fn ui_glyph_rejects_unknown_store_expose_and_cross_store_root() {
+    assert!(
+        error("glyph App on Missing { Text(\"x\") }").contains("not a declared state"),
+        "{}",
+        error("glyph App on Missing { Text(\"x\") }")
+    );
+    assert!(
+        error(
+            r#"
+view CounterView on Counter { Text("x") }
+glyph App on Counter {
+  expose Missing
+  CounterView
+}
+"#
+        )
+        .contains("exposes 'Missing'"),
+        "{}",
+        error(
+            r#"
+view CounterView on Counter { Text("x") }
+glyph App on Counter {
+  expose Missing
+  CounterView
+}
+"#
+        )
+    );
+    assert!(
+        error(
+            r#"
+view OtherView on Other { Text("x") }
+glyph App on Counter { OtherView }
+"#
+        )
+        .contains("which is on Other"),
+        "{}",
+        error(
+            r#"
+view OtherView on Other { Text("x") }
+glyph App on Counter { OtherView }
+"#
+        )
+    );
+}
+
+#[test]
+fn ui_glyph_synthesizes_an_inline_root_view() {
+    let artifact = compile(
+        r#"
+glyph CounterApp on Counter {
+  Column {
+    value: Text("{$count}")
+    go: Button(label: "Go") { on click: Increment }
+  }
+}
+"#,
+    )
+    .expect("compiles");
+    assert_eq!(artifact.mir.ui_glyphs.len(), 1);
+    assert_eq!(artifact.mir.ui_glyphs[0].root, "CounterApp");
+    let view = artifact
+        .mir
+        .views
+        .iter()
+        .find(|v| v.name == "CounterApp")
+        .expect("synthetic view");
+    assert_eq!(view.store.as_deref(), Some("Counter"));
+    assert_eq!(view.root.prim.as_deref(), Some("Column"));
+    assert_eq!(view.root.key, "CounterApp");
 }

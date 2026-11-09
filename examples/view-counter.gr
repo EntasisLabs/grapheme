@@ -1,6 +1,7 @@
-// RFC-0007 step 2: a view over a state store.
+// RFC-0007 steps 2–3 (headless): a view over a state store, mounted by a UI glyph.
 //   grapheme compile examples/view-counter.gr --emit view-ir --json
-//   grapheme session examples/view-counter.gr --render CounterView
+//   grapheme session examples/view-counter.gr --mount
+//   grapheme session examples/view-counter.gr --mount --action 'CounterView/actions/increment#click@1'
 
 state Counter {
   count: Int = 0
@@ -28,4 +29,9 @@ view CounterView on Counter {
 
 view Footer {
   Text("Built with Grapheme views")
+}
+
+glyph CounterApp on Counter {
+  expose Increment
+  CounterView
 }

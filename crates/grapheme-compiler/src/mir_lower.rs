@@ -69,6 +69,7 @@ pub fn lower_from_hir(hir: &HirProgram) -> MirProgram {
         capabilities: hir.capabilities.clone(),
         stores: hir.stores.iter().map(|s| lower_store(hir, s)).collect(),
         views: hir.views.clone(),
+        ui_glyphs: hir.ui_glyphs.clone(),
     }
 }
 

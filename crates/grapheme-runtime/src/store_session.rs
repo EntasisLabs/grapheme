@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use grapheme_artifact::expr::{evaluate, expr_parts, first_error, select_path};
 use grapheme_artifact::{
     ArtifactEnvelope, ExecutionOutcome, MirFunctionKind, MirStore, MirStoreField,
-    MirStoreFieldKind, MirView, MirViewNode, VIEW_IR_VERSION,
+    MirStoreFieldKind, MirUiGlyph, MirView, MirViewNode, VIEW_IR_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as JsonValue};
@@ -78,6 +78,18 @@ pub struct ViewSnapshot {
     pub actions: Vec<ViewAction>,
 }
 
+/// A UI glyph evaluated as an app session snapshot (RFC-0007 I.2 / Part H).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppSnapshot {
+    pub glyph: String,
+    pub store: String,
+    pub revision: u64,
+    /// The evaluated tree: `{ "$ir": "grapheme-ui/1", "root": node }`.
+    pub ir: JsonValue,
+    /// Event bindings in the tree, plus `expose`d mutations as `expose:<Name>` actions.
+    pub actions: Vec<ViewAction>,
+}
+
 /// A node event binding and its epoch (RFC-0007 I.3).
 #[derive(Debug, Clone)]
 struct Binding {
@@ -108,6 +120,8 @@ pub struct StoreSession {
     log: Vec<StoreRevision>,
     bindings: BTreeMap<(String, String), Binding>,
     rendered: BTreeSet<String>,
+    /// Currently mounted UI glyph, if any.
+    mounted: Option<String>,
 }
 
 fn session_error(message: impl Into<String>) -> RuntimeError {
@@ -172,11 +186,22 @@ impl StoreSession {
             log: Vec::new(),
             bindings: BTreeMap::new(),
             rendered: BTreeSet::new(),
+            mounted: None,
         })
     }
 
     pub fn store_names(&self) -> impl Iterator<Item = &str> {
         self.stores.keys().map(String::as_str)
+    }
+
+    /// UI glyphs declared by the program (`glyph Name on Store { … }`).
+    pub fn ui_glyphs(&self) -> &[MirUiGlyph] {
+        &self.artifact.payload.mir.ui_glyphs
+    }
+
+    /// Currently mounted UI glyph, if any.
+    pub fn mounted_glyph(&self) -> Option<&str> {
+        self.mounted.as_deref()
     }
 
     pub fn revision(&self, store: &str) -> Option<u64> {
@@ -239,18 +264,104 @@ impl StoreSession {
         Ok(snapshot)
     }
 
-    /// Invokes the action `id` from a rendered view's current action list. The
-    /// rendered views are re-evaluated first, so an id whose binding changed
-    /// since it was handed out is rejected with `stale_action`.
+    /// Mounts a UI glyph and returns its app snapshot (RFC-0007 Part H / I.2).
+    /// When `glyph` is `None`, mounts the program's sole UI glyph.
+    pub fn mount(&mut self, glyph: Option<&str>) -> Result<AppSnapshot, RuntimeError> {
+        let selected = self.resolve_ui_glyph(glyph)?.name.clone();
+        self.mounted = Some(selected);
+        self.app_snapshot()
+    }
+
+    /// Re-evaluates the mounted UI glyph: View IR, tree actions and `expose` actions.
+    pub fn app_snapshot(&mut self) -> Result<AppSnapshot, RuntimeError> {
+        let glyph_name = self
+            .mounted
+            .clone()
+            .ok_or_else(|| session_error("no UI glyph is mounted; call mount first"))?;
+        let glyph = self
+            .find_ui_glyph(&glyph_name)?
+            .clone();
+        let mut view = self.render(&glyph.root)?;
+        let mut actions = view.actions;
+        actions.extend(self.expose_actions(&glyph)?);
+        // Keep `view.actions` aligned for callers that read the ViewSnapshot fields.
+        view.actions = actions.clone();
+        let revision = self.revision(&glyph.store).ok_or_else(|| {
+            session_error(format!("glyph '{}': no state named '{}'", glyph.name, glyph.store))
+        })?;
+        Ok(AppSnapshot {
+            glyph: glyph.name,
+            store: glyph.store,
+            revision,
+            ir: view.ir,
+            actions,
+        })
+    }
+
+    /// Invokes the action `id` from a rendered view's current action list, or
+    /// an `expose:<Name>` action from a mounted UI glyph. The rendered views
+    /// (and the mounted glyph, if any) are re-evaluated first, so an id whose
+    /// binding changed since it was handed out is rejected with `stale_action`.
     pub fn invoke_action(
         &mut self,
         id: &str,
         options: RuntimeOptions,
         host: &mut dyn CapabilityHost,
     ) -> Result<StoreCommit, RuntimeError> {
-        for view in self.rendered.clone() {
-            let (_, events) = self.evaluate_view(&view)?;
-            self.bind(&view, events);
+        if self.mounted.is_some() {
+            let _ = self.app_snapshot()?;
+        } else {
+            for view in self.rendered.clone() {
+                let (_, events) = self.evaluate_view(&view)?;
+                self.bind(&view, events);
+            }
+        }
+        if let Some(name) = id.strip_prefix("expose:") {
+            let glyph_name = self.mounted.clone().ok_or_else(|| {
+                session_error(format!(
+                    "stale_action: '{id}' is an expose action but no UI glyph is mounted"
+                ))
+            })?;
+            let glyph = self.find_ui_glyph(&glyph_name)?.clone();
+            if !glyph.expose.iter().any(|e| e == name) {
+                return Err(session_error(format!(
+                    "stale_action: '{id}' is not in the current action list"
+                )));
+            }
+            let (store, kind) = self.bound_store(name)?;
+            if store != glyph.store {
+                return Err(session_error(format!(
+                    "expose '{name}' is not on glyph store '{}'",
+                    glyph.store
+                )));
+            }
+            if matches!(kind, MirFunctionKind::Query) {
+                return Err(session_error(format!(
+                    "'{name}' is a query; use query() to read exposed queries"
+                )));
+            }
+            let required = self
+                .artifact
+                .payload
+                .mir
+                .functions
+                .iter()
+                .find(|f| f.name == name)
+                .map(|f| {
+                    f.params
+                        .iter()
+                        .filter(|p| p.required)
+                        .map(|p| p.name.clone())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            if !required.is_empty() {
+                return Err(session_error(format!(
+                    "expose action '{id}' requires payload params {}; pass them via invoke('{name}', args)",
+                    required.join(", ")
+                )));
+            }
+            return self.invoke(name, None, options, host);
         }
         let Some(binding) = self
             .bindings
@@ -268,6 +379,76 @@ impl StoreSession {
             options,
             host,
         )
+    }
+
+    fn resolve_ui_glyph(&self, glyph: Option<&str>) -> Result<&MirUiGlyph, RuntimeError> {
+        match glyph {
+            Some(name) => self.find_ui_glyph(name),
+            None => {
+                let glyphs = &self.artifact.payload.mir.ui_glyphs;
+                match glyphs.len() {
+                    0 => Err(session_error(
+                        "program has no UI glyph (`glyph Name on Store {{ … }}`)",
+                    )),
+                    1 => Ok(&glyphs[0]),
+                    _ => Err(session_error(format!(
+                        "program has multiple UI glyphs ({}); pass a name to mount",
+                        glyphs
+                            .iter()
+                            .map(|g| g.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ))),
+                }
+            }
+        }
+    }
+
+    fn find_ui_glyph(&self, name: &str) -> Result<&MirUiGlyph, RuntimeError> {
+        self.artifact
+            .payload
+            .mir
+            .ui_glyphs
+            .iter()
+            .find(|g| g.name == name)
+            .ok_or_else(|| session_error(format!("no UI glyph named '{name}'")))
+    }
+
+    fn expose_actions(&self, glyph: &MirUiGlyph) -> Result<Vec<ViewAction>, RuntimeError> {
+        let mut actions = Vec::new();
+        for name in &glyph.expose {
+            if let Some(func) = self
+                .artifact
+                .payload
+                .mir
+                .functions
+                .iter()
+                .find(|f| &f.name == name)
+            {
+                if matches!(func.kind, MirFunctionKind::Query) {
+                    // Exposed queries are readable via query(); they are not actions.
+                    continue;
+                }
+                let payload_params = func
+                    .params
+                    .iter()
+                    .filter(|p| p.required)
+                    .map(|p| p.name.clone())
+                    .collect();
+                actions.push(ViewAction {
+                    id: format!("expose:{name}"),
+                    key: format!("expose/{name}"),
+                    event: "invoke".to_string(),
+                    target: name.clone(),
+                    bound_args: Map::new(),
+                    payload_params,
+                    role: None,
+                    label: Some(name.clone()),
+                });
+            }
+            // Exposed views are mountable in a host slot; they are not actions.
+        }
+        Ok(actions)
     }
 
     fn evaluate_view(&self, name: &str) -> Result<(ViewSnapshot, Vec<BoundEvent>), RuntimeError> {

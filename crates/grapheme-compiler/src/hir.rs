@@ -22,6 +22,8 @@ pub struct HirProgram {
     pub stores: Vec<HirStore>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub views: Vec<grapheme_artifact::MirView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ui_glyphs: Vec<grapheme_artifact::MirUiGlyph>,
 }
 
 /// A `state` store (RFC-0007 Part A). Its stored fields are also exposed as a
@@ -153,12 +155,14 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
         .definitions
         .iter()
         .filter_map(|def| match def {
-            Definition::Glyph(g) => Some(g.name.clone()),
+            // Workflow glyphs are call targets; UI glyphs (`on Store`) are not.
+            Definition::Glyph(g) if g.store.is_none() => Some(g.name.clone()),
             Definition::Query(q) => Some(q.name.clone()),
             Definition::Mutation(m) => Some(m.name.clone()),
             Definition::Subscription(s) => Some(s.name.clone()),
             Definition::Iterator(f) => Some(f.name.clone()),
-            Definition::Fragment(_)
+            Definition::Glyph(_)
+            | Definition::Fragment(_)
             | Definition::Struct(_)
             | Definition::Enum(_)
             | Definition::StateMachine(_)
@@ -227,7 +231,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
 
     for def in &program.definitions {
         match def {
-            Definition::Glyph(g) => executable_defs.push(HirExecutable {
+            Definition::Glyph(g) if g.store.is_none() => executable_defs.push(HirExecutable {
                 kind: HirExecutableKind::Query,
                 name: g.name.clone(),
                 params: Vec::new(),
@@ -253,6 +257,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
                     false,
                 )?,
             }),
+            Definition::Glyph(_) => {}
             Definition::Query(q) => {
                 let directives = normalize_executable_directives(&q.name, &q.directives)?;
                 executable_defs.push(HirExecutable {
@@ -397,7 +402,9 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
         &state_machines,
         &mut executable_defs,
     )?;
-    let views = crate::views::lower_views(program, &stores, &executable_defs)?;
+    let mut views = crate::views::lower_views(program, &stores, &executable_defs)?;
+    let ui_glyphs =
+        crate::views::lower_ui_glyphs(program, &stores, &executable_defs, &mut views)?;
 
     let mut capabilities = executable_defs
         .iter()
@@ -418,6 +425,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
         capabilities,
         stores,
         views,
+        ui_glyphs,
     })
 }
 

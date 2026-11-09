@@ -368,10 +368,20 @@ variable_defs = { "(" ~ (variable_def ~ ("," ~ variable_def)*)? ~ ")" }
 
 executable_signature = { "on" ~ type_ref ~ ("->" ~ type_ref)? }
 
+// Workflow glyph: `glyph Name { pipeline+ }`.
+// UI glyph (RFC-0007 Part H): `glyph Name on Store { expose …; Element }`.
+// `on Store` is what distinguishes them; a UI body is an element tree, never pipelines.
+expose_clause = { "expose" ~ ident ~ ("," ~ ident)* }
+
+ui_glyph_body = {
+    (expose_clause ~ ","?)*
+    ~ view_element
+    ~ ","?
+}
+
 glyph_def = {
-    "glyph" ~ ident ~ "{"
-    ~ pipeline+
-    ~ "}"
+    "glyph" ~ ident ~ kw_on ~ ident ~ "{" ~ ui_glyph_body ~ "}"
+  | "glyph" ~ ident ~ "{" ~ pipeline+ ~ "}"
 }
 
 // A query body is a pipeline, or a single expression whose value is the result (RFC-0007 B.5).
