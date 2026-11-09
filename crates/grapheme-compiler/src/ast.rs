@@ -186,6 +186,35 @@ pub struct StoreDef {
     pub fields: Vec<StoreFieldDef>,
 }
 
+/// `view Name [on Store] { Element }`: a declarative element tree (RFC-0007 Parts C, D).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViewDef {
+    pub name: String,
+    pub store: Option<String>,
+    pub root: ViewElement,
+}
+
+/// One element: a catalog primitive or a reference to another view.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViewElement {
+    /// `name: Element` names the child; its node key uses the name.
+    pub child_name: Option<String>,
+    pub kind: String,
+    /// Positional content: `Text("{$count}")`.
+    pub content: Option<Value>,
+    pub props: Vec<(String, Value)>,
+    pub events: Vec<ViewEvent>,
+    pub children: Vec<ViewElement>,
+}
+
+/// `on click: Select(index: 3)`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViewEvent {
+    pub event: String,
+    pub target: String,
+    pub args: Vec<(String, Value)>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnumDef {
     pub name: String,
@@ -430,6 +459,7 @@ pub enum Definition {
     Enum(EnumDef),
     StateMachine(StateMachineDef),
     Store(StoreDef),
+    View(ViewDef),
     Tag(TagDef),
     Using(UsingDecl),
     Schema(SchemaDef),

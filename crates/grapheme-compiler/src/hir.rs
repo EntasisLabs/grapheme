@@ -20,6 +20,8 @@ pub struct HirProgram {
     pub capabilities: Vec<Capability>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stores: Vec<HirStore>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub views: Vec<grapheme_artifact::MirView>,
 }
 
 /// A `state` store (RFC-0007 Part A). Its stored fields are also exposed as a
@@ -161,6 +163,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
             | Definition::Enum(_)
             | Definition::StateMachine(_)
             | Definition::Store(_)
+            | Definition::View(_)
             | Definition::Tag(_)
             | Definition::Using(_)
             | Definition::Schema(_)
@@ -379,6 +382,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
             | Definition::Enum(_)
             | Definition::StateMachine(_)
             | Definition::Store(_)
+            | Definition::View(_)
             | Definition::Tag(_)
             | Definition::Using(_)
             | Definition::Schema(_)
@@ -393,6 +397,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
         &state_machines,
         &mut executable_defs,
     )?;
+    let views = crate::views::lower_views(program, &stores, &executable_defs)?;
 
     let mut capabilities = executable_defs
         .iter()
@@ -412,6 +417,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
         executable_defs,
         capabilities,
         stores,
+        views,
     })
 }
 

@@ -7,13 +7,13 @@ The CLI binary is `grapheme` (package `grapheme-cli`, crate path `crates/graphem
 ```bash
 grapheme <file.gr>
 grapheme parse <file.gr> [--yaml|--json]
-grapheme compile <file.gr> [--emit ast|hir|mir|artifact|aot] [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--yaml|--json]
+grapheme compile <file.gr> [--emit ast|hir|mir|view-ir|artifact|aot] [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--yaml|--json]
 grapheme build <file.gr> [--aot-stage stage_a|stage_b] [--out path] [--yaml|--json]
 grapheme plugins build [all|core|docs|io|http|memory|tcp|smtp|secrets ...]
 grapheme examples [list] [--yaml|--json] [--query q] [--tag tag] [--complexity level] [--native-only]
 grapheme examples show <name> [--summary] [--raw] [--yaml|--json]
 grapheme examples init [--out dir]
-grapheme session <file.gr> [--invoke Name[:<json-object>] ...] [--query Name[:<json-object>] ...]
+grapheme session <file.gr> [--invoke Name[:<json-object>] ...] [--query Name[:<json-object>] ...] [--render View ...] [--action <id> ...]
 grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules]
                     [--state-json '<json>' | --state-file path.json]
                     [--args-json '<json-object>']
@@ -53,6 +53,7 @@ cargo run -- compile examples/hello-world.gr --emit ast
 cargo run -- compile examples/hello-world.gr --emit hir
 cargo run -- compile examples/hello-world.gr --emit mir
 cargo run -- compile examples/hello-world.gr --emit artifact
+cargo run -- compile examples/view-counter.gr --emit view-ir --json
 cargo run -- compile examples/hello-world.gr --emit aot --aot-stage stage_a --json
 cargo run -- compile examples/hello-world.gr --emit aot --aot-stage stage_b --json
 ```
@@ -64,6 +65,7 @@ Notes:
 - `--type-policy warn` is the default and preserves compatibility-mode lint behavior.
 - `--type-policy strict` enables strict mutation-boundary enforcement at compile time.
 - For `compile`, default emit target is `mir`.
+- `--emit view-ir` prints the program's views as `{"$ir": "grapheme-ui/1", "views": [...]}` (RFC-0007 I.1).
 - For `compile`, default output format is YAML.
 
 ### `build`
@@ -173,6 +175,12 @@ grapheme session counter.gr --invoke Increment --invoke 'Add:{"by":3}' --query T
 ```
 
 Prints JSON with `revisions` (each `{store, revision, cause, diff, history_diff}`, where `diff` maps a field to `[old, new]`), `queries` (`{query, result}`) and `stores` (each store's `fields`, derives included, and current `revision`). A failed invoke exits non-zero and commits nothing.
+
+`--render View` evaluates a view (RFC-0007 step 2) at that point in the sequence and adds it to `renders` (each `{view, store, revision, ir, actions}`). `--action <id>` invokes an action id taken from a render's `actions`; an id whose binding changed since that render fails with `stale_action`.
+
+```bash
+grapheme session examples/view-counter.gr --render CounterView --action 'CounterView/actions/add_five#click@1' --render CounterView
+```
 
 ### `plugins build`
 

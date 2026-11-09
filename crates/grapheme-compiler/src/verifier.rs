@@ -45,6 +45,9 @@ pub fn verify_hir_with_lints_mode(
     }
 
     let mut lint_warnings = Vec::new();
+    for view in &hir.views {
+        crate::views::accessibility_lints(view, &mut lint_warnings);
+    }
 
     let executable_names: HashSet<String> =
         hir.executable_defs.iter().map(|d| d.name.clone()).collect();

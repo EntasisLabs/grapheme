@@ -594,11 +594,11 @@ fn rewrite_interpolation(
     Ok(out)
 }
 
-fn find_field<'a>(store: &'a HirStore, name: &str) -> Option<&'a HirStoreField> {
+pub(crate) fn find_field<'a>(store: &'a HirStore, name: &str) -> Option<&'a HirStoreField> {
     store.fields.iter().find(|f| f.name == name)
 }
 
-fn split_path(path: &str) -> (&str, Option<&str>) {
+pub(crate) fn split_path(path: &str) -> (&str, Option<&str>) {
     match path.split_once('.') {
         Some((head, rest)) => (head, Some(rest)),
         None => (path, None),
@@ -620,7 +620,7 @@ fn var_path(value: &JsonValue) -> Option<&str> {
 }
 
 /// Replaces every `{"$var": path}` for which `f` returns a value.
-fn rewrite_vars(value: &mut JsonValue, f: &mut dyn FnMut(&str) -> Option<JsonValue>) {
+pub(crate) fn rewrite_vars(value: &mut JsonValue, f: &mut dyn FnMut(&str) -> Option<JsonValue>) {
     if let Some(path) = var_path(value).map(str::to_string) {
         if let Some(replacement) = f(&path) {
             *value = replacement;
@@ -635,7 +635,7 @@ fn rewrite_vars(value: &mut JsonValue, f: &mut dyn FnMut(&str) -> Option<JsonVal
 }
 
 /// Rewrites every string value and object key.
-fn rewrite_strings(
+pub(crate) fn rewrite_strings(
     value: &mut JsonValue,
     f: &mut dyn FnMut(&str) -> Result<String, GraphemeError>,
 ) -> Result<(), GraphemeError> {

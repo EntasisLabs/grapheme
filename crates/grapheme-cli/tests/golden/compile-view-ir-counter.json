@@ -1,0 +1,81 @@
+{
+  "$ir": "grapheme-ui/1",
+  "views": [
+    {
+      "name": "CounterView",
+      "root": {
+        "$prim": "Column",
+        "children": [
+          {
+            "$prim": "Text",
+            "key": "CounterView/value",
+            "props": {
+              "content": "Count: {$state.count} (doubled: {$state.double})"
+            },
+            "role": "text"
+          },
+          {
+            "$prim": "Row",
+            "children": [
+              {
+                "$prim": "Button",
+                "events": {
+                  "click": {
+                    "$action": "Increment"
+                  }
+                },
+                "key": "CounterView/actions/increment",
+                "props": {
+                  "label": "Increment"
+                },
+                "role": "button"
+              },
+              {
+                "$prim": "Button",
+                "events": {
+                  "click": {
+                    "$action": "Add",
+                    "args": {
+                      "by": 5
+                    }
+                  }
+                },
+                "key": "CounterView/actions/add_five",
+                "props": {
+                  "label": "Add 5"
+                },
+                "role": "button"
+              }
+            ],
+            "key": "CounterView/actions",
+            "props": {
+              "gap": 4
+            },
+            "role": "group"
+          },
+          {
+            "$view": "Footer",
+            "key": "CounterView/footer"
+          }
+        ],
+        "key": "CounterView",
+        "props": {
+          "gap": 8
+        },
+        "role": "group"
+      },
+      "store": "Counter"
+    },
+    {
+      "name": "Footer",
+      "root": {
+        "$prim": "Text",
+        "key": "Footer",
+        "props": {
+          "content": "Built with Grapheme views"
+        },
+        "role": "text"
+      }
+    }
+  ]
+}

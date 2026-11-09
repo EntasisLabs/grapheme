@@ -579,6 +579,8 @@ view_for   = "for" variable ("," variable)? "in" expr "key" expr "{" element* "}
 8. **Recursion** is allowed (layers panels, trees). Each level is a view reference that the renderer evaluates lazily, bounded by data and by the call-depth limit.
 9. `fragment` keeps its inline-macro contract unchanged.
 
+**Implementation status (rollout step 2):** the element grammar (named children, positional content, props, view references, rule 1's rejection of steps and module calls), rules 2–4 and 6 for `on Store` views, with a built-in catalog of `Column`, `Row`, `Text` and `Button`. Not yet: view params, `style`, slots, `if`/`for`, `transient state` on views, registry stores in scope, and recursion beyond eager inlining.
+
 ## Part D — Events and delegates
 
 Behaviour is **defunctionalized**: a reference to a named executable plus a partial argument map. It is serialized as data and never captures a closure:
@@ -608,6 +610,8 @@ At compile time, for each binding:
 1. The target is a `mutation` or `task` on the view's store, on a store its registry grants `write` to, or on a `transient state` attached to the enclosing view; or it is a forwarded event parameter. Queries, views and subscriptions are rejected, and so are targets on a store granted only `read`.
 2. Arguments bound at the binding site, plus the arguments the event's payload supplies, must match the target's parameters **exactly**: no missing required arguments, no unknown ones, no argument supplied twice, and compatible types.
 3. A forwarded `$click` must have a type compatible with the child's event declaration.
+
+**Implementation status (rollout step 2):** element-body bindings `on click: Target(args)` with check 1 for mutations on the view's own store and check 2 for bound arguments. Not yet: event declarations and forwarding (D.1 rows 1–3 and 5), tasks, registry `write` stores and payload arguments.
 
 ### D.3 Delegate types and MudBlazor
 
@@ -789,6 +793,8 @@ Three identities exist and are never interchangeable:
 2. **Binding epoch.** Each node event binding has an epoch, incremented whenever the node is remounted or its target or bound arguments change. An action id is valid only while its epoch is current. A recycled rndr row that is rebound to item B produces a new node key; the old action id for item A is rejected with `stale_action` and can never execute against B.
 3. A store id never appears in an action id. The store a binding targets is resolved from the binding's target, at invocation, through the registry (A.6).
 4. Action ids are opaque to clients; they may only be obtained from `snapshot()` or an `expose` list.
+
+**Implementation status (rollout step 2):** I.1 node keys, roles and the `view-accessibility` lint (rule 4), `grapheme compile --emit view-ir`; I.2 as a store session (`render(view)` with the action list, `invoke_action(id)` with `stale_action`); I.3 binding epochs. Not yet: lazy memoised `$view` evaluation, `$derive` handles, `expose`, `expect_revision`, `origin: "agent"`, `revisions(since)`, `undo`/`redo`, and virtualized-row keys.
 
 ## Part J — Independent fixes
 

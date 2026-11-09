@@ -41,6 +41,6 @@ pub use module_registry::{ModuleBinding, ModuleRegistry, ResolvedModuleCall};
 pub use policy::PolicyGuard;
 pub use runtime::{RuntimeEngine, RuntimeOptions};
 pub use state::{AgentState, TracePolicy, TraceProjection};
-pub use store_session::{StoreCommit, StoreRevision, StoreSession};
+pub use store_session::{StoreCommit, StoreRevision, StoreSession, ViewAction, ViewSnapshot};
 #[cfg(feature = "wasix-runtime")]
 pub use wasix_backend::WasixBackend;

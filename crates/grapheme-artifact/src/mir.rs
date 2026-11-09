@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
+use std::collections::BTreeMap;
+
+use serde_json::{Map, Value as JsonValue};
 
 use super::capability::Capability;
 
@@ -10,6 +12,54 @@ pub struct MirProgram {
     /// `state` stores declared by the program (RFC-0007 Part A).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stores: Vec<MirStore>,
+    /// `view` declarations, already in `grapheme-ui/1` node form (RFC-0007 Parts C, I.1).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub views: Vec<MirView>,
+}
+
+/// The View IR format version (RFC-0007 I.1).
+pub const VIEW_IR_VERSION: &str = "grapheme-ui/1";
+
+/// A program's views as a versioned View IR document.
+pub fn view_ir_document(views: &[MirView]) -> JsonValue {
+    serde_json::json!({ "$ir": VIEW_IR_VERSION, "views": views })
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MirView {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<String>,
+    pub root: MirViewNode,
+}
+
+/// One View IR node: a primitive (`$prim`) or a reference to another view (`$view`).
+/// Prop and binding argument values are unevaluated expressions over `$state`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MirViewNode {
+    #[serde(rename = "$prim", default, skip_serializing_if = "Option::is_none")]
+    pub prim: Option<String>,
+    #[serde(rename = "$view", default, skip_serializing_if = "Option::is_none")]
+    pub view: Option<String>,
+    /// Stable identity within the rendered tree; derived from the view name and child names.
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub props: Map<String, JsonValue>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub events: BTreeMap<String, MirViewBinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<MirViewNode>,
+}
+
+/// `on event: Target(args)`: the mutation an event invokes, with its bound arguments.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MirViewBinding {
+    #[serde(rename = "$action")]
+    pub target: String,
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub args: Map<String, JsonValue>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

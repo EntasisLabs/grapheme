@@ -537,6 +537,35 @@ impl GraphemeStoreSession {
         Ok(value)
     }
 
+    /// Evaluates a view against its store's latest revision: the View IR tree
+    /// and the action list of every event bound in it (RFC-0007 I.2).
+    pub fn render(
+        &mut self,
+        view: &str,
+    ) -> Result<grapheme_runtime::ViewSnapshot, GraphemeSdkError> {
+        Ok(self.session.render(view)?)
+    }
+
+    /// Invokes an action id from a rendered view's current action list. An id
+    /// whose binding epoch is no longer current fails with `stale_action`.
+    pub fn invoke_action(
+        &mut self,
+        id: &str,
+    ) -> Result<grapheme_runtime::StoreCommit, GraphemeSdkError> {
+        let options = self.runtime_options.clone();
+        let commit = if let Some(factory) = &self.host_factory {
+            let mut host = factory();
+            self.session.invoke_action(id, options, host.as_mut())?
+        } else {
+            let mut host = StdlibHost {
+                capability_observer: self.capability_observer.clone(),
+                capability_interceptor: self.capability_interceptor.clone(),
+            };
+            self.session.invoke_action(id, options, &mut host)?
+        };
+        Ok(commit)
+    }
+
     /// Stored fields plus derives of `store` at its latest revision.
     pub fn snapshot(&self, store: &str) -> Result<JsonValue, GraphemeSdkError> {
         Ok(self.session.snapshot(store)?)

@@ -2323,6 +2323,7 @@ mod tests {
             functions: vec![function],
             capabilities: vec![capability],
             stores: vec![],
+            views: vec![],
         };
 
         let artifact = build_artifact_from_mir(&mir, Some("Main")).expect("artifact builds");
@@ -2385,6 +2386,7 @@ mod tests {
             }],
             capabilities: vec![],
             stores: vec![],
+            views: vec![],
         };
 
         let artifact = build_artifact_from_mir(&mir, Some("Main")).expect("artifact builds");
@@ -3160,6 +3162,7 @@ mod tests {
             functions: vec![function],
             capabilities: vec![capability],
             stores: vec![],
+            views: vec![],
         };
         let artifact = build_artifact_from_mir(&mir, Some("NeedsHost")).expect("artifact");
         let stage_a = build_aot_from_artifact(&artifact).expect("stage_a");
@@ -3291,6 +3294,7 @@ mod tests {
             functions: vec![function],
             capabilities: vec![capability],
             stores: vec![],
+            views: vec![],
         };
         let artifact = build_artifact_from_mir(&mir, Some("NeedsHost")).expect("artifact");
         let stage_a = build_aot_from_artifact(&artifact).expect("stage_a");
@@ -3385,6 +3389,7 @@ mod tests {
             functions: vec![function],
             capabilities: vec![capability],
             stores: vec![],
+            views: vec![],
         };
 
         build_artifact_from_mir(&mir, Some("Main")).expect("artifact builds")

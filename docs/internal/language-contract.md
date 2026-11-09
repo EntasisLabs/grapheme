@@ -224,6 +224,43 @@ query Total on Counter {
 - **Running.** Store executables are not file entrypoints. They run through a store session: `GraphemeEngine::store_session(source)` in the SDK, `StoreSession` in `grapheme-runtime`, or `grapheme session file.gr --invoke Increment --invoke 'Add:{"by":3}' --query Total`, which prints revisions, query results and each store's snapshot (fields plus derives) as JSON.
 - **Not yet:** `singleton`/`transient state` lifetimes, `state … on View`, registries, `history`/`undo`, hot reload, `by Machine` for enums with several machines, store subscriptions and tasks. Lifetimes and `on View` are compile errors for now.
 
+## Views (RFC-0007 Parts C, D, I; step 2)
+
+A `view` declares an element tree over a store. It is data: the compiler lowers it to View IR and the runtime evaluates it against the store's latest revision.
+
+```gr
+state Counter {
+  count: Int = 0
+  derive double: Int = $count * 2
+}
+
+mutation Add($by: Int) on Counter {
+  apply { count: $count + $by }
+}
+
+view CounterView on Counter {
+  Column(gap: 8) {
+    value: Text("Count: {$count} (doubled: {$double})")
+    add_five: Button(label: "Add 5") { on click: Add(by: 5) }
+    footer: Footer
+  }
+}
+
+view Footer {
+  Text("Built with Grapheme views")
+}
+```
+
+- **Shape.** `view Name [on Store] { Element }` has exactly one root element. An element is `[name:] Kind [(props) | (content)] [{ body }]`; the body holds child elements and `on event: Mutation[(args)]` bindings, separated by newlines or commas. A `|>` step or a module call in a view is a compile error.
+- **Catalog.** `Column` and `Row` (props `gap: Int`, `label: String`; children allowed), `Text` (positional content of any type; `{$field}` interpolation in strings) and `Button` (props `label: String`, `enabled: Bool`; event `click`; children allowed). Unknown elements, props, events, duplicate props, positional content on a primitive without it, and children of `Text` are compile errors. Any other element name must be a declared view, used without props or a body; a view `on` a store can only be used from a view on the same store.
+- **Scope.** Inside `on Counter`, `$count` and derives are readable; reading an unknown field, or any field in a view without `on`, is a compile error.
+- **Bindings.** The target must be a mutation on the view's store. Its arguments must match the mutation's parameters exactly (no missing, unknown or repeated arguments; literal and field types must fit). An event can be bound once per element.
+- **Keys.** The root's key is the view name; a named child appends `/name`, an unnamed child appends its ordinal among unnamed siblings (`CounterView/0`). A referenced view's nodes are keyed under the reference's key.
+- **Accessibility.** An element with an event binding and neither a `label` prop nor a `Text` descendant produces a `view-accessibility` lint.
+- **Output.** `grapheme compile file.gr --emit view-ir` prints `{"$ir": "grapheme-ui/1", "views": [...]}`, with nodes `{"$prim"|"$view", key, role, props, events: {click: {"$action", args}}, children}`. Programs without views compile to the same MIR as before.
+- **Rendering.** `StoreSession::render(view)` (SDK: `GraphemeStoreSession::render`; CLI: `grapheme session file.gr --render CounterView`) evaluates props and binding arguments against the store snapshot, inlines referenced views, and returns `{view, store, revision, ir, actions}`. Each action is `{id, key, event, target, bound_args, payload_params, role, label}`; its `id` is the node key, the event and a **binding epoch** (`CounterView/add_five#click@1`), also written into the node's `events.<event>.id`. The epoch advances when the binding's target or evaluated arguments change. `invoke_action(id)` (CLI: `--action <id>`) re-evaluates the rendered views, rejects an id that is no longer current with `stale_action`, and otherwise runs the target exactly like `invoke`: one transaction, one revision.
+- **Not yet:** styles, view params and event declarations (so `payload_params` is always empty and actions take no payload), slots, `if`/`for`, `VirtualList`, `transient state` on views, `glyph`, `expose`, lazy/memoised `$view` evaluation, `expect_revision`, and any renderer.
+
 ## State Contract
 
 Runtime state tracks:

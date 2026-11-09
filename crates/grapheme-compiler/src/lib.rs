@@ -13,6 +13,7 @@ pub mod parser;
 pub mod pipeline;
 mod stores;
 pub mod verifier;
+mod views;
 
 use crate::ast::Definition;
 #[cfg(feature = "stage-b")]

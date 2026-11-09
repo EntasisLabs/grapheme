@@ -1,0 +1,31 @@
+// RFC-0007 step 2: a view over a state store.
+//   grapheme compile examples/view-counter.gr --emit view-ir --json
+//   grapheme session examples/view-counter.gr --render CounterView
+
+state Counter {
+  count: Int = 0
+  derive double: Int = $count * 2
+}
+
+mutation Increment on Counter {
+  apply { count: $count + 1 }
+}
+
+mutation Add($by: Int) on Counter {
+  apply { count: $count + $by }
+}
+
+view CounterView on Counter {
+  Column(gap: 8) {
+    value: Text("Count: {$count} (doubled: {$double})")
+    actions: Row(gap: 4) {
+      increment: Button(label: "Increment") { on click: Increment }
+      add_five: Button(label: "Add 5") { on click: Add(by: 5) }
+    }
+    footer: Footer
+  }
+}
+
+view Footer {
+  Text("Built with Grapheme views")
+}
