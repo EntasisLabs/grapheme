@@ -323,6 +323,36 @@ session.save_default_hotload_store().expect("persist hotload");
 
 Hotload store path: `.grapheme/modules/hotload.json` (schema `grapheme.modules.hotload/v1`).
 
+## State Store Session
+
+Programs that declare `state` stores (RFC-0007 Part A) run through a store session. Each `invoke` is one transaction on one store; it returns a `StoreCommit` whose `committed` revision is `None` when nothing changed. A failed mutation commits nothing.
+
+```rust
+use grapheme_sdk::GraphemeEngine;
+use serde_json::json;
+
+let engine = GraphemeEngine::builder().build();
+let mut session = engine.store_session(r#"
+state Counter {
+  count: Int = 0
+  transient pulse: Int = 0
+  derive double: Int = $count * 2
+}
+
+mutation Add($by: Int) on Counter {
+  apply { count: $count + $by, pulse: $pulse + 1 }
+}
+"#)?;
+
+let commit = session.invoke("Add", Some(json!({ "by": 3 })))?;
+let revision = commit.committed.expect("changed");
+assert_eq!(revision.diff["count"], json!([0, 3]));
+assert!(!revision.history_diff.contains_key("pulse"));
+assert_eq!(session.snapshot("Counter")?["double"], json!(6));
+```
+
+`query(name, args)` (args are `Option<JsonValue>`, as for `invoke`) runs a store query read-only; `revisions()`, `revision(store)` and `store_names()` inspect the session. `grapheme_runtime::StoreSession` is the same session without the SDK's module bindings.
+
 ## Stateful Runtime Session + Hotmodule Lifecycle
 
 Use `runtime_session()` when you need persistent activation state across multiple executions.
