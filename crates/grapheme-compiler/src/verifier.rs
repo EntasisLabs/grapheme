@@ -223,6 +223,7 @@ pub fn verify_hir_with_lints_mode(
                 def.kind.clone(),
                 i,
                 pipeline.steps.as_slice(),
+                def.input_type.as_ref(),
                 def.output_type.as_ref(),
                 &struct_fields_by_name,
                 &required_struct_fields_by_name,
@@ -362,11 +363,13 @@ fn is_core_echo(step: &HirStep) -> bool {
         && step.op == "echo"
 }
 
+#[allow(clippy::too_many_arguments)]
 fn verify_typed_output_field_population(
     def_name: &str,
     def_kind: HirExecutableKind,
     pipeline_idx: usize,
     steps: &[HirStep],
+    input_type: Option<&TypeRef>,
     output_type: Option<&TypeRef>,
     struct_fields_by_name: &HashMap<String, HashSet<String>>,
     required_struct_fields_by_name: &HashMap<String, HashSet<String>>,
@@ -435,9 +438,17 @@ fn verify_typed_output_field_population(
         return Ok(());
     }
 
+    // Literal patches merge into the input, so required fields the input
+    // type already declares carry over unchanged.
+    let carried_fields = match input_type {
+        Some(TypeRef::Named(input_type_name, _)) => struct_fields_by_name.get(input_type_name),
+        _ => None,
+    };
+
     let missing_required = required_fields
         .iter()
         .filter(|field| !provided_fields.contains(*field))
+        .filter(|field| !carried_fields.is_some_and(|fields| fields.contains(*field)))
         .cloned()
         .collect::<Vec<_>>();
 
