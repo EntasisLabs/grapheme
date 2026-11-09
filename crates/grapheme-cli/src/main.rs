@@ -8,7 +8,7 @@
 ///  Usage:
 ///    grapheme <file.gr>
 ///    grapheme parse <file.gr>
-///    grapheme compile <file.gr> --emit ast|hir|mir|artifact|aot
+///    grapheme compile <file.gr> --emit ast|hir|mir|view-ir|artifact|aot
 ///    grapheme build <file.gr> [--aot-stage stage_a|stage_b] [--out path]
 ///    grapheme plugins build [all|core|io ...]")
 ///    grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules]
@@ -2699,10 +2699,10 @@ fn emit_parse(file_path: &str, output_mode: DiscoveryOutputMode) -> Result<(), C
     Ok(())
 }
 
-/// `grapheme session <file.gr> [--invoke|--query Name[:<json-args>] ...]`: opens
-/// a headless store session, runs store mutations and queries in order, and
-/// prints every committed revision, query results and each store's final
-/// snapshot as JSON.
+/// `grapheme session <file.gr> [--invoke|--query Name[:<json-args>] | --render View | --action <id> ...]`:
+/// opens a headless store session, runs store mutations, queries, view renders
+/// and view actions in order, and prints every committed revision, query
+/// results, renders and each store's final snapshot as JSON.
 fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
     let (file_path, consumed) = resolve_file_path_arg_or_project_main(args, "session")?;
     let mut invokes = Vec::new();
@@ -2730,7 +2730,17 @@ fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
                     }
                     None => (spec.clone(), None),
                 };
-                invokes.push((is_query, name, payload));
+                invokes.push((if is_query { "query" } else { "invoke" }, name, payload));
+                i += 2;
+            }
+            flag @ ("--render" | "--action") => {
+                let value = args.get(i + 1).ok_or_else(|| {
+                    CompilerError::RuntimeError(format!(
+                        "{flag} requires {}",
+                        if flag == "--render" { "a view name" } else { "an action id" }
+                    ))
+                })?;
+                invokes.push((&flag[2..], value.clone(), None));
                 i += 2;
             }
             "--json" => i += 1,
@@ -2747,12 +2757,20 @@ fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
     let sdk_error = |e: grapheme_sdk::GraphemeSdkError| CompilerError::RuntimeError(e.to_string());
     let mut session = engine.store_session(&source).map_err(sdk_error)?;
     let mut queries = Vec::new();
-    for (is_query, name, payload) in invokes {
-        if is_query {
-            let result = session.query(&name, payload).map_err(sdk_error)?;
-            queries.push(json!({"query": name, "result": result}));
-        } else {
-            session.invoke(&name, payload).map_err(sdk_error)?;
+    let mut renders = Vec::new();
+    for (kind, name, payload) in invokes {
+        match kind {
+            "query" => {
+                let result = session.query(&name, payload).map_err(sdk_error)?;
+                queries.push(json!({"query": name, "result": result}));
+            }
+            "render" => renders.push(json!(session.render(&name).map_err(sdk_error)?)),
+            "action" => {
+                session.invoke_action(&name).map_err(sdk_error)?;
+            }
+            _ => {
+                session.invoke(&name, payload).map_err(sdk_error)?;
+            }
         }
     }
     let mut stores = serde_json::Map::new();
@@ -2766,6 +2784,9 @@ fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
     let mut out = json!({"revisions": session.revisions(), "stores": stores});
     if !queries.is_empty() {
         out["queries"] = JsonValue::Array(queries);
+    }
+    if !renders.is_empty() {
+        out["renders"] = JsonValue::Array(renders);
     }
     println!(
         "{}",
@@ -2844,6 +2865,10 @@ fn emit_compile_cmd(args: &[String]) -> Result<(), CompilerError> {
         "ast" => print_discovery(&compilation.ast, output_mode)?,
         "hir" => print_discovery(&compilation.hir, output_mode)?,
         "mir" => print_discovery(&compilation.mir, output_mode)?,
+        "view-ir" => print_discovery(
+            &grapheme_artifact::view_ir_document(&compilation.mir.views),
+            output_mode,
+        )?,
         "artifact" => {
             let artifact = grapheme_artifact::build_artifact_from_mir(&compilation.mir, None)
                 .map_err(|e| CompilerError::ArtifactEmitError(e.to_string()))?;
@@ -2870,7 +2895,7 @@ fn emit_compile_cmd(args: &[String]) -> Result<(), CompilerError> {
         }
         other => {
             return Err(CompilerError::RuntimeError(format!(
-                "unsupported emit target '{}'; expected ast|hir|mir|artifact|aot",
+                "unsupported emit target '{}'; expected ast|hir|mir|view-ir|artifact|aot",
                 other
             )));
         }
@@ -3040,7 +3065,7 @@ fn print_usage() {
     eprintln!("  grapheme <file.gr>");
     eprintln!("  grapheme parse [<file.gr>] [--yaml|--json]");
     eprintln!(
-        "  grapheme compile [<file.gr>] [--emit ast|hir|mir|artifact|aot] [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--yaml|--json]"
+        "  grapheme compile [<file.gr>] [--emit ast|hir|mir|view-ir|artifact|aot] [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--yaml|--json]"
     );
     eprintln!(
         "  grapheme build [<file.gr>] [--aot-stage stage_a|stage_b] [--out path] [--yaml|--json]"
@@ -3051,7 +3076,7 @@ fn print_usage() {
     );
     eprintln!("  grapheme examples show <name> [--summary] [--raw] [--yaml|--json]");
     eprintln!("  grapheme examples init [--out dir]");
-    eprintln!("  grapheme session [<file.gr>] [--invoke|--query Name[:<json-object>] ...]");
+    eprintln!("  grapheme session [<file.gr>] [--invoke|--query Name[:<json-object>] | --render View | --action <id> ...]");
     eprintln!(
         "  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules]"
     );

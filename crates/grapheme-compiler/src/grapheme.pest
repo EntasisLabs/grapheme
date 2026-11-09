@@ -140,6 +140,25 @@ store_def = {
     ~ "}"
 }
 
+// View (RFC-0007 Parts C, D): a declarative element tree over a store.
+// `view Name [on Store] { Element }`. Elements take named props `(k: v)` or one
+// positional content value `("text")`, and a body of child elements and
+// `on event: Mutation(args)` bindings. A child can be named: `increment: Button`.
+kw_view = @{ "view" ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_on   = @{ "on" ~ !(ASCII_ALPHANUMERIC | "_") }
+
+view_content    = { "(" ~ value ~ ")" }
+view_child_name = { ident ~ ":" }
+view_event      = { kw_on ~ ident ~ ":" ~ ident ~ arg_list? }
+view_body       = { "{" ~ ((view_event | view_element) ~ ","?)* ~ "}" }
+view_element    = { view_child_name? ~ ident ~ (arg_list | view_content)? ~ view_body? }
+
+view_def = {
+    kw_view ~ ident ~ (kw_on ~ ident)? ~ "{"
+    ~ (view_element ~ ","?)+
+    ~ "}"
+}
+
 type_def = {
     "type" ~ ident ~ directive* ~ "{"
     ~ field_def+
@@ -423,6 +442,7 @@ definition = {
     | enum_def
     | state_machine_def
     | store_def
+    | view_def
     | tag_def
     | using_decl
   | schema_def

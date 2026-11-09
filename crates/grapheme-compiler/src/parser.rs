@@ -160,6 +160,7 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
                         definitions.push(Definition::StateMachine(parse_state_machine_def(def)?))
                     }
                     Rule::store_def => definitions.push(Definition::Store(parse_store_def(def)?)),
+                    Rule::view_def => definitions.push(Definition::View(parse_view_def(def)?)),
                     Rule::tag_def => definitions.push(Definition::Tag(parse_tag_def(def)?)),
                     Rule::using_decl => definitions.push(Definition::Using(parse_using_decl(def)?)),
                     Rule::schema_def => definitions.push(Definition::Schema(parse_schema(def)?)),
@@ -262,6 +263,88 @@ fn parse_struct_def(pair: Pair<Rule>) -> Result<StructDef, GraphemeError> {
     }
 
     Ok(StructDef { name, fields })
+}
+
+fn parse_view_def(pair: Pair<Rule>) -> Result<ViewDef, GraphemeError> {
+    let mut name = None;
+    let mut store = None;
+    let mut roots = Vec::new();
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::ident if name.is_none() => name = Some(p.as_str().to_string()),
+            Rule::ident => store = Some(p.as_str().to_string()),
+            Rule::view_element => roots.push(parse_view_element(p)?),
+            _ => {}
+        }
+    }
+    let name = name.unwrap_or_default();
+    if roots.len() != 1 {
+        return Err(GraphemeError::ParseError(format!(
+            "view '{name}' must have exactly one root element; wrap its elements in a Column or Row"
+        )));
+    }
+    Ok(ViewDef {
+        name,
+        store,
+        root: roots.remove(0),
+    })
+}
+
+fn parse_view_element(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
+    let mut element = ViewElement {
+        child_name: None,
+        kind: String::new(),
+        content: None,
+        props: Vec::new(),
+        events: Vec::new(),
+        children: Vec::new(),
+    };
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::view_child_name => {
+                element.child_name = Some(p.into_inner().next().unwrap().as_str().to_string())
+            }
+            Rule::ident => element.kind = p.as_str().to_string(),
+            Rule::arg_list => element.props = parse_view_args(p)?,
+            Rule::view_content => {
+                element.content = Some(parse_value(p.into_inner().next().unwrap())?)
+            }
+            Rule::view_body => {
+                for item in p.into_inner() {
+                    match item.as_rule() {
+                        Rule::view_event => element.events.push(parse_view_event(item)?),
+                        Rule::view_element => element.children.push(parse_view_element(item)?),
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(element)
+}
+
+fn parse_view_event(pair: Pair<Rule>) -> Result<ViewEvent, GraphemeError> {
+    let mut idents = Vec::new();
+    let mut args = Vec::new();
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::ident => idents.push(p.as_str().to_string()),
+            Rule::arg_list => args = parse_view_args(p)?,
+            _ => {}
+        }
+    }
+    let mut idents = idents.into_iter();
+    Ok(ViewEvent {
+        event: idents.next().unwrap_or_default(),
+        target: idents.next().unwrap_or_default(),
+        args,
+    })
+}
+
+/// Keeps duplicates so the compiler can report them.
+fn parse_view_args(pair: Pair<Rule>) -> Result<Vec<(String, Value)>, GraphemeError> {
+    pair.into_inner().map(parse_named_arg).collect()
 }
 
 fn parse_store_def(pair: Pair<Rule>) -> Result<StoreDef, GraphemeError> {
