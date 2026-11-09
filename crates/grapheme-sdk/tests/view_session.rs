@@ -59,7 +59,14 @@ fn render_evaluates_the_tree_against_the_latest_revision() {
     let root = &snapshot.ir["root"];
     assert_eq!(root["key"], "CounterView");
     assert_eq!(root["children"][0]["props"]["content"], "0 (x2 = 0)");
-    assert_eq!(root["children"][1]["events"], json!(["click"]));
+    assert_eq!(
+        root["children"][1]["events"]["click"],
+        json!({"$action": "Increment", "args": {}, "id": "CounterView/increment#click@1"})
+    );
+    assert_eq!(
+        root["children"][2]["events"]["click"]["args"],
+        json!({"by": 1})
+    );
 
     let footer = &root["children"][3];
     assert_eq!(footer["view"], "Footer");

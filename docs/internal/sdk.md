@@ -353,6 +353,17 @@ assert_eq!(session.snapshot("Counter")?["double"], json!(6));
 
 `query(name, args)` (args are `Option<JsonValue>`, as for `invoke`) runs a store query read-only; `revisions()`, `revision(store)` and `store_names()` inspect the session. `grapheme_runtime::StoreSession` is the same session without the SDK's module bindings.
 
+Programs that declare `view`s can render them headlessly. `render(view)` returns a `ViewSnapshot` (`revision`, the evaluated View IR in `ir`, and `actions`); `invoke_action(id)` runs the action's mutation as one transaction and fails with `stale_action` if the id's binding epoch is no longer current:
+
+```rust
+let mut snapshot = session.render("CounterView")?;
+let add = snapshot.actions.iter().find(|a| a.key == "CounterView/actions/add_five").unwrap();
+let commit = session.invoke_action(&add.id.clone())?;
+assert_eq!(commit.revision, 1);
+snapshot = session.render("CounterView")?;
+assert_eq!(snapshot.revision, Some(1));
+```
+
 ## Stateful Runtime Session + Hotmodule Lifecycle
 
 Use `runtime_session()` when you need persistent activation state across multiple executions.

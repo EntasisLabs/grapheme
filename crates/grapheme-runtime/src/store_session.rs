@@ -235,6 +235,7 @@ impl StoreSession {
         let (mut snapshot, events) = self.evaluate_view(view)?;
         self.rendered.insert(view.to_string());
         snapshot.actions = self.bind(view, events);
+        attach_action_ids(&mut snapshot.ir["root"], &snapshot.actions);
         Ok(snapshot)
     }
 
@@ -358,6 +359,7 @@ impl StoreSession {
             .and_then(JsonValue::as_str)
             .map(str::to_string)
             .or_else(|| first_text(&children));
+        let mut bound = Map::new();
         for (event, binding) in &node.events {
             let mut args = Map::new();
             for (name, value) in &binding.args {
@@ -365,6 +367,10 @@ impl StoreSession {
                     .map_err(|e| fail(format!("argument '{name}' of '{}': {e}", binding.target)))?;
                 args.insert(name.clone(), value);
             }
+            bound.insert(
+                event.clone(),
+                serde_json::json!({ "$action": binding.target, "args": args }),
+            );
             events.push(BoundEvent {
                 key: key.to_string(),
                 event: event.clone(),
@@ -374,9 +380,8 @@ impl StoreSession {
                 label: label.clone(),
             });
         }
-        if !node.events.is_empty() {
-            let names: Vec<JsonValue> = node.events.keys().cloned().map(JsonValue::from).collect();
-            out.insert("events".to_string(), JsonValue::Array(names));
+        if !bound.is_empty() {
+            out.insert("events".to_string(), JsonValue::Object(bound));
         }
         if !props.is_empty() {
             out.insert("props".to_string(), JsonValue::Object(props));
@@ -639,6 +644,27 @@ fn check_lifecycle(
         )));
     }
     Ok(())
+}
+
+/// Writes each action's id into its node's `events.<event>.id`.
+fn attach_action_ids(node: &mut JsonValue, actions: &[ViewAction]) {
+    let key = node
+        .get("key")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("")
+        .to_string();
+    if let Some(events) = node.get_mut("events").and_then(JsonValue::as_object_mut) {
+        for (event, binding) in events.iter_mut() {
+            if let Some(action) = actions.iter().find(|a| a.key == key && &a.event == event) {
+                binding["id"] = JsonValue::from(action.id.clone());
+            }
+        }
+    }
+    if let Some(children) = node.get_mut("children").and_then(JsonValue::as_array_mut) {
+        for child in children {
+            attach_action_ids(child, actions);
+        }
+    }
 }
 
 fn action_id(key: &str, event: &str, epoch: u64) -> String {
