@@ -546,7 +546,7 @@ primary = value | variable | "(" expr ")" | "if" expr "then" expr "else" expr
 
 This was already on the language-ergonomics roadmap; it ships first because everything else uses it.
 
-**Implementation status:** the grammar, precedence and runtime semantics in this part (including `Int` truncating division and overflow as a runtime error) are implemented in Stage A and Stage B. Static operand typing (1–2), `.count` (3) and expression bodies (5) are not yet.
+**Implementation status:** the grammar, precedence and runtime semantics in this part (including `Int` truncating division and overflow as a runtime error) are implemented in Stage A and Stage B, as are static typing (1–2; a lint under `warn`) and `.count` (3). Expression bodies (5) are not yet.
 
 ## Part C — Views
 

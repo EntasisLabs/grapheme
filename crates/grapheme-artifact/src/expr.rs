@@ -36,6 +36,31 @@ fn error_message(value: &JsonValue) -> Option<&str> {
     map.get(EXPR_ERROR_KEY)?.as_str()
 }
 
+/// Selects a dotted path. A final `count` segment on a list or string that
+/// has no such key yields its length (RFC-0007 B.3).
+pub fn select_path(root: &JsonValue, path: &str) -> Option<JsonValue> {
+    let mut current = root;
+    let mut segments = path.split('.').peekable();
+    while let Some(segment) = segments.next() {
+        if segment.is_empty() {
+            return None;
+        }
+        if let Some(next) = current.as_object().and_then(|map| map.get(segment)) {
+            current = next;
+            continue;
+        }
+        if segment == "count" && segments.peek().is_none() {
+            return match current {
+                JsonValue::Array(items) => Some(JsonValue::from(items.len())),
+                JsonValue::String(text) => Some(JsonValue::from(text.chars().count())),
+                _ => None,
+            };
+        }
+        return None;
+    }
+    Some(current.clone())
+}
+
 /// The first expression error inside resolved args, if any.
 pub fn first_error(value: &JsonValue) -> Option<&str> {
     if let Some(message) = error_message(value) {
@@ -269,6 +294,16 @@ mod tests {
             error_of(json!({ "count": outer })),
             "division by zero in '/'"
         );
+    }
+
+    #[test]
+    fn select_path_counts_lists_and_strings() {
+        let root = json!({"items": [1, 2, 3], "name": "héllo", "box": {"count": 7}});
+        assert_eq!(select_path(&root, "items.count"), Some(json!(3)));
+        assert_eq!(select_path(&root, "name.count"), Some(json!(5)));
+        assert_eq!(select_path(&root, "box.count"), Some(json!(7)));
+        assert_eq!(select_path(&root, "items.count.x"), None);
+        assert_eq!(select_path(&root, "missing.count"), None);
     }
 
     #[test]

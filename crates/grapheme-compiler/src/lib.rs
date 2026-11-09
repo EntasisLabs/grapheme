@@ -6,6 +6,7 @@
 pub mod ast;
 pub mod compiler_api;
 pub mod error;
+mod expr_types;
 pub mod hir;
 pub mod mir_lower;
 pub mod parser;
@@ -289,6 +290,93 @@ query Hello {
                 .expect("parse stage_b snapshot golden json");
 
         assert_eq!(snapshot, expected);
+    }
+
+    const EXPR_TYPES_PRELUDE: &str = r#"
+enum Density { compact, comfortable }
+struct Counter {
+    count: Int
+    ratio?: Float
+    density: Density
+    name: String
+    tags?: [String]
+    on: Bool
+}
+"#;
+
+    fn compile_with_policy(
+        body: &str,
+        mode: ExecutableKindPolicyMode,
+    ) -> Result<CompilationArtifact, crate::error::GraphemeError> {
+        let source = format!("{EXPR_TYPES_PRELUDE}{body}");
+        let ast = parse(&source).expect("parse should succeed");
+        compile_program(
+            ast,
+            CompileOptions {
+                capability_policy: grapheme_artifact::CapabilityPolicy::default(),
+                executable_kind_policy_mode: mode,
+            },
+        )
+    }
+
+    #[test]
+    fn strict_policy_accepts_well_typed_expressions() {
+        compile_with_policy(
+            r#"query Q on Counter -> Counter {
+    set {
+        count: $state.count + 1,
+        ratio: $state.count / 2,
+        name: $state.name + "!",
+        on: $state.tags.count > 2 && !$state.on,
+        density: if $state.on then compact else comfortable
+    }
+}"#,
+            ExecutableKindPolicyMode::StrictMutationOnly,
+        )
+        .expect("well-typed expressions compile under strict");
+    }
+
+    #[test]
+    fn strict_policy_rejects_ill_typed_expressions() {
+        let cases = [
+            ("count: $state.count + 0.5", "field 'count' has type Int but its expression has type Float"),
+            ("count: if $state.on then 1 else \"x\"", "'if' branches must have the same type, found Int and String"),
+            ("density: if $state.on then compact else comfy", "field 'density': 'comfy' is not a member of enum 'Density'"),
+            ("on: $state.name > 3", "cannot apply '>' to String and Int"),
+            ("on: $state.count && true", "'&&' expects Bool, found Int"),
+            ("on: $state.density == fast", "'fast' is not a member of enum 'Density'"),
+            ("on: if $state.count then true else false", "'if' condition must be Bool, found Int"),
+            ("name: $state.name - 1", "cannot apply '-' to String and Int"),
+        ];
+        for (patch, expected) in cases {
+            let body = format!("query Q on Counter -> Counter {{ set {{ {patch} }} }}");
+            let err = compile_with_policy(&body, ExecutableKindPolicyMode::StrictMutationOnly)
+                .expect_err(patch);
+            assert!(
+                err.to_string().contains(expected),
+                "{patch}: expected '{expected}', got '{err}'"
+            );
+        }
+    }
+
+    #[test]
+    fn compatibility_policy_reports_expression_types_as_lints() {
+        let artifact = compile_with_policy(
+            "query Q on Counter -> Counter { set { count: $state.count + 0.5 } }",
+            ExecutableKindPolicyMode::Compatibility,
+        )
+        .expect("compat mode should compile");
+        assert!(artifact.lint_warnings.iter().any(|w| w.code == "expression-type"
+            && w.message.contains("field 'count' has type Int")));
+    }
+
+    #[test]
+    fn expression_types_skip_untyped_operands() {
+        compile_with_policy(
+            "query Q($step: Any) on Counter -> Counter { set { count: $step + 1, on: $item == 3 } }",
+            ExecutableKindPolicyMode::StrictMutationOnly,
+        )
+        .expect("unknown operand types are not rejected");
     }
 
     #[test]

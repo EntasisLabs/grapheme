@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Expression type checking and `.count` (RFC-0007 Part B).** Under `--type-policy strict`, ill-typed expressions are compile errors: `"a" - 1`, non-`Bool` `&&`/`||`/`!`/`if` operands, `if` branches of different types, a `set` field whose expression doesn't match its declared type, and enum comparisons against non-members (`$state.density == fast`). Under `warn` they are `expression-type` lints. Operands without a declared type are not checked. `$list.count` and `$text.count` read the length of a list or string.
 - **Value expressions (RFC-0007 Part B).** Any value position now accepts `+ - * / %`, comparisons (`== != < <= > >=`), `&& || !`, parentheses and `if … then … else`: `set { count: $state.count + 1, mode: if $busy then pulsing else idle }`. `Int op Int` stays `Int` (`/` truncates); overflow, division by zero and type mismatches fail the step with `EXPRESSION_ERROR`. Stage A and Stage B evaluate the same `{"$expr": …}` MIR form. Static operand typing under `--type-policy strict` is not in this release yet. No new commands, flags or environment variables. Existing programs parse unchanged; parse errors after a value now say "expected operator" where they used to list literal rules.
 
 ### Fixed

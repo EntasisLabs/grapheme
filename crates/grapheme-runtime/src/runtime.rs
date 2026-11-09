@@ -1830,8 +1830,7 @@ fn resolve_local_reference(reference: &str, scope: &TemplateScope<'_>) -> Option
     }
     if let Some(path) = reference.strip_prefix("args.") {
         return Some(
-            select_json_path(&JsonValue::Object(scope.locals.clone()), path)
-                .cloned()
+            grapheme_artifact::expr::select_path(&JsonValue::Object(scope.locals.clone()), path)
                 .unwrap_or(JsonValue::Null),
         );
     }
@@ -1842,8 +1841,7 @@ fn resolve_local_reference(reference: &str, scope: &TemplateScope<'_>) -> Option
         && let Some(value) = scope.locals.get(name)
     {
         return Some(
-            select_json_path(value, path)
-                .cloned()
+            grapheme_artifact::expr::select_path(value, path)
                 .unwrap_or(JsonValue::Null),
         );
     }
@@ -1864,14 +1862,12 @@ fn resolve_variable_reference(reference: &str, scope: &TemplateScope<'_>) -> Jso
     }
 
     if let Some(path) = reference.strip_prefix("state.") {
-        return select_json_path(scope.state, path)
-            .cloned()
+        return grapheme_artifact::expr::select_path(scope.state, path)
             .unwrap_or(JsonValue::Null);
     }
 
     if let Some(path) = reference.strip_prefix("current.") {
-        return select_json_path(scope.current, path)
-            .cloned()
+        return grapheme_artifact::expr::select_path(scope.current, path)
             .unwrap_or(JsonValue::Null);
     }
 
@@ -1882,8 +1878,7 @@ fn resolve_variable_reference(reference: &str, scope: &TemplateScope<'_>) -> Jso
     if let Some(path) = reference.strip_prefix("item.") {
         return scope
             .item
-            .and_then(|item| select_json_path(item, path))
-            .cloned()
+            .and_then(|item| grapheme_artifact::expr::select_path(item, path))
             .unwrap_or(JsonValue::Null);
     }
 
@@ -1895,8 +1890,7 @@ fn resolve_variable_reference(reference: &str, scope: &TemplateScope<'_>) -> Jso
         return scope
             .loop_meta
             .as_ref()
-            .and_then(|meta| select_json_path(meta, path))
-            .cloned()
+            .and_then(|meta| grapheme_artifact::expr::select_path(meta, path))
             .unwrap_or(JsonValue::Null);
     }
 
@@ -1922,16 +1916,14 @@ fn resolve_current_string_template(template: &str, scope: &TemplateScope<'_>) ->
     if let Some(path) = template.strip_prefix("$state.")
         && path.chars().all(is_selector_char)
     {
-        return select_json_path(scope.state, path)
-            .cloned()
+        return grapheme_artifact::expr::select_path(scope.state, path)
             .unwrap_or(JsonValue::Null);
     }
 
     if let Some(path) = template.strip_prefix("$current.")
         && path.chars().all(is_selector_char)
     {
-        return select_json_path(scope.current, path)
-            .cloned()
+        return grapheme_artifact::expr::select_path(scope.current, path)
             .unwrap_or(JsonValue::Null);
     }
 
@@ -1944,8 +1936,7 @@ fn resolve_current_string_template(template: &str, scope: &TemplateScope<'_>) ->
     {
         return scope
             .item
-            .and_then(|item| select_json_path(item, path))
-            .cloned()
+            .and_then(|item| grapheme_artifact::expr::select_path(item, path))
             .unwrap_or(JsonValue::Null);
     }
 
@@ -1959,8 +1950,7 @@ fn resolve_current_string_template(template: &str, scope: &TemplateScope<'_>) ->
         return scope
             .loop_meta
             .as_ref()
-            .and_then(|meta| select_json_path(meta, path))
-            .cloned()
+            .and_then(|meta| grapheme_artifact::expr::select_path(meta, path))
             .unwrap_or(JsonValue::Null);
     }
 
@@ -2044,19 +2034,17 @@ fn resolve_dollar_expr_at(
             }
             let path = &template[path_start..j];
             let value = match prefix {
-                "$state" => select_json_path(scope.state, path).cloned(),
-                "$current" => select_json_path(scope.current, path).cloned(),
+                "$state" => grapheme_artifact::expr::select_path(scope.state, path),
+                "$current" => grapheme_artifact::expr::select_path(scope.current, path),
                 "$item" => scope
                     .item
-                    .and_then(|item| select_json_path(item, path))
-                    .cloned(),
+                    .and_then(|item| grapheme_artifact::expr::select_path(item, path)),
                 "$loop" => scope
                     .loop_meta
                     .as_ref()
-                    .and_then(|meta| select_json_path(meta, path))
-                    .cloned(),
+                    .and_then(|meta| grapheme_artifact::expr::select_path(meta, path)),
                 "$args" => {
-                    select_json_path(&JsonValue::Object(scope.locals.clone()), path).cloned()
+                    grapheme_artifact::expr::select_path(&JsonValue::Object(scope.locals.clone()), path)
                 }
                 _ => None,
             }

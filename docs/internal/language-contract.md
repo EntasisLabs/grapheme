@@ -158,7 +158,17 @@ Precedence, loosest first: `if … then … else`, `||`, `&&`, comparison (`==` 
 - Expressions cannot call executables or module ops; calls stay pipeline steps.
 - Expressions lower to `{"$expr": {"op": "+", "args": [..]}}` in HIR/MIR and are evaluated by both Stage A and Stage B runtimes.
 
-Not yet: static operand typing under `--type-policy strict`, `.count`, and single-expression bodies (RFC-0007 B.1–B.3, B.5). Field references inside expressions are still checked against the input type.
+`.count` on a list or string reads its length (`$state.items.count`). A struct field named `count` still wins.
+
+Operand types come from the input type, typed params and literals. Under `--type-policy strict` a definite mismatch is a type error; under `warn` it is an `expression-type` lint. Checked:
+
+- arithmetic and ordering operands (`"a" - 1`, `$name > 3`);
+- `&&`, `||`, `!` and `if` conditions take `Bool`;
+- both `if` branches have the same type;
+- a `set`/`core.merge` field's expression matches the field type (`Int` widens to `Float`);
+- bare symbols compared with or assigned to an enum are members of it.
+
+Operands with no declared type (locals, loop items, `Any`) are not checked. Single-expression bodies (RFC-0007 B.5) are not implemented yet.
 
 ## State Contract
 
