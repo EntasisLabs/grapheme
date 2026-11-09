@@ -19,6 +19,86 @@ pub enum Value {
     Symbol(String),   // unquoted symbol target
     List(Vec<Value>),
     Object(Vec<(String, Value)>),
+    Expr(Box<ValueExpr>), // pure expression over values
+}
+
+/// A pure value expression. Evaluated at runtime against the current scope.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ValueExpr {
+    Unary(UnaryOp, Value),
+    Binary(BinaryOp, Value, Value),
+    If(Value, Value, Value),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UnaryOp {
+    Not,
+    Neg,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BinaryOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    And,
+    Or,
+}
+
+impl UnaryOp {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            UnaryOp::Not => "!",
+            UnaryOp::Neg => "neg",
+        }
+    }
+}
+
+impl BinaryOp {
+    pub fn from_token(token: &str) -> Option<Self> {
+        Some(match token {
+            "+" => BinaryOp::Add,
+            "-" => BinaryOp::Sub,
+            "*" => BinaryOp::Mul,
+            "/" => BinaryOp::Div,
+            "%" => BinaryOp::Rem,
+            "==" => BinaryOp::Eq,
+            "!=" => BinaryOp::Ne,
+            "<" => BinaryOp::Lt,
+            "<=" => BinaryOp::Le,
+            ">" => BinaryOp::Gt,
+            ">=" => BinaryOp::Ge,
+            "&&" => BinaryOp::And,
+            "||" => BinaryOp::Or,
+            _ => return None,
+        })
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BinaryOp::Add => "+",
+            BinaryOp::Sub => "-",
+            BinaryOp::Mul => "*",
+            BinaryOp::Div => "/",
+            BinaryOp::Rem => "%",
+            BinaryOp::Eq => "==",
+            BinaryOp::Ne => "!=",
+            BinaryOp::Lt => "<",
+            BinaryOp::Le => "<=",
+            BinaryOp::Gt => ">",
+            BinaryOp::Ge => ">=",
+            BinaryOp::And => "&&",
+            BinaryOp::Or => "||",
+        }
+    }
 }
 
 /// A directive annotation: @name(args...)

@@ -1055,6 +1055,19 @@ impl RuntimeEngine {
                             if is_call_step(module) {
                                 let scope = loop_frame.template_scope(state, iteration);
                                 let resolved_call_args = resolve_current_templates(args, &scope);
+                                if let Some(message) =
+                                    grapheme_artifact::expr::first_error(&resolved_call_args)
+                                {
+                                    return Ok(Some(fail_execution(
+                                        state,
+                                        *step_index,
+                                        capability,
+                                        "EXPRESSION_ERROR",
+                                        message.to_string(),
+                                        ExecutionOutcome::FatalFailure,
+                                        base_context,
+                                    )));
+                                }
                                 let call_max_depth =
                                     resolve_call_max_depth(&resolved_call_args, max_call_depth)?;
                                 if let Some(result) = self.invoke_target(
@@ -1088,6 +1101,18 @@ impl RuntimeEngine {
 
                             let scope = loop_frame.template_scope(state, iteration);
                             let call_args = args_with_pipeline_input(args, &state.current, &scope);
+
+                            if let Some(message) = grapheme_artifact::expr::first_error(&call_args) {
+                                return Ok(Some(fail_execution(
+                                    state,
+                                    *step_index,
+                                    capability,
+                                    "EXPRESSION_ERROR",
+                                    message.to_string(),
+                                    ExecutionOutcome::FatalFailure,
+                                    base_context,
+                                )));
+                            }
 
                             if let Err(err) = self.options.policy_guard.check(&resolved, &call_args)
                             {
@@ -1731,6 +1756,11 @@ fn resolve_current_templates(value: &JsonValue, scope: &TemplateScope<'_>) -> Js
         JsonValue::Object(map) => {
             if let Some(var_ref) = variable_ref_from_object(map) {
                 return resolve_variable_reference(var_ref, scope);
+            }
+            if let Some((op, args)) = grapheme_artifact::expr::expr_parts(map) {
+                return grapheme_artifact::expr::evaluate(op, args, |arg| {
+                    resolve_current_templates(arg, scope)
+                });
             }
 
             let mapped = map
@@ -2442,6 +2472,31 @@ mod tests {
             resolve_current_string_template("$args.label", &scope),
             json!("priority")
         );
+    }
+
+    #[test]
+    fn resolve_current_templates_evaluates_value_expressions() {
+        let current = json!({"count": 4, "mode": "idle"});
+        let mut locals = Map::new();
+        locals.insert("step".to_string(), json!(2));
+        let scope = TemplateScope {
+            current: &current,
+            state: &current,
+            item: None,
+            loop_meta: None,
+            locals: &locals,
+        };
+        let args = json!({
+            "next": {"$expr": {"op": "+", "args": [{"$var": "state.count"}, {"$var": "step"}]}},
+            "mode": {"$expr": {"op": "if", "args": [
+                {"$expr": {"op": "==", "args": [{"$var": "state.mode"}, "idle"]}},
+                "pulsing",
+                "idle"
+            ]}}
+        });
+
+        let resolved = resolve_current_templates(&args, &scope);
+        assert_eq!(resolved, json!({"next": 6, "mode": "pulsing"}));
     }
 
     #[test]

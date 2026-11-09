@@ -33,17 +33,44 @@ compare_op = { "==" | ">=" | "<=" | ">" | "<" }
 
 // ── Values ───────────────────────────────────────────────────
 
-value = {
+// A value is a literal, a reference, or a pure expression over them.
+// Precedence, loosest first: if/then/else, ||, &&, comparison, + -, * / %, unary ! -.
+value = { if_value | or_value }
+
+kw_if   = @{ "if" ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_then = @{ "then" ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_else = @{ "else" ~ !(ASCII_ALPHANUMERIC | "_") }
+
+if_value = { kw_if ~ value ~ kw_then ~ value ~ kw_else ~ value }
+
+or_value  = { and_value ~ (or_op ~ and_value)* }
+and_value = { cmp_value ~ (and_op ~ cmp_value)* }
+cmp_value = { add_value ~ (value_cmp_op ~ add_value)? }
+add_value = { mul_value ~ (add_op ~ mul_value)* }
+mul_value = { unary_value ~ (mul_op ~ unary_value)* }
+unary_value = { unary_op* ~ primary_value }
+
+or_op        = { "||" }
+and_op       = { "&&" }
+value_cmp_op = { "==" | "!=" | ">=" | "<=" | ">" | "<" }
+add_op       = { "+" | "-" ~ !">" }
+mul_op       = { "*" | "/" | "%" }
+unary_op     = { "!" ~ !"=" | "-" }
+
+primary_value = _{
     string_lit
   | float_lit
   | int_lit
   | bool_lit
   | null_lit
   | variable
-    | symbol_lit
+  | paren_value
+  | symbol_lit
   | list_value
   | object_value
 }
+
+paren_value = { "(" ~ value ~ ")" }
 
 list_value = { "[" ~ (value ~ ("," ~ value)*)? ~ "]" }
 

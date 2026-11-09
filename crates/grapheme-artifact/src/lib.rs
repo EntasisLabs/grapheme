@@ -5,6 +5,7 @@
 
 pub mod artifact;
 pub mod capability;
+pub mod expr;
 pub mod mir;
 
 pub use artifact::{

@@ -137,6 +137,29 @@ Out of 0.7.0: tag-typed parameters as the fundamental call-edge model, and `uses
 
 Canonical examples: `examples/params-call-bind.gr`, `examples/tag-using-scope.gr`.
 
+## Value Expressions (RFC-0007 Part B)
+
+Any value position (step args, `set`/`apply` fields, list items, defaults) accepts a pure expression:
+
+```gr
+set {
+  count: $state.count + 1,
+  density: if $state.density == compact then comfortable else compact,
+  big: $state.count >= 10 && !$state.archived
+}
+```
+
+Precedence, loosest first: `if … then … else`, `||`, `&&`, comparison (`==` `!=` `<` `<=` `>` `>=`, non-associative), `+` `-`, `*` `/` `%`, unary `!` `-`. Parentheses group.
+
+- `Int op Int` stays `Int`; `/` truncates toward zero. Mixing `Int` and `Float` gives `Float`. `+` also joins two strings.
+- `==`/`!=` compare numbers by value (`1 == 1.0`) and other values structurally. Bare enum members compare as their string value.
+- `&&`, `||` and `if` short-circuit. `false` and `null` are falsy.
+- Integer overflow, division by zero and operand type mismatches fail the step with `EXPRESSION_ERROR`.
+- Expressions cannot call executables or module ops; calls stay pipeline steps.
+- Expressions lower to `{"$expr": {"op": "+", "args": [..]}}` in HIR/MIR and are evaluated by both Stage A and Stage B runtimes.
+
+Not yet: static operand typing under `--type-policy strict`, `.count`, and single-expression bodies (RFC-0007 B.1–B.3, B.5). Field references inside expressions are still checked against the input type.
+
 ## State Contract
 
 Runtime state tracks:

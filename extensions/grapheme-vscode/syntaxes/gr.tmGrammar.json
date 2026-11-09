@@ -173,7 +173,19 @@
         },
         {
           "name": "keyword.operator.arrow.gr",
-          "match": "->"
+          "match": "->|=>"
+        },
+        {
+          "name": "keyword.operator.comparison.gr",
+          "match": "==|!=|<=|>=|<|>"
+        },
+        {
+          "name": "keyword.operator.logical.gr",
+          "match": "&&|\\|\\||!"
+        },
+        {
+          "name": "keyword.operator.arithmetic.gr",
+          "match": "[+*/%]|-"
         }
       ]
     }

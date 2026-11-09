@@ -127,3 +127,81 @@ fn rejects_source_and_artifact_together() {
         Some("INVALID_REQUEST")
     );
 }
+
+#[test]
+fn value_expressions_evaluate_in_set_patches() {
+    let source = r#"
+enum Density { compact, comfortable }
+
+struct Counter {
+    count: Int
+    density: Density
+    ratio?: Float
+    half?: Int
+    label?: String
+    big?: Bool
+}
+
+query Bump on Counter -> Counter {
+    set {
+        count: $state.count + 1,
+        density: if $state.density == compact then comfortable else compact,
+        ratio: $state.count / 4.0,
+        half: $state.count / 4,
+        label: "n=" + "{$state.count}",
+        big: $state.count >= 10 && !($state.count > 100)
+    }
+}
+"#;
+    let response = execute(&ExecuteRequest {
+        source: Some(source.to_string()),
+        artifact: None,
+        initial_current: Some(json!({ "count": 10, "density": "compact" })),
+        args: None,
+        entrypoint: None,
+    });
+
+    assert!(
+        response.ok,
+        "expected ok, error={:?}",
+        response.error.as_ref().map(|e| &e.message)
+    );
+    let current = response
+        .final_state
+        .as_ref()
+        .and_then(|state| state.get("current"))
+        .cloned();
+    assert_eq!(
+        current,
+        Some(json!({
+            "count": 11,
+            "density": "comfortable",
+            "ratio": 2.5,
+            "half": 2,
+            "label": "n=10",
+            "big": true
+        }))
+    );
+}
+
+#[test]
+fn value_expression_errors_fail_the_step() {
+    let source = r#"
+struct Counter { count: Int }
+
+query Divide on Counter -> Counter {
+    set { count: 10 / $state.count }
+}
+"#;
+    let response = execute(&ExecuteRequest {
+        source: Some(source.to_string()),
+        artifact: None,
+        initial_current: Some(json!({ "count": 0 })),
+        args: None,
+        entrypoint: None,
+    });
+
+    let body = serde_json::to_string(&response).expect("serialize response");
+    assert!(!response.ok || body.contains("EXPRESSION_ERROR"), "{body}");
+    assert!(body.contains("division by zero in '/'"), "{body}");
+}
