@@ -9,8 +9,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use grapheme_artifact::expr::{evaluate, expr_parts, first_error, select_path};
 use grapheme_artifact::{
-    ArtifactEnvelope, ExecutionOutcome, MirFunctionKind, MirStore, MirStoreField, MirStoreFieldKind,
-    MirView, MirViewNode, VIEW_IR_VERSION,
+    ArtifactEnvelope, ExecutionOutcome, MirFunctionKind, MirStore, MirStoreField,
+    MirStoreFieldKind, MirView, MirViewNode, VIEW_IR_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as JsonValue};
@@ -311,13 +311,18 @@ impl StoreSession {
         depth: usize,
         events: &mut Vec<BoundEvent>,
     ) -> Result<JsonValue, RuntimeError> {
-        let fail = |message: String| session_error(format!("view '{}', element '{key}': {message}", view.name));
+        let fail = |message: String| {
+            session_error(format!("view '{}', element '{key}': {message}", view.name))
+        };
         if let Some(name) = &node.view {
             if depth >= MAX_VIEW_DEPTH {
-                return Err(fail(format!("view references nest deeper than {MAX_VIEW_DEPTH}")));
+                return Err(fail(format!(
+                    "view references nest deeper than {MAX_VIEW_DEPTH}"
+                )));
             }
             let referenced = self.find_view(name)?;
-            let mut out = self.evaluate_node(referenced, &referenced.root, key, scope, depth + 1, events)?;
+            let mut out =
+                self.evaluate_node(referenced, &referenced.root, key, scope, depth + 1, events)?;
             out["view"] = JsonValue::from(name.clone());
             return Ok(out);
         }
@@ -332,13 +337,21 @@ impl StoreSession {
         }
         let mut props = Map::new();
         for (name, value) in &node.props {
-            let value = eval_view_value(value, scope).map_err(|e| fail(format!("prop '{name}': {e}")))?;
+            let value =
+                eval_view_value(value, scope).map_err(|e| fail(format!("prop '{name}': {e}")))?;
             props.insert(name.clone(), value);
         }
         let mut children = Vec::new();
         for child in &node.children {
             let suffix = child.key.strip_prefix(&node.key).unwrap_or(&child.key);
-            children.push(self.evaluate_node(view, child, &format!("{key}{suffix}"), scope, depth, events)?);
+            children.push(self.evaluate_node(
+                view,
+                child,
+                &format!("{key}{suffix}"),
+                scope,
+                depth,
+                events,
+            )?);
         }
         let label = props
             .get("label")
@@ -381,13 +394,16 @@ impl StoreSession {
         let mut actions = Vec::new();
         for event in events {
             let slot = (event.key.clone(), event.event.clone());
-            let binding = self.bindings.entry(slot.clone()).or_insert_with(|| Binding {
-                view: view.to_string(),
-                target: event.target.clone(),
-                args: event.args.clone(),
-                epoch: 0,
-                mounted: false,
-            });
+            let binding = self
+                .bindings
+                .entry(slot.clone())
+                .or_insert_with(|| Binding {
+                    view: view.to_string(),
+                    target: event.target.clone(),
+                    args: event.args.clone(),
+                    epoch: 0,
+                    mounted: false,
+                });
             if !binding.mounted
                 || binding.view != view
                 || binding.target != event.target
@@ -670,7 +686,9 @@ fn interpolate(resolved: &JsonValue, original: &JsonValue, scope: &JsonValue) ->
                 rest = &rest[pos + 2..];
                 let end = rest.find('}').unwrap_or(rest.len());
                 let path = rest[..end].strip_prefix("state.").unwrap_or(&rest[..end]);
-                out.push_str(&display(&select_path(scope, path).unwrap_or(JsonValue::Null)));
+                out.push_str(&display(
+                    &select_path(scope, path).unwrap_or(JsonValue::Null),
+                ));
                 rest = rest.get(end + 1..).unwrap_or("");
             }
             out.push_str(rest);

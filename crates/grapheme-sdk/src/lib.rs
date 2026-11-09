@@ -539,7 +539,10 @@ impl GraphemeStoreSession {
 
     /// Evaluates a view against its store's latest revision: the View IR tree
     /// and the action list of every event bound in it (RFC-0007 I.2).
-    pub fn render(&mut self, view: &str) -> Result<grapheme_runtime::ViewSnapshot, GraphemeSdkError> {
+    pub fn render(
+        &mut self,
+        view: &str,
+    ) -> Result<grapheme_runtime::ViewSnapshot, GraphemeSdkError> {
         Ok(self.session.render(view)?)
     }
 

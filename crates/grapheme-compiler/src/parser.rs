@@ -314,6 +314,12 @@ fn parse_view_element(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
                     match item.as_rule() {
                         Rule::view_event => element.events.push(parse_view_event(item)?),
                         Rule::view_element => element.children.push(parse_view_element(item)?),
+                        Rule::view_step => {
+                            return Err(GraphemeError::ParseError(format!(
+                                "a view contains elements only; '{}' is a pipeline step or module call",
+                                item.as_str().trim()
+                            )));
+                        }
                         _ => {}
                     }
                 }

@@ -150,7 +150,9 @@ kw_on   = @{ "on" ~ !(ASCII_ALPHANUMERIC | "_") }
 view_content    = { "(" ~ value ~ ")" }
 view_child_name = { ident ~ ":" }
 view_event      = { kw_on ~ ident ~ ":" ~ ident ~ arg_list? }
-view_body       = { "{" ~ ((view_event | view_element) ~ ","?)* ~ "}" }
+// Recognised only to reject it: a view holds elements, never steps or module calls.
+view_step       = { ("|>" ~ ident ~ ("." ~ ident)* | ident ~ ("." ~ ident)+) ~ arg_list? }
+view_body       = { "{" ~ ((view_event | view_step | view_element) ~ ","?)* ~ "}" }
 view_element    = { view_child_name? ~ ident ~ (arg_list | view_content)? ~ view_body? }
 
 view_def = {

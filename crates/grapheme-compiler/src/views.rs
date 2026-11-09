@@ -12,8 +12,8 @@ use serde_json::{Map, Value as JsonValue};
 use crate::ast::{Definition, Program, ScalarKind, TypeRef, Value, ViewDef, ViewElement};
 use crate::error::GraphemeError;
 use crate::hir::{HirExecutable, HirExecutableKind, HirStore, value_to_json};
-use crate::verifier::LintWarning;
 use crate::stores::{find_field, rewrite_strings, rewrite_vars, split_path};
+use crate::verifier::LintWarning;
 use grapheme_artifact::{MirView, MirViewBinding, MirViewNode};
 
 #[derive(Clone, Copy, PartialEq)]
@@ -133,7 +133,10 @@ pub(crate) fn lower_views(
         .collect();
     let mut names = HashMap::new();
     for def in &defs {
-        if names.insert(def.name.as_str(), def.store.as_deref()).is_some() {
+        if names
+            .insert(def.name.as_str(), def.store.as_deref())
+            .is_some()
+        {
             return Err(type_error(format!(
                 "view '{}' is declared more than once",
                 def.name
@@ -145,7 +148,8 @@ pub(crate) fn lower_views(
                 def.name
             )));
         }
-        if executables.iter().any(|e| e.name == def.name) || stores.iter().any(|s| s.name == def.name)
+        if executables.iter().any(|e| e.name == def.name)
+            || stores.iter().any(|s| s.name == def.name)
         {
             return Err(type_error(format!(
                 "view '{}' has the same name as another definition",
@@ -188,10 +192,17 @@ struct Ctx<'a> {
 
 impl Ctx<'_> {
     fn error(&self, key: &str, message: String) -> GraphemeError {
-        type_error(format!("view '{}', element '{key}': {message}", self.view.name))
+        type_error(format!(
+            "view '{}', element '{key}': {message}",
+            self.view.name
+        ))
     }
 
-    fn lower_element(&self, element: &ViewElement, key: String) -> Result<MirViewNode, GraphemeError> {
+    fn lower_element(
+        &self,
+        element: &ViewElement,
+        key: String,
+    ) -> Result<MirViewNode, GraphemeError> {
         let Some(prim) = primitive(&element.kind) else {
             if self.views.contains_key(element.kind.as_str()) {
                 return self.lower_view_ref(element, key);
@@ -201,7 +212,11 @@ impl Ctx<'_> {
                 format!(
                     "unknown element '{}'; expected a view or one of: {}",
                     element.kind,
-                    CATALOG.iter().map(|p| p.name).collect::<Vec<_>>().join(", ")
+                    CATALOG
+                        .iter()
+                        .map(|p| p.name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ),
             ));
         };
@@ -211,10 +226,16 @@ impl Ctx<'_> {
             if !prim.content {
                 return Err(self.error(
                     &key,
-                    format!("'{}' takes no positional content; use named props", prim.name),
+                    format!(
+                        "'{}' takes no positional content; use named props",
+                        prim.name
+                    ),
                 ));
             }
-            props.insert("content".to_string(), self.lower_prop(&key, "content", PropType::Text, content)?);
+            props.insert(
+                "content".to_string(),
+                self.lower_prop(&key, "content", PropType::Text, content)?,
+            );
         }
         for (name, value) in &element.props {
             let Some((_, ty)) = prim.props.iter().find(|(p, _)| p == name) else {
@@ -223,7 +244,11 @@ impl Ctx<'_> {
                     format!(
                         "'{}' has no prop '{name}'; its props are: {}",
                         prim.name,
-                        prim.props.iter().map(|(p, _)| *p).collect::<Vec<_>>().join(", ")
+                        prim.props
+                            .iter()
+                            .map(|(p, _)| *p)
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     ),
                 ));
             };
@@ -242,7 +267,10 @@ impl Ctx<'_> {
                 ));
             }
             if events.contains_key(&event.event) {
-                return Err(self.error(&key, format!("event '{}' is bound more than once", event.event)));
+                return Err(self.error(
+                    &key,
+                    format!("event '{}' is bound more than once", event.event),
+                ));
             }
             let binding = self.lower_binding(&key, &event.target, &event.args)?;
             events.insert(event.event.clone(), binding);
@@ -281,17 +309,27 @@ impl Ctx<'_> {
         })
     }
 
-    fn lower_view_ref(&self, element: &ViewElement, key: String) -> Result<MirViewNode, GraphemeError> {
+    fn lower_view_ref(
+        &self,
+        element: &ViewElement,
+        key: String,
+    ) -> Result<MirViewNode, GraphemeError> {
         if element.content.is_some() || !element.props.is_empty() {
             return Err(self.error(
                 &key,
-                format!("view '{}' takes no arguments yet (view params are not supported)", element.kind),
+                format!(
+                    "view '{}' takes no arguments yet (view params are not supported)",
+                    element.kind
+                ),
             ));
         }
         if !element.events.is_empty() || !element.children.is_empty() {
             return Err(self.error(
                 &key,
-                format!("view '{}' takes no body yet (slots and event params are not supported)", element.kind),
+                format!(
+                    "view '{}' takes no body yet (slots and event params are not supported)",
+                    element.kind
+                ),
             ));
         }
         if let Some(Some(other)) = self.views.get(element.kind.as_str())
@@ -316,7 +354,13 @@ impl Ctx<'_> {
         })
     }
 
-    fn lower_prop(&self, key: &str, name: &str, ty: PropType, value: &Value) -> Result<JsonValue, GraphemeError> {
+    fn lower_prop(
+        &self,
+        key: &str,
+        name: &str,
+        ty: PropType,
+        value: &Value,
+    ) -> Result<JsonValue, GraphemeError> {
         let lowered = self.lower_value(key, value)?;
         if let Some(actual) = self.static_type(&lowered) {
             let expected = match ty {
@@ -347,7 +391,9 @@ impl Ctx<'_> {
         if !matches!(exec.kind, HirExecutableKind::Mutation) {
             return Err(self.error(
                 key,
-                format!("binding target '{target}' is not a mutation; events can only invoke mutations"),
+                format!(
+                    "binding target '{target}' is not a mutation; events can only invoke mutations"
+                ),
             ));
         }
         match (&self.store, &exec.store) {
@@ -361,7 +407,10 @@ impl Ctx<'_> {
             (None, _) => {
                 return Err(self.error(
                     key,
-                    format!("'{target}' cannot be bound here: view '{}' has no `on` state", self.view.name),
+                    format!(
+                        "'{target}' cannot be bound here: view '{}' has no `on` state",
+                        self.view.name
+                    ),
                 ));
             }
         }
@@ -375,7 +424,8 @@ impl Ctx<'_> {
                 return Err(self.error(key, format!("argument '{name}' is given more than once")));
             }
             let lowered = self.lower_value(key, value)?;
-            if let (Some(actual), Some(expected)) = (self.static_type(&lowered), scalar_name(&param.type_ref))
+            if let (Some(actual), Some(expected)) =
+                (self.static_type(&lowered), scalar_name(&param.type_ref))
                 && !(actual == expected || (expected == "Float" && actual == "Int"))
             {
                 return Err(self.error(
@@ -392,7 +442,10 @@ impl Ctx<'_> {
         {
             return Err(self.error(
                 key,
-                format!("'{target}' needs argument '{}', which the binding does not supply", missing.name),
+                format!(
+                    "'{target}' needs argument '{}', which the binding does not supply",
+                    missing.name
+                ),
             ));
         }
         Ok(MirViewBinding {
@@ -419,7 +472,8 @@ impl Ctx<'_> {
             return Err(self.error(key, message));
         }
         rewrite_strings(&mut json, &mut |s| {
-            self.rewrite_interpolation(s).map_err(|m| self.error(key, m))
+            self.rewrite_interpolation(s)
+                .map_err(|m| self.error(key, m))
         })?;
         Ok(json)
     }
@@ -428,7 +482,10 @@ impl Ctx<'_> {
         let (head, _) = split_path(path);
         match self.store {
             Some(store) if find_field(store, head).is_some() => Ok(path.to_string()),
-            Some(store) => Err(format!("'${path}' is not a field of state '{}'", store.name)),
+            Some(store) => Err(format!(
+                "'${path}' is not a field of state '{}'",
+                store.name
+            )),
             None => Err(format!(
                 "'${path}' cannot be read: view '{}' has no `on` state",
                 self.view.name

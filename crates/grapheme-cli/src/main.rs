@@ -2737,7 +2737,11 @@ fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
                 let value = args.get(i + 1).ok_or_else(|| {
                     CompilerError::RuntimeError(format!(
                         "{flag} requires {}",
-                        if flag == "--render" { "a view name" } else { "an action id" }
+                        if flag == "--render" {
+                            "a view name"
+                        } else {
+                            "an action id"
+                        }
                     ))
                 })?;
                 invokes.push((&flag[2..], value.clone(), None));
@@ -3076,7 +3080,9 @@ fn print_usage() {
     );
     eprintln!("  grapheme examples show <name> [--summary] [--raw] [--yaml|--json]");
     eprintln!("  grapheme examples init [--out dir]");
-    eprintln!("  grapheme session [<file.gr>] [--invoke|--query Name[:<json-object>] | --render View | --action <id> ...]");
+    eprintln!(
+        "  grapheme session [<file.gr>] [--invoke|--query Name[:<json-object>] | --render View | --action <id> ...]"
+    );
     eprintln!(
         "  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules]"
     );
@@ -4056,6 +4062,17 @@ query HelloWorld {
         let actual = format_discovery(&compilation.mir, DiscoveryOutputMode::Json)
             .expect("json format should succeed");
         let expected = include_str!("../tests/golden/compile-mir-hello-world.json");
+        assert_eq!(normalized(&actual), normalized(expected));
+    }
+
+    #[test]
+    fn golden_compile_view_ir_json_contract() {
+        let source = include_str!("../../../examples/view-counter.gr");
+        let compilation = grapheme_compiler::compile(source).expect("compile should succeed");
+        let document = grapheme_artifact::view_ir_document(&compilation.mir.views);
+        let actual = format_discovery(&document, DiscoveryOutputMode::Json)
+            .expect("json format should succeed");
+        let expected = include_str!("../tests/golden/compile-view-ir-counter.json");
         assert_eq!(normalized(&actual), normalized(expected));
     }
 }
