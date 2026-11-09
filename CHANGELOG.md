@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`transition $state.<field>` writes the root field.** The step lowered to `core.set_fields` with a literal `state.status` key, so the field kept its old value and a typed output (`-> T`) rejected it with "field 'state.status' is not declared". It now writes `status`. `examples/mutation-state-machine-apply.gr` (tutorial 02) compiles again under both type policies and ends with `status: approved`; `examples/core-validate-schema.gr` now updates `status` instead of adding a `state.status` key. (RFC-0007 Part J.3)
+- **Partial literal patches under `-> T`.** `set`, `core.set_fields` and `core.merge` patches in a query or mutation `on S -> T` no longer have to restate required fields of `T` that the input type `S` declares; the runtime already carried them over. (RFC-0007 Part J.1)
+- **`inc_field` / `dec_field` keep integers.** An integer field stays an integer (`5` → `6`, previously `6.0`). Float fields and the missing-field default (`1.0`) are unchanged. (RFC-0007 Part J.2)
+
 ## [0.7.2] - 2026-10-23
 
 **SQLite link coexistence and TLS/tokio security floors.** The `sql` capability stays on sqlx, moved to 0.9 (#27) so one Cargo build can also link rusqlite 0.37 (`libsqlite3-sys` 0.35). Web search no longer pulls the unfixed `reqwest` 0.11 / `rustls` 0.21 line.
