@@ -323,11 +323,11 @@ pub fn lte(args: &JsonValue) -> JsonValue {
 }
 
 pub fn inc_field(args: &JsonValue) -> JsonValue {
-    bump_field(args, 1.0)
+    bump_field(args, 1)
 }
 
 pub fn dec_field(args: &JsonValue) -> JsonValue {
-    bump_field(args, -1.0)
+    bump_field(args, -1)
 }
 
 pub fn set_fields(args: &JsonValue) -> JsonValue {
@@ -571,7 +571,7 @@ fn compare_numeric(args: &JsonValue, pred: fn(f64, f64) -> bool) -> JsonValue {
     json!({ "value": pred(a, b) })
 }
 
-fn bump_field(args: &JsonValue, delta: f64) -> JsonValue {
+fn bump_field(args: &JsonValue, delta: i64) -> JsonValue {
     let field = args.get("field").and_then(|v| v.as_str()).unwrap_or("");
     if field.is_empty() {
         return json!({ "error": "missing arg: field" });
@@ -584,8 +584,16 @@ fn bump_field(args: &JsonValue, delta: f64) -> JsonValue {
         .or_else(|| args.get("__input").and_then(|v| v.as_object()).cloned())
         .unwrap_or_default();
 
-    let current = input.get(field).and_then(|v| v.as_f64()).unwrap_or(0.0);
-    input.insert(field.to_string(), json!(current + delta));
+    let current = input.get(field);
+    let bumped = current
+        .and_then(|v| v.as_i64())
+        .and_then(|int| int.checked_add(delta))
+        .map(|int| json!(int))
+        .unwrap_or_else(|| {
+            let float = current.and_then(|v| v.as_f64()).unwrap_or(0.0);
+            json!(float + delta as f64)
+        });
+    input.insert(field.to_string(), bumped);
     JsonValue::Object(input)
 }
 
@@ -603,6 +611,26 @@ mod tests {
     fn echo_accepts_object_message_values() {
         let out = echo(&json!({ "message": { "a": 1, "b": true } }));
         assert_eq!(out, json!({ "message": "{\"a\":1,\"b\":true}" }));
+    }
+
+    #[test]
+    fn inc_and_dec_field_preserve_integer_values() {
+        let inc = inc_field(&json!({ "__input": { "n": 5 }, "field": "n" }));
+        assert_eq!(inc, json!({ "n": 6 }));
+        assert!(inc["n"].is_i64());
+
+        let dec = dec_field(&json!({ "__input": { "n": 5 }, "field": "n" }));
+        assert_eq!(dec, json!({ "n": 4 }));
+        assert!(dec["n"].is_i64());
+    }
+
+    #[test]
+    fn inc_field_keeps_float_values_and_missing_field_default() {
+        let float = inc_field(&json!({ "__input": { "n": 1.5 }, "field": "n" }));
+        assert_eq!(float, json!({ "n": 2.5 }));
+
+        let missing = inc_field(&json!({ "__input": {}, "field": "n" }));
+        assert_eq!(missing, json!({ "n": 1.0 }));
     }
 
     #[test]

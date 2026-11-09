@@ -130,7 +130,7 @@ Checked with `grapheme compile --emit hir --type-policy strict` and `grapheme ru
 | Need | Existing construct | Status |
 | --- | --- | --- |
 | Partial root patch | `set { selected: $index }` | works |
-| Counter update | `inc_field(field: "presses")` | works; `Int` becomes `Float` (Part J) |
+| Counter update | `inc_field(field: "presses")` | works; `Int` stays `Int` (fixed in Part J.2) |
 | Inbound signal with payload | `subscription Pinged($count: Int) on Panel { set { pings: $count } }` | works |
 | Repetition | `iterator … @loop(max: 3, merge: "replace")` | works |
 | String interpolation | `"{$state.presses} presses"` | works |
@@ -148,8 +148,7 @@ What does **not** fit today, and why r2 adds syntax instead:
 - Iterators cannot write state under the strict profile, which forced r1's helper mutations.
 - `apply { a: 1 }` already parses, as a struct-init step of a type named `apply`, and merges into the root. This RFC reserves `apply` with no lane as the store transaction (Part E). No existing example uses it.
 - `state { current }` is a selection-set selector today. The top-level `state Name { … }` definition is a different context and does not conflict.
-- `transition $state.status -> approved` writes through the `state` lane today (`transition $state.mode` against a plain struct is rejected with "field 'state.mode' is not declared"). Lifecycle fields (A.4) need it to target a store field, with its edge check enforced at commit time as well as at compile time.
-- The bundled `examples/mutation-state-machine-apply.gr`, used by tutorial 02, fails to compile on current `main` with that same error (`field 'state.status' is not declared on output type 'ApprovalState'`), under both the default and strict policies. Part J.3 tracks it.
+- `transition $state.status -> approved` writes the root field `status` of the value being transformed (fixed in Part J.3; it previously wrote a literal `state.status` key). Lifecycle fields (A.4) need it to target a store field, with its edge check enforced at commit time as well as at compile time.
 - Program-scoped `using mutable $h: Tag(…)` parses, but handles are not resolved at runtime yet, so they are not a basis for stores.
 
 ## Worked example
@@ -789,9 +788,11 @@ Three identities exist and are never interchangeable:
 
 ## Part J — Independent fixes
 
-1. **Partial `set` under `-> T`.** `set { selected: $index }` in a mutation `on S -> S` is rejected today ("missing required fields in literal state patches") although the runtime carries the other fields over. Unpatched fields of the input type should count as present. Store mutations do not need this, but existing struct mutations do.
-2. **`Int` preservation.** `inc_field` on an `Int` field returns a `Float` (`5` → `6.0`). It should preserve the field's declared numeric type.
-3. **Bundled state-machine example.** `examples/mutation-state-machine-apply.gr` (tutorial 02) fails to compile on `main`: `field 'state.status' is not declared on output type 'ApprovalState'`. Either `transition $state.<field>` should resolve against the input type's fields again, or the example and tutorial should be updated.
+All three are implemented (rollout step 0).
+
+1. **Partial `set` under `-> T`.** Literal patches (`set`, `core.set_fields`, `core.merge`) in a query or mutation `on S -> T` may omit required fields of `T` that the input type `S` declares; the runtime carries them over. Required fields the input does not declare are still reported as missing.
+2. **`Int` preservation.** `inc_field` and `dec_field` keep an integer value an integer (`5` → `6`). Float values stay floats, and a missing field still starts from `0.0`.
+3. **`transition $state.<field>`.** The step writes the root field (`status`), not a literal `state.status` key, so it type-checks against the declared output type. `examples/mutation-state-machine-apply.gr` (tutorial 02) compiles under both policies and ends with `status: approved`.
 
 ## Verifier matrix
 

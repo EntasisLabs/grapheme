@@ -1549,7 +1549,11 @@ struct FibState {
 	 b: Float
 }
 
-query Run on FibState -> FibState {
+struct Seed {
+	 a: Float
+}
+
+query Run on Seed -> FibState {
 	core.set_fields(fields: { a: 1.0 })
 }
 "#;
@@ -1558,6 +1562,77 @@ query Run on FibState -> FibState {
             .expect_err("compile should fail when required output fields are missing");
         let msg = err.to_string();
         assert!(msg.contains("missing required fields"));
+        assert!(msg.contains(": b"));
+    }
+
+    #[test]
+    fn accepts_partial_patches_when_input_type_carries_required_fields() {
+        let source = r#"
+struct FibState {
+	 a: Float
+	 b: Float
+}
+
+glyph Main {
+	Bump
+}
+
+mutation Bump on FibState -> FibState {
+	set { b: 2.0 }
+}
+"#;
+
+        let options = CompileOptions {
+            capability_policy: grapheme_artifact::CapabilityPolicy::default(),
+            executable_kind_policy_mode: ExecutableKindPolicyMode::StrictMutationOnly,
+        };
+        compile_program(parse(source).expect("parse"), options)
+            .expect("unpatched fields of the input type should carry over");
+    }
+
+    #[test]
+    fn transition_on_state_field_writes_root_field_of_typed_output() {
+        let source = r#"
+enum Status { draft, approved }
+
+state_machine Lifecycle on Status {
+	transition draft -> approved
+	terminal approved
+}
+
+struct Request {
+	 status: Status
+	 note?: String
+}
+
+mutation Approve on Request -> Request {
+	transition $state.status -> approved { note: "ok" }
+}
+"#;
+
+        let options = CompileOptions {
+            capability_policy: grapheme_artifact::CapabilityPolicy::default(),
+            executable_kind_policy_mode: ExecutableKindPolicyMode::StrictMutationOnly,
+        };
+        let compilation = compile_program(parse(source).expect("parse"), options)
+            .expect("transition on $state.<field> should type-check against the input type");
+        let approve = compilation
+            .mir
+            .functions
+            .iter()
+            .find(|f| f.name == "Approve")
+            .expect("Approve function present");
+        let first_inst = approve
+            .blocks
+            .first()
+            .and_then(|b| b.instructions.first())
+            .expect("Approve has first instruction");
+        let grapheme_artifact::MirInst::Call { args, .. } = first_inst else {
+            panic!("expected set_fields call, got {first_inst:?}");
+        };
+        let fields = args.get("fields").and_then(|f| f.as_object()).expect("fields");
+        assert_eq!(fields.get("status"), Some(&serde_json::json!("approved")));
+        assert!(!fields.contains_key("state.status"));
     }
 
     #[test]

@@ -1000,6 +1000,10 @@ fn parse_transition_step_as_set_fields_call(pair: Pair<Rule>) -> Result<FieldCal
     };
 
     let field_name = parse_current_field_name(&left_var, "transition-step")?;
+    let field_name = match field_name.strip_prefix("state.") {
+        Some(root_field) => root_field.to_string(),
+        None => field_name,
+    };
     let mut fields = vec![(field_name, to_value)];
 
     if let Some(extra_obj) = inner.next() {
