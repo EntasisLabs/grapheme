@@ -426,6 +426,7 @@ fn run(args: Vec<String>) -> Result<(), CompilerError> {
         && args[1] != "examples"
         && args[1] != "modules"
         && args[1] != "telemetry"
+        && args[1] != "session"
     {
         return emit_parse(&args[1], DiscoveryOutputMode::Yaml);
     }
@@ -440,6 +441,7 @@ fn run(args: Vec<String>) -> Result<(), CompilerError> {
             let (file_path, run_options) = parse_run_args(&args[2..])?;
             run_program(&file_path, run_options)
         }
+        "session" => emit_session_cmd(&args[2..]),
         "modules" => emit_modules_cmd(&args[2..]),
         "telemetry" => emit_telemetry_cmd(&args[2..]),
         _ => {
@@ -2697,6 +2699,82 @@ fn emit_parse(file_path: &str, output_mode: DiscoveryOutputMode) -> Result<(), C
     Ok(())
 }
 
+/// `grapheme session <file.gr> [--invoke|--query Name[:<json-args>] ...]`: opens
+/// a headless store session, runs store mutations and queries in order, and
+/// prints every committed revision, query results and each store's final
+/// snapshot as JSON.
+fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
+    let (file_path, consumed) = resolve_file_path_arg_or_project_main(args, "session")?;
+    let mut invokes = Vec::new();
+    let mut i = consumed;
+    while i < args.len() {
+        match args[i].as_str() {
+            flag @ ("--invoke" | "--query") => {
+                let is_query = flag == "--query";
+                let spec = args.get(i + 1).ok_or_else(|| {
+                    CompilerError::RuntimeError(format!("{flag} requires Name[:<json-args>]"))
+                })?;
+                let (name, payload) = match spec.split_once(':') {
+                    Some((name, raw)) => {
+                        let value: JsonValue = serde_json::from_str(raw).map_err(|e| {
+                            CompilerError::RuntimeError(format!(
+                                "{flag} {name}: args must be a JSON object: {e}"
+                            ))
+                        })?;
+                        if !value.is_object() {
+                            return Err(CompilerError::RuntimeError(format!(
+                                "{flag} {name}: args must be a JSON object"
+                            )));
+                        }
+                        (name.to_string(), Some(value))
+                    }
+                    None => (spec.clone(), None),
+                };
+                invokes.push((is_query, name, payload));
+                i += 2;
+            }
+            "--json" => i += 1,
+            other => {
+                return Err(CompilerError::RuntimeError(format!(
+                    "unknown session option '{other}'"
+                )));
+            }
+        }
+    }
+
+    let source = read_source(&file_path)?;
+    let engine = GraphemeEngine::builder().build();
+    let sdk_error = |e: grapheme_sdk::GraphemeSdkError| CompilerError::RuntimeError(e.to_string());
+    let mut session = engine.store_session(&source).map_err(sdk_error)?;
+    let mut queries = Vec::new();
+    for (is_query, name, payload) in invokes {
+        if is_query {
+            let result = session.query(&name, payload).map_err(sdk_error)?;
+            queries.push(json!({"query": name, "result": result}));
+        } else {
+            session.invoke(&name, payload).map_err(sdk_error)?;
+        }
+    }
+    let mut stores = serde_json::Map::new();
+    for store in session.store_names() {
+        let snapshot = session.snapshot(&store).map_err(sdk_error)?;
+        stores.insert(
+            store.clone(),
+            json!({"revision": session.revision(&store), "fields": snapshot}),
+        );
+    }
+    let mut out = json!({"revisions": session.revisions(), "stores": stores});
+    if !queries.is_empty() {
+        out["queries"] = JsonValue::Array(queries);
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&out)
+            .map_err(|e| CompilerError::RuntimeError(e.to_string()))?
+    );
+    Ok(())
+}
+
 fn emit_compile_cmd(args: &[String]) -> Result<(), CompilerError> {
     let (file_path, consumed) = resolve_file_path_arg_or_project_main(args, "compile")?;
     let mut emit_target = "mir".to_string();
@@ -2973,6 +3051,7 @@ fn print_usage() {
     );
     eprintln!("  grapheme examples show <name> [--summary] [--raw] [--yaml|--json]");
     eprintln!("  grapheme examples init [--out dir]");
+    eprintln!("  grapheme session [<file.gr>] [--invoke|--query Name[:<json-object>] ...]");
     eprintln!(
         "  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules]"
     );

@@ -1102,7 +1102,8 @@ impl RuntimeEngine {
                             let scope = loop_frame.template_scope(state, iteration);
                             let call_args = args_with_pipeline_input(args, &state.current, &scope);
 
-                            if let Some(message) = grapheme_artifact::expr::first_error(&call_args) {
+                            if let Some(message) = grapheme_artifact::expr::first_error(&call_args)
+                            {
                                 return Ok(Some(fail_execution(
                                     state,
                                     *step_index,
@@ -1840,10 +1841,7 @@ fn resolve_local_reference(reference: &str, scope: &TemplateScope<'_>) -> Option
     if let Some((name, path)) = reference.split_once('.')
         && let Some(value) = scope.locals.get(name)
     {
-        return Some(
-            grapheme_artifact::expr::select_path(value, path)
-                .unwrap_or(JsonValue::Null),
-        );
+        return Some(grapheme_artifact::expr::select_path(value, path).unwrap_or(JsonValue::Null));
     }
     None
 }
@@ -1862,8 +1860,7 @@ fn resolve_variable_reference(reference: &str, scope: &TemplateScope<'_>) -> Jso
     }
 
     if let Some(path) = reference.strip_prefix("state.") {
-        return grapheme_artifact::expr::select_path(scope.state, path)
-            .unwrap_or(JsonValue::Null);
+        return grapheme_artifact::expr::select_path(scope.state, path).unwrap_or(JsonValue::Null);
     }
 
     if let Some(path) = reference.strip_prefix("current.") {
@@ -1916,8 +1913,7 @@ fn resolve_current_string_template(template: &str, scope: &TemplateScope<'_>) ->
     if let Some(path) = template.strip_prefix("$state.")
         && path.chars().all(is_selector_char)
     {
-        return grapheme_artifact::expr::select_path(scope.state, path)
-            .unwrap_or(JsonValue::Null);
+        return grapheme_artifact::expr::select_path(scope.state, path).unwrap_or(JsonValue::Null);
     }
 
     if let Some(path) = template.strip_prefix("$current.")
@@ -2043,9 +2039,10 @@ fn resolve_dollar_expr_at(
                     .loop_meta
                     .as_ref()
                     .and_then(|meta| grapheme_artifact::expr::select_path(meta, path)),
-                "$args" => {
-                    grapheme_artifact::expr::select_path(&JsonValue::Object(scope.locals.clone()), path)
-                }
+                "$args" => grapheme_artifact::expr::select_path(
+                    &JsonValue::Object(scope.locals.clone()),
+                    path,
+                ),
                 _ => None,
             }
             .unwrap_or(JsonValue::Null);
@@ -2314,6 +2311,7 @@ mod tests {
                 risk: Some("high".to_string()),
             }),
             loop_config: None,
+            store: None,
             blocks: vec![MirBlock {
                 id: 0,
                 instructions: vec![instruction],
@@ -2324,6 +2322,7 @@ mod tests {
         let mir = MirProgram {
             functions: vec![function],
             capabilities: vec![capability],
+            stores: vec![],
         };
 
         let artifact = build_artifact_from_mir(&mir, Some("Main")).expect("artifact builds");
@@ -2377,6 +2376,7 @@ mod tests {
                 timeout_config: None,
                 intent_config: None,
                 loop_config: None,
+                store: None,
                 blocks: vec![MirBlock {
                     id: 0,
                     instructions: vec![],
@@ -2384,6 +2384,7 @@ mod tests {
                 }],
             }],
             capabilities: vec![],
+            stores: vec![],
         };
 
         let artifact = build_artifact_from_mir(&mir, Some("Main")).expect("artifact builds");
@@ -3148,6 +3149,7 @@ mod tests {
             timeout_config: None,
             intent_config: None,
             loop_config: None,
+            store: None,
             blocks: vec![MirBlock {
                 id: 0,
                 instructions: vec![instruction],
@@ -3157,6 +3159,7 @@ mod tests {
         let mir = MirProgram {
             functions: vec![function],
             capabilities: vec![capability],
+            stores: vec![],
         };
         let artifact = build_artifact_from_mir(&mir, Some("NeedsHost")).expect("artifact");
         let stage_a = build_aot_from_artifact(&artifact).expect("stage_a");
@@ -3277,6 +3280,7 @@ mod tests {
             timeout_config: None,
             intent_config: None,
             loop_config: None,
+            store: None,
             blocks: vec![MirBlock {
                 id: 0,
                 instructions: vec![instruction],
@@ -3286,6 +3290,7 @@ mod tests {
         let mir = MirProgram {
             functions: vec![function],
             capabilities: vec![capability],
+            stores: vec![],
         };
         let artifact = build_artifact_from_mir(&mir, Some("NeedsHost")).expect("artifact");
         let stage_a = build_aot_from_artifact(&artifact).expect("stage_a");
@@ -3368,6 +3373,7 @@ mod tests {
                 until: None,
                 merge,
             }),
+            store: None,
             blocks: vec![MirBlock {
                 id: 0,
                 instructions: vec![instruction],
@@ -3378,6 +3384,7 @@ mod tests {
         let mir = MirProgram {
             functions: vec![function],
             capabilities: vec![capability],
+            stores: vec![],
         };
 
         build_artifact_from_mir(&mir, Some("Main")).expect("artifact builds")
