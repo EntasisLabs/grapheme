@@ -401,10 +401,18 @@ pub struct QueryDef {
     pub pipelines: Vec<Pipeline>,
 }
 
-/// Glyph: explicit program-style composition root.
+/// Glyph: a workflow composition root, or a UI app on a store (RFC-0007 Part H).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlyphDef {
     pub name: String,
+    /// When set, this is a UI glyph: the body is [`root`], not [`pipelines`].
+    pub store: Option<String>,
+    /// `expose Name, …` — store executables and views reachable outside the tree.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expose: Vec<String>,
+    /// Root element of a UI glyph (`on Store`). `None` for workflow glyphs.
+    pub root: Option<ViewElement>,
+    /// Pipelines of a workflow glyph. Empty for UI glyphs.
     pub pipelines: Vec<Pipeline>,
 }
 

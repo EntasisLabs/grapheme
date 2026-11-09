@@ -9,12 +9,14 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde_json::{Map, Value as JsonValue};
 
-use crate::ast::{Definition, Program, ScalarKind, TypeRef, Value, ViewDef, ViewElement};
+use crate::ast::{
+    Definition, GlyphDef, Program, ScalarKind, TypeRef, Value, ViewDef, ViewElement,
+};
 use crate::error::GraphemeError;
 use crate::hir::{HirExecutable, HirExecutableKind, HirStore, value_to_json};
 use crate::stores::{find_field, rewrite_strings, rewrite_vars, split_path};
 use crate::verifier::LintWarning;
-use grapheme_artifact::{MirView, MirViewBinding, MirViewNode};
+use grapheme_artifact::{MirUiGlyph, MirView, MirViewBinding, MirViewNode};
 
 #[derive(Clone, Copy, PartialEq)]
 enum PropType {
@@ -181,6 +183,168 @@ pub(crate) fn lower_views(
             })
         })
         .collect()
+}
+
+fn is_bare_view_ref(element: &ViewElement, views: &HashMap<&str, Option<&str>>) -> bool {
+    element.child_name.is_none()
+        && element.content.is_none()
+        && element.props.is_empty()
+        && element.events.is_empty()
+        && element.children.is_empty()
+        && views.contains_key(element.kind.as_str())
+}
+
+/// Lowers `glyph Name on Store { expose …; Element }` (RFC-0007 Part H).
+///
+/// A bare view reference reuses that view as the root. Any other element is
+/// lowered as a synthetic view named after the glyph. `expose` names must be
+/// mutations or queries on the glyph's store, or views on that store.
+pub(crate) fn lower_ui_glyphs(
+    program: &Program,
+    stores: &[HirStore],
+    executables: &[HirExecutable],
+    views: &mut Vec<MirView>,
+) -> Result<Vec<MirUiGlyph>, GraphemeError> {
+    let glyphs: Vec<&GlyphDef> = program
+        .definitions
+        .iter()
+        .filter_map(|d| match d {
+            Definition::Glyph(g) if g.store.is_some() => Some(g),
+            _ => None,
+        })
+        .collect();
+    if glyphs.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut out = Vec::new();
+    for glyph in glyphs {
+        let store_name = glyph.store.as_deref().expect("UI glyph has store");
+        let store = stores.iter().find(|s| s.name == store_name).ok_or_else(|| {
+            type_error(format!(
+                "glyph '{}' is on '{store_name}', which is not a declared state",
+                glyph.name
+            ))
+        })?;
+
+        let view_stores: HashMap<&str, Option<&str>> = views
+            .iter()
+            .map(|v| (v.name.as_str(), v.store.as_deref()))
+            .collect();
+
+        let root_el = glyph.root.as_ref().ok_or_else(|| {
+            type_error(format!("glyph '{}' is missing its root element", glyph.name))
+        })?;
+
+        let root_view = if is_bare_view_ref(root_el, &view_stores) {
+            let referred = root_el.kind.as_str();
+            match view_stores.get(referred).copied().flatten() {
+                Some(other) if other != store_name => {
+                    return Err(type_error(format!(
+                        "glyph '{}' on {store_name} roots '{referred}', which is on {other}",
+                        glyph.name
+                    )));
+                }
+                _ => {}
+            }
+            referred.to_string()
+        } else {
+            if views.iter().any(|v| v.name == glyph.name)
+                || executables.iter().any(|e| e.name == glyph.name)
+                || stores.iter().any(|s| s.name == glyph.name)
+                || primitive(&glyph.name).is_some()
+            {
+                return Err(type_error(format!(
+                    "glyph '{}' has the same name as another definition",
+                    glyph.name
+                )));
+            }
+            let synthetic = ViewDef {
+                name: glyph.name.clone(),
+                store: Some(store_name.to_string()),
+                root: root_el.clone(),
+            };
+            let ctx = Ctx {
+                view: &synthetic,
+                store: Some(store),
+                views: &view_stores,
+                executables,
+            };
+            let mir = MirView {
+                name: glyph.name.clone(),
+                store: Some(store_name.to_string()),
+                root: ctx.lower_element(&synthetic.root, glyph.name.clone())?,
+            };
+            let name = mir.name.clone();
+            views.push(mir);
+            name
+        };
+
+        let view_stores: HashMap<&str, Option<&str>> = views
+            .iter()
+            .map(|v| (v.name.as_str(), v.store.as_deref()))
+            .collect();
+
+        let mut expose = Vec::new();
+        let mut seen = HashSet::new();
+        for name in &glyph.expose {
+            if !seen.insert(name.as_str()) {
+                return Err(type_error(format!(
+                    "glyph '{}': '{name}' is exposed more than once",
+                    glyph.name
+                )));
+            }
+            if let Some(exec) = executables.iter().find(|e| &e.name == name) {
+                match &exec.store {
+                    Some(s) if s == store_name => {}
+                    Some(other) => {
+                        return Err(type_error(format!(
+                            "glyph '{}' exposes '{name}' on {other}, not on {store_name}",
+                            glyph.name
+                        )));
+                    }
+                    None => {
+                        return Err(type_error(format!(
+                            "glyph '{}' exposes '{name}', which is not on a state store",
+                            glyph.name
+                        )));
+                    }
+                }
+                if !matches!(
+                    exec.kind,
+                    HirExecutableKind::Mutation | HirExecutableKind::Query
+                ) {
+                    return Err(type_error(format!(
+                        "glyph '{}' exposes '{name}', which is not a mutation or query",
+                        glyph.name
+                    )));
+                }
+            } else if let Some(store_of) = view_stores.get(name.as_str()) {
+                if let Some(other) = *store_of {
+                    if other != store_name {
+                        return Err(type_error(format!(
+                            "glyph '{}' exposes view '{name}' on {other}, not on {store_name}",
+                            glyph.name
+                        )));
+                    }
+                }
+            } else {
+                return Err(type_error(format!(
+                    "glyph '{}' exposes '{name}', which is not a mutation, query or view on {store_name}",
+                    glyph.name
+                )));
+            }
+            expose.push(name.clone());
+        }
+
+        out.push(MirUiGlyph {
+            name: glyph.name.clone(),
+            store: store_name.to_string(),
+            root: root_view,
+            expose,
+        });
+    }
+    Ok(out)
 }
 
 struct Ctx<'a> {

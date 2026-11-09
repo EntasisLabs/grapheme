@@ -2699,10 +2699,11 @@ fn emit_parse(file_path: &str, output_mode: DiscoveryOutputMode) -> Result<(), C
     Ok(())
 }
 
-/// `grapheme session <file.gr> [--invoke|--query Name[:<json-args>] | --render View | --action <id> ...]`:
-/// opens a headless store session, runs store mutations, queries, view renders
-/// and view actions in order, and prints every committed revision, query
-/// results, renders and each store's final snapshot as JSON.
+/// `grapheme session <file.gr> [--invoke|--query Name[:<json-args>] | --render View |
+/// --mount [Glyph] | --action <id> ...]`: opens a headless store session, runs
+/// store mutations, queries, view renders / UI glyph mounts and actions in
+/// order, and prints every committed revision, query results, renders, app
+/// snapshots and each store's final snapshot as JSON.
 fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
     let (file_path, consumed) = resolve_file_path_arg_or_project_main(args, "session")?;
     let mut invokes = Vec::new();
@@ -2747,6 +2748,19 @@ fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
                 invokes.push((&flag[2..], value.clone(), None));
                 i += 2;
             }
+            "--mount" => {
+                // Optional glyph name; omit to mount the program's sole UI glyph.
+                let name = args
+                    .get(i + 1)
+                    .filter(|v| !v.starts_with("--"))
+                    .cloned();
+                if name.is_some() {
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+                invokes.push(("mount", name.unwrap_or_default(), None));
+            }
             "--json" => i += 1,
             other => {
                 return Err(CompilerError::RuntimeError(format!(
@@ -2762,6 +2776,7 @@ fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
     let mut session = engine.store_session(&source).map_err(sdk_error)?;
     let mut queries = Vec::new();
     let mut renders = Vec::new();
+    let mut apps = Vec::new();
     for (kind, name, payload) in invokes {
         match kind {
             "query" => {
@@ -2769,6 +2784,14 @@ fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
                 queries.push(json!({"query": name, "result": result}));
             }
             "render" => renders.push(json!(session.render(&name).map_err(sdk_error)?)),
+            "mount" => {
+                let glyph = if name.is_empty() {
+                    None
+                } else {
+                    Some(name.as_str())
+                };
+                apps.push(json!(session.mount(glyph).map_err(sdk_error)?));
+            }
             "action" => {
                 session.invoke_action(&name).map_err(sdk_error)?;
             }
@@ -2791,6 +2814,9 @@ fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
     }
     if !renders.is_empty() {
         out["renders"] = JsonValue::Array(renders);
+    }
+    if !apps.is_empty() {
+        out["apps"] = JsonValue::Array(apps);
     }
     println!(
         "{}",
@@ -3081,7 +3107,7 @@ fn print_usage() {
     eprintln!("  grapheme examples show <name> [--summary] [--raw] [--yaml|--json]");
     eprintln!("  grapheme examples init [--out dir]");
     eprintln!(
-        "  grapheme session [<file.gr>] [--invoke|--query Name[:<json-object>] | --render View | --action <id> ...]"
+        "  grapheme session [<file.gr>] [--invoke|--query Name[:<json-object>] | --render View | --mount [Glyph] | --action <id> ...]"
     );
     eprintln!(
         "  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules]"

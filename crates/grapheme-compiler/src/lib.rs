@@ -39,8 +39,9 @@ pub fn compile_to_artifact(
     entrypoint: Option<&str>,
 ) -> Result<ArtifactEnvelope, CompilerError> {
     let ast = parse(source)?;
+    // Workflow glyphs are artifact entrypoints; UI glyphs (`on Store`) are not.
     let implicit_entrypoint = ast.definitions.iter().find_map(|def| match def {
-        Definition::Glyph(g) => Some(g.name.clone()),
+        Definition::Glyph(g) if g.store.is_none() => Some(g.name.clone()),
         _ => None,
     });
 

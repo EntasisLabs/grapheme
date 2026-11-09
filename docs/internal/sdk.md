@@ -364,6 +364,16 @@ snapshot = session.render("CounterView")?;
 assert_eq!(snapshot.revision, Some(1));
 ```
 
+A UI glyph (`glyph CounterApp on Counter { expose Increment; CounterView }`) mounts as an app session: `mount(None)` (or `mount(Some("CounterApp"))`) returns an `AppSnapshot` with the same IR and tree actions, plus `expose:<Name>` actions for exposed mutations. `app_snapshot()` re-evaluates the mounted glyph; `invoke_action("expose:Increment")` runs an exposed no-arg mutation.
+
+```rust
+let app = session.mount(None)?;
+assert_eq!(app.glyph, "CounterApp");
+let id = app.actions.iter().find(|a| a.id == "expose:Increment").unwrap().id.clone();
+session.invoke_action(&id)?;
+assert_eq!(session.app_snapshot()?.revision, 1);
+```
+
 ## Stateful Runtime Session + Hotmodule Lifecycle
 
 Use `runtime_session()` when you need persistent activation state across multiple executions.

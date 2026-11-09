@@ -546,8 +546,23 @@ impl GraphemeStoreSession {
         Ok(self.session.render(view)?)
     }
 
-    /// Invokes an action id from a rendered view's current action list. An id
-    /// whose binding epoch is no longer current fails with `stale_action`.
+    /// Mounts a UI glyph (`glyph Name on Store { … }`) and returns its app
+    /// snapshot. When `glyph` is `None`, mounts the program's sole UI glyph.
+    pub fn mount(
+        &mut self,
+        glyph: Option<&str>,
+    ) -> Result<grapheme_runtime::AppSnapshot, GraphemeSdkError> {
+        Ok(self.session.mount(glyph)?)
+    }
+
+    /// Re-evaluates the mounted UI glyph (View IR + action list, including expose).
+    pub fn app_snapshot(&mut self) -> Result<grapheme_runtime::AppSnapshot, GraphemeSdkError> {
+        Ok(self.session.app_snapshot()?)
+    }
+
+    /// Invokes an action id from a rendered view's current action list, or an
+    /// `expose:<Name>` action from a mounted UI glyph. An id whose binding
+    /// epoch is no longer current fails with `stale_action`.
     pub fn invoke_action(
         &mut self,
         id: &str,

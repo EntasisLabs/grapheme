@@ -200,19 +200,91 @@ fn parse_glyph(pair: Pair<Rule>, state: &mut ParseState) -> Result<GlyphDef, Gra
         .as_str()
         .to_string();
 
-    let pipelines = inner
-        .filter(|p| p.as_rule() == Rule::pipeline)
-        .map(|p| parse_pipeline(p, state))
-        .collect::<Result<Vec<_>, _>>()?;
+    let first = inner
+        .next()
+        .ok_or_else(|| GraphemeError::ParseError(format!("glyph '{name}' is empty")))?;
 
-    if pipelines.is_empty() {
-        return Err(GraphemeError::ParseError(format!(
-            "glyph '{}' must contain at least one pipeline",
-            name
-        )));
+    // UI glyph: `glyph Name on Store { … }` — after the name comes `on`, then the store.
+    if first.as_rule() == Rule::kw_on {
+        let store = inner
+            .next()
+            .ok_or_else(|| GraphemeError::ParseError(format!("glyph '{name}' missing store")))?
+            .as_str()
+            .to_string();
+        let body = inner.next().ok_or_else(|| {
+            GraphemeError::ParseError(format!("glyph '{name}' on {store} missing body"))
+        })?;
+        return parse_ui_glyph(name, store, body);
     }
 
-    Ok(GlyphDef { name, pipelines })
+    // Workflow glyph: the first inner after the name is already a pipeline (or more follow).
+    let mut pipelines = vec![parse_pipeline(first, state)?];
+    for p in inner {
+        if p.as_rule() == Rule::pipeline {
+            pipelines.push(parse_pipeline(p, state)?);
+        }
+    }
+    if pipelines.is_empty() {
+        return Err(GraphemeError::ParseError(format!(
+            "glyph '{name}' must contain at least one pipeline"
+        )));
+    }
+    Ok(GlyphDef {
+        name,
+        store: None,
+        expose: Vec::new(),
+        root: None,
+        pipelines,
+    })
+}
+
+fn parse_ui_glyph(
+    glyph: String,
+    store: String,
+    body: Pair<Rule>,
+) -> Result<GlyphDef, GraphemeError> {
+    let mut expose = Vec::new();
+    let mut root = None;
+    for part in body.into_inner() {
+        match part.as_rule() {
+            Rule::expose_clause => {
+                for ident in part.into_inner() {
+                    let exposed = ident.as_str().to_string();
+                    if expose.iter().any(|e| e == &exposed) {
+                        return Err(GraphemeError::ParseError(format!(
+                            "glyph '{glyph}': '{exposed}' is exposed more than once"
+                        )));
+                    }
+                    expose.push(exposed);
+                }
+            }
+            Rule::view_element => {
+                if root.is_some() {
+                    return Err(GraphemeError::ParseError(format!(
+                        "glyph '{glyph}' on {store} must have exactly one root element"
+                    )));
+                }
+                root = Some(parse_view_element(part)?);
+            }
+            r => {
+                return Err(GraphemeError::UnexpectedRule(format!(
+                    "ui glyph body: {r:?}"
+                )))
+            }
+        }
+    }
+    let root = root.ok_or_else(|| {
+        GraphemeError::ParseError(format!(
+            "glyph '{glyph}' on {store} must contain a root element"
+        ))
+    })?;
+    Ok(GlyphDef {
+        name: glyph,
+        store: Some(store),
+        expose,
+        root: Some(root),
+        pipelines: Vec::new(),
+    })
 }
 
 // ── Imports ───────────────────────────────────────────────────
