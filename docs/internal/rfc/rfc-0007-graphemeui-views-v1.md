@@ -1,10 +1,10 @@
 # RFC-0007: GraphemeUI — State Stores, Views and Tasks v1
 
-Status: draft (revision 2)
+Status: draft (revision 3)
 Authors: language + runtime
 Created: 2026-11-07
 Revised: 2026-11-09
-Target release window: after RFC-0004 Part C (`uses`)
+Target release window: after the RFC-0004 0.7.0 parameter and tag work
 
 ## Summary
 
@@ -14,31 +14,43 @@ A program has three surfaces, each with its own construct and its own rules:
 
 | Surface | Construct | Contract |
 | --- | --- | --- |
-| **State** | `state Name { … }` | Typed fields with defaults, read-only derives, atomic transactions, revisions and field diffs |
+| **State** | `state Name { … }`, `register Name on Store { … }` | Typed fields with lifetimes and kinds, lifecycle fields, registries, atomic transactions, revisions and field diffs |
 | **Views** | `view Name { … }` | Pure declarative projections of state, written as element blocks |
 | **Behaviour** | `mutation`, `task`, `subscription` | Pure transactions, governed effects, inbound signals |
 
 This RFC adds:
 
-1. **State stores** with defaults, `derive` fields, transactions (`apply { … }`), revisions, a revision log (`@history`) and opt-in undo (`@undo`).
+1. **State stores** with keyword-level semantics:
+   - store lifetimes (`singleton state`, `state`, `transient state … on Component`);
+   - field kinds (`const`, `transient`, `derive`) and lifecycle fields governed by the existing `state_machine`;
+   - registries (`register … on Store`) that give a store its dependencies and capability grants;
+   - transactions (`apply { … }`), revisions, a revision log (`history N`) and opt-in undo (`undo by action`).
 2. A small **pure expression grammar** usable in any value position.
 3. A **`view` kind** whose body is an element tree (`Name(props) { style, children, on event }`), never a pipeline.
 4. **Typed events and delegates**: event declarations and event bindings are distinct and checked; behaviour is referenced, never captured.
 5. A **`task` kind** for effects, with concurrency policies, generation fencing and optimistic guards.
-6. **UI glyphs** with `@hot_reload` and `@expose`.
+6. **UI glyphs** with an `expose` clause; hot-reload behaviour follows from field and store kinds.
 7. A versioned **View IR** and a **headless app session** API, so the same source drives a native renderer and an agent.
 8. Two independent verifier/runtime fixes.
 
 ## Revision history
 
 - **r1 (2026-11-07).** UI expressed through existing constructs: `struct` + init query for state, `fragment`-like `view` returning struct literals with `children: [ … ]`, `@derive` queries passed through tags, `@task` iterators delegating writes to helper mutations.
-- **r2 (this revision).** After review, a middle ground between r1 and the original friendly draft:
+- **r2.** After review, a middle ground between r1 and the original friendly draft:
   - State becomes a declared store instead of a bare `$state` blob. Init queries, derive tags and helper mutations disappear.
   - Views get their own element grammar, so UI is visibly different from executable code, and named children keep their order.
   - Expressions (`+`, `==`, `if … then … else`) are added instead of avoided.
   - `task` becomes a kind; `apply` inside a task commits directly.
-  - Event declarations vs bindings, `apply` across async boundaries, and what `@history` promises are specified (Parts D, F, A.5).
+  - Event declarations vs bindings, `apply` across async boundaries, and what the revision log promises are specified (Parts D, F, A.8).
   - Headless agent interface added (Part I).
+- **r3 (this revision).** Keywords replace `@` directives for what a store or property *is*:
+  - Field kinds are leading keywords: `const`, `transient`, `derive`. `@transient` is gone.
+  - Store lifetimes are declared on the store: `singleton state`, `state`, `transient state … on Component`. `transient` means "wipeable" at both levels.
+  - Lifecycle fields reuse `state_machine` unchanged: a field whose enum has a machine is written only by `transition`.
+  - `register Name on Store { … }` declares a store's dependencies (other stores) and capability grants; everything `on` the store inherits them.
+  - `history N` and `undo by action` are store clauses; `expose` is a glyph clause; `@hot_reload` is removed.
+  - `$state.` is dropped where the store is known from scope: `$selected`, and `$Prefs.density` for inherited stores.
+  - Catalog ops are marked `pure query …`. Tasks are not undoable (no `@undoable` yet).
 
 Syntax lineage for one fragment of the panel:
 
@@ -47,8 +59,25 @@ Syntax lineage for one fragment of the panel:
 shuffle: PanelButton { label: "Shuffle"  click: Shuffle }
 // r1
 PanelButton(label: "Shuffle", click: Shuffle),
-// r2
+// r2, r3
 shuffle: PanelButton(label: "Shuffle") { on click: Shuffle }
+```
+
+And for state:
+
+```grapheme
+// r2
+state Panel @history(limit: 100) @undo(group: action) {
+  pulse: Int = 0 @transient
+}
+mutation Select($index: Int) on Panel { apply { selected: $index, presses: $state.presses + 1 } }
+// r3
+state Panel {
+  history 100
+  undo by action
+  transient pulse: Int = 0
+}
+mutation Select($index: Int) on Panel { apply { selected: $index, presses: $presses + 1 } }
 ```
 
 ## Motivation
@@ -84,6 +113,7 @@ Dependency rule: GraphemeUI depends on Grapheme and on its renderer. Grapheme do
 6. **No per-frame interpretation.** Views re-run per state revision, only for the fields they read. Animation and painting are renderer data.
 7. **The renderer owns input, focus, IME, text editing, layout, shaping and accessibility.** Text inputs are uncontrolled and report changes as actions.
 8. **Humans and agents use the same surface.** Anything a user can click, an agent can invoke, through the same checks and policy.
+9. **Keywords say what a thing is; directives say how it runs.** Lifetimes, field kinds, lifecycles, registration and exposure are keywords. Execution policy (`@concurrency`, `@retry`, `@timeout`, `@loop`) stays as directives.
 
 ## What already works (verified against 0.7.2)
 
@@ -98,6 +128,7 @@ Checked with `grapheme compile --emit hir --type-policy strict` and `grapheme ru
 | String interpolation | `"{$state.presses} presses"` | works |
 | Scoped context | `tag` + `using` (RFC-0004) | works |
 | Lane write | `apply state { … }` | writes the nested `state` lane, not root fields |
+| Enum lifecycle | `state_machine L on Status { transition a -> b; terminal b }` | works; bound by enum type, and consecutive literal writes in a pipeline are checked against its edges |
 
 What does **not** fit today, and why r2 adds syntax instead:
 
@@ -108,6 +139,8 @@ What does **not** fit today, and why r2 adds syntax instead:
 - Iterators cannot write state under the strict profile, which forced r1's helper mutations.
 - `apply { a: 1 }` already parses, as a struct-init step of a type named `apply`, and merges into the root. This RFC reserves `apply` with no lane as the store transaction (Part E). No existing example uses it.
 - `state { current }` is a selection-set selector today. The top-level `state Name { … }` definition is a different context and does not conflict.
+- `transition $state.status -> approved` writes through the `state` lane today (`transition $state.mode` against a plain struct is rejected with "field 'state.mode' is not declared"). Lifecycle fields (A.4) need it to target a store field, with its edge check enforced at commit time as well as at compile time.
+- Program-scoped `using mutable $h: Tag(…)` parses, but handles are not resolved at runtime yet, so they are not a basis for stores.
 
 ## Worked example
 
@@ -115,30 +148,66 @@ What does **not** fit today, and why r2 adds syntax instead:
 import rows from "./rows"
 import time from "grapheme/time"
 
+// ── Lifecycles (existing syntax, unchanged) ─────────────────────
+enum PanelMode { idle, pulsing }
+enum Density { comfortable, compact }
+
+state_machine PulseLifecycle on PanelMode {
+  transition idle -> pulsing
+  transition pulsing -> idle
+}
+
 // ── State ────────────────────────────────────────────────────────
-state Panel @history(limit: 100) @undo(group: action) {
+// Keywords say what a store or field is (Part A):
+//   singleton state / state / transient state   store lifetimes
+//   const / transient / derive                  field kinds
+// `mode` is a lifecycle field: PulseLifecycle governs PanelMode.
+state Panel {
+  history 100
+  undo by action
+
+  const page_size: Int = 1000
   selected: Int = 0
   presses: Int = 0
-  pulse: Int = 0 @transient
+  transient pulse: Int = 0
+  mode: PanelMode = idle
   pings: Int = 0
   shuffles: Int = 0
 
   derive items: [rows.Item] =
-    rows.items(count: 1000) |> rows.shuffle(seed: $state.shuffles)
+    rows.items(count: $page_size) |> rows.shuffle(seed: $shuffles)
 
   derive selected_label: String =
-    if $state.selected > 0 then "#{$state.selected}" else "none"
+    if $selected > 0 then "#{$selected}" else "none"
+}
+
+singleton state Prefs {
+  density: Density = comfortable
+}
+
+// Attached to a component: one per PanelButton instance, wiped when it unmounts.
+transient state ButtonHint on PanelButton {
+  shown: Bool = false
+}
+
+// ── Registration ─────────────────────────────────────────────────
+// Everything `on Panel` inherits these stores and capability grants.
+register PanelRegistry on Panel {
+  Prefs
+  time
+  host
 }
 
 // ── Application ──────────────────────────────────────────────────
-glyph MyPanel on Panel
-  @hot_reload(preserve: state, tasks: cancel)
-  @expose(Select, ReadSelected, BenchmarkPanel)
-{
+glyph MyPanel on Panel {
+  expose Select, ReadSelected, BenchmarkPanel
+
   PanelView
 }
 
 // ── Views ────────────────────────────────────────────────────────
+// Inside `on Panel`, Panel's fields are `$field`; inherited and attached
+// stores are qualified: `$Prefs.density`, `$ButtonHint.shown`.
 view PanelView on Panel {
   Column {
     style { width: full, height: full, fill: bg }
@@ -146,10 +215,10 @@ view PanelView on Panel {
     header: Header
     divider: Box { style { width: full, height: 1, fill: separator } }
 
-    items: VirtualList(source: $state.items, key: "id", estimated_row_height: 28) {
+    items: VirtualList(source: $items, key: "id", estimated_row_height: 28) {
       style { width: full, grow: 1 }
 
-      row($item, $index): rows.Row(item: $item, selected: $index == $state.selected) {
+      row($item, $index): rows.Row(item: $item, selected: $index == $selected) {
         on click: Select(index: $index)
       }
     }
@@ -158,14 +227,14 @@ view PanelView on Panel {
 
 view Header on Panel {
   Column {
-    style { width: full, padding: { x: 16, top: 14, bottom: 10 }, gap: 8 }
+    style { width: full, padding: { x: 16, top: 14, bottom: 10 }, gap: if $Prefs.density == compact then 4 else 8 }
 
     heading: Row {
       style { width: full, gap: 8, align: center }
 
       title: Text("Grapheme panel") { style { size: 15, weight: semibold } }
       Spacer
-      summary: Text("{$state.items.count} rows · selected {$state.selected_label} · {$state.presses} presses") {
+      summary: Text("{$items.count} rows · selected {$selected_label} · {$presses} presses") {
         style { size: 12, color: text_secondary }
       }
     }
@@ -180,33 +249,44 @@ view Header on Panel {
 
       progress: Box {
         style { width: 120, height: 6, radius: 3, fill: separator }
-        bar: Box { style { width: $state.pulse * 12, height: 6, radius: 3, fill: "#009fff" } }
+        bar: Box { style { width: $pulse * 12, height: 6, radius: 3, fill: "#009fff" } }
       }
 
-      pings: Text("{$state.pings} pings") { style { width: 60, size: 12, color: text_secondary } }
+      pings: Text("{$pings} pings") { style { width: 60, size: 12, color: text_secondary } }
     }
   }
 }
 
-view PanelButton($label: String, on click: Action!) {
+view PanelButton($label: String, $hint: String = "", on click: Action!) {
   Button(label: $label) {
     on click: $click
+    on long_press: ShowHint
     style {
       padding: { x: 10, y: 4 }, radius: 6, fill: control_off
       hover { fill: hover }
       pressed { fill: press }
     }
     Text($label) { style { size: 12, weight: medium } }
+    if $ButtonHint.shown { Tooltip($hint) }
   }
 }
 
 // ── State transitions ────────────────────────────────────────────
 mutation Select($index: Int) on Panel {
-  apply { selected: $index, presses: $state.presses + 1 }
+  apply { selected: $index, presses: $presses + 1 }
 }
 
 mutation Shuffle on Panel {
-  apply { shuffles: $state.shuffles + 1 }
+  apply { shuffles: $shuffles + 1 }
+}
+
+// Runs against the ButtonHint of the PanelButton that raised the event.
+mutation ShowHint on ButtonHint {
+  apply { shown: true }
+}
+
+mutation ToggleDensity on Panel {
+  apply Prefs { density: if $Prefs.density == compact then comfortable else compact }
 }
 
 // ── Inbound signal ───────────────────────────────────────────────
@@ -216,25 +296,27 @@ subscription Pinged($count: Int) on Panel {
 
 // ── Effects ──────────────────────────────────────────────────────
 task Ping on Panel {
-  apply { pings: $state.pings + 1 }
-  |> host.emit(channel: "pinged", value: $state.pings)
+  apply { pings: $pings + 1 }
+  |> host.emit(channel: "pinged", value: $pings)
 }
 
 task Pulse on Panel @concurrency(restart) {
-  apply { pulse: 10 }
+  transition $mode -> pulsing
+  |> apply { pulse: 10 }
   |> loop(max: 10) {
        time.sleep(ms: 80)
-       |> apply { pulse: $state.pulse - 1 }
+       |> apply { pulse: $pulse - 1 }
      }
+  |> transition $mode -> idle
 }
 
 // ── Host-facing interface ────────────────────────────────────────
 query ReadSelected on Panel -> Int {
-  $state.selected
+  $selected
 }
 
 view BenchmarkPanel on Panel {
-  rows.Panel20(presses: $state.presses)
+  rows.Panel20(presses: $presses)
 }
 ```
 
@@ -243,8 +325,8 @@ The `rows` module would declare, for example (illustrative; bodies elided):
 ```grapheme
 struct Item { id: String, label: String }
 
-query items($count: Int) on Any -> [Item] @pure { … }
-query shuffle($seed: Int) on [Item] -> [Item] @pure { … }
+pure query items($count: Int) on Any -> [Item] { … }
+pure query shuffle($seed: Int) on [Item] -> [Item] { … }
 
 view Row($item: Item, $selected: Bool, on click: Action) {
   Box(label: $item.label) {
@@ -260,40 +342,116 @@ view Row($item: Item, $selected: Bool, on click: Action) {
 ## Part A — State stores
 
 ```text
-state Name directive* { (field | derive)+ }
-field  = ident ":" type_ref "=" expr field_directive*
-derive = "derive" ident ":" type_ref "=" (expr | pure_pipeline)
+store      = lifetime? "state" Name ("on" ViewName)? "{" store_item+ "}"
+lifetime   = "singleton" | "transient"
+store_item = clause | field | derive
+clause     = "history" int_lit
+           | "undo" "by" ("action" | "transaction")
+field      = field_kind? ident ":" type_ref "=" expr
+field_kind = "const" | "transient"
+derive     = "derive" ident ":" type_ref "=" (expr | pure_pipeline)
+
+registry   = "register" Name "on" Store "{" (Store | module | module "." op)+ "}"
 ```
+
+Separators between store items and registry entries are newlines or commas. No store or field semantics use `@` directives. `singleton`, `transient`, `const`, `derive`, `history`, `undo`, `register` and `expose` are contextual keywords: reserved only at the start of a top-level definition, store item or glyph clause, so existing identifiers and op names keep working. Only `const` is already a keyword (`using const`).
 
 ### A.1 Fields
 
-1. Every field has a type and a default expression. Defaults may not read `$state`. The store's initial revision (revision 0) is built from the defaults, so no init query is needed.
-2. Fields are written only by `apply` (Part E). Elsewhere, `$state` is a read-only snapshot of one revision.
+| Keyword | Written by | Revision log and undo | Hot reload |
+| --- | --- | --- | --- |
+| *(none)* | `apply` | logged; undoable | kept |
+| `const` | nothing after creation; `apply` is a compile error | — | kept, unless its default changed |
+| `transient` | `apply` | not logged; not undone | reset to default |
+| `derive` | nothing; computed (A.2) | not logged (follows from fields) | recomputed |
+| lifecycle (A.4) | `transition` only | logged; undoable along legal edges | kept |
+
+1. Every field has a type and a default expression. Defaults may not read other fields. The store's first revision (revision 0) is built from the defaults, plus host-supplied initial values for `const` fields. No init query is needed.
+2. Field writes go through `apply` (Part E) or `transition` (A.4). Everywhere else, fields are read-only values from one revision.
 3. A store is a type: `on Panel` means "runs against the `Panel` store". Mutations and subscriptions on a store have an implied output type (the store); `-> T` is not written.
-4. A store is a runtime object owned by the glyph, separate from the pipeline `AgentState`. Executables on a store receive its snapshot as `$state`. This resolves r1's root-vs-`data`-lane question: neither; the store is its own object.
-5. Separators between fields are newlines or commas.
+4. A store is a runtime object, separate from the pipeline `AgentState`. Stores are available to any glyph, UI or not.
 
 ### A.2 Derives
 
-1. A derive is a read-only field computed from fields, other derives and pure module ops. It is read like a field: `$state.items`.
-2. The verifier rejects capability calls and writes in a derive. Module ops it calls must be declared `@pure` in their signature.
-3. The compiler records each derive's read set (`items` reads `shuffles`). The runtime recomputes a derive only when a field in its read set changes, and lazily, on first read after that change.
+1. A derive is a read-only field computed from fields, other derives and pure module ops. It is read like a field: `$items`.
+2. The verifier rejects capability calls and writes in a derive. Module ops it calls must be declared `pure query …` in their signature.
+3. The compiler records each derive's read set (`items` reads `page_size` and `shuffles`). The runtime recomputes a derive only when a field in its read set changes, and lazily, on first read after that change.
 4. Derive cycles are a compile error.
 
 ### A.3 Transactions and revisions
 
-1. Each committed transaction produces exactly one revision: a monotonically increasing integer plus a field diff `{ field: [old, new] }`. Derives are not part of diffs; they follow from fields.
-2. A mutation is one transaction, however many `apply` steps it contains. A task commits one transaction per `apply` (Part F).
+1. Each committed transaction produces exactly one revision: a monotonically increasing integer plus a field diff `{ field: [old, new] }`. Derives are not part of diffs.
+2. A mutation is one transaction, however many `apply` and `transition` steps it contains. A task commits one transaction per step (Part F).
 3. The store serializes commits; there is one writer at a time. Revisions are applied in commit order.
 4. Views and derives are invalidated per field: a revision re-runs only the views whose compile-time read set intersects its diff. The renderer coalesces revisions per frame.
 
-### A.4 Field directives
+### A.4 Lifecycle fields
 
-- `@transient`: the field is revisioned and re-renders like any other, but is excluded from the revision log's diffs and from undo, and is reset to its default on hot reload. Intended for presentation state such as `pulse`.
+A field whose enum type has a `state_machine` is a **lifecycle field**. The machine is the existing construct, unchanged:
 
-### A.5 `@history` and `@undo`
+```grapheme
+enum PanelMode { idle, pulsing }
 
-`@history(limit: N)` promises a **revision log**, nothing more. Each entry records:
+state_machine PulseLifecycle on PanelMode {
+  transition idle -> pulsing
+  transition pulsing -> idle
+}
+
+state Panel {
+  mode: PanelMode = idle
+}
+```
+
+1. Only `transition $mode -> pulsing` writes a lifecycle field. Naming it in `apply` is a compile error.
+2. Edges are checked statically where the current value is known (as today) and at commit time always. An illegal edge fails with `invalid_transition` and commits nothing.
+3. Once the field reaches a `terminal` member, no further transition is accepted.
+4. The default must be a member of the enum. If more than one machine is declared for the same enum, the field names its machine: `mode: PanelMode = idle by PulseLifecycle`.
+5. `transition` keeps its optional payload object, whose fields are applied in the same transaction: `transition $mode -> idle { pulse: 0 }`.
+
+### A.5 Store lifetimes
+
+A store's lifetime is declared on the store, with the same words a field uses:
+
+| Declaration | Instances | Shared? | On reload or unmount |
+| --- | --- | --- | --- |
+| `singleton state Prefs { … }` | one per registration, created at start-up | every registry that lists it gets the same instance | kept on hot reload |
+| `state Panel { … }` | one per owner: the glyph that is `on` it, or the one registry that lists it | not shareable | kept on hot reload |
+| `transient state Hint on PanelButton { … }` | one per instance of the owning view | each owner instance has its own | wiped when its owner unmounts, and on hot reload |
+
+1. `transient` means **wipeable** at both levels. A transient field is a wipeable value inside a durable store; a transient store is wipeable as a whole.
+2. A transient store's `on` names a view, not a store. Inside that view it is read qualified (`$ButtonHint.shown`). A mutation `on ButtonHint` bound to an event inside that view runs against the instance owned by the node that raised the event (identified by its View IR key).
+3. Transient stores are never logged or undone.
+
+### A.6 Registries
+
+A registry declares what a store brings with it:
+
+```grapheme
+register PanelRegistry on Panel {
+  Prefs      // a store dependency
+  time       // a capability grant: every op in the module
+  host.emit  // a capability grant: one op
+}
+```
+
+1. **Inheritance.** Everything `on Panel` (its glyph, views, mutations, tasks and subscriptions) inherits the registry. Inherited stores are read as `$Prefs.density` and written with `apply Prefs { … }`. There is no per-definition `uses`.
+2. **Capabilities.** Grants are a declarative layer over the host's capability policy. They can only narrow it: a call must be allowed by both. A task on a store with a registry may only call ops its registry grants; an ungranted call is a compile error. A store with no registry falls back to the host policy alone.
+3. **Same store in several registries.** The outcome follows the store's lifetime:
+   - `singleton` — one shared instance;
+   - `transient` — one instance per registry;
+   - plain `state` — a compile error (`ambiguous_store_owner`). The compiler cannot decide which owner the single instance belongs to.
+4. A registry may not list its own store, and registry dependency cycles are a compile error.
+
+### A.7 Names in scope
+
+1. Inside a definition `on Panel`, Panel's fields and derives are in scope as `$field`. There is no `$state.` prefix.
+2. Inherited (A.6) and attached (A.5) stores are read qualified by store name: `$Prefs.density`.
+3. A parameter, payload variable or slot variable with the same name as a field in scope is a compile error, never silent shadowing.
+4. Bare identifiers stay symbols (`fill: bg`), so `$` still marks every value read.
+
+### A.8 `history` and `undo`
+
+`history N` promises a **revision log**, nothing more. Each entry records:
 
 ```json
 { "revision": 42, "cause": { "kind": "mutation", "name": "Select", "args": { "index": 3 },
@@ -304,26 +462,27 @@ derive = "derive" ident ":" type_ref "=" (expr | pure_pipeline)
 
 - `cause.kind` is `mutation`, `task`, `subscription`, `undo`, `redo` or `reload`. `origin` is `user`, `agent`, `host` or `system`.
 - A task's capability calls appear as `effects` entries (`{ "op": "host.emit", "args": { … } }`) on the revision they follow, or as entries with no diff. They are marked irreversible.
-- The log is bounded to `N` entries. Without `@history`, the runtime still keeps the current revision number and the last diff, which invalidation needs.
+- Transient fields never appear in diffs.
+- The log is bounded to `N` entries. Without `history`, the runtime still keeps the current revision number and the last diff, which invalidation needs.
 
-`@undo(group: action | transaction)` is a separate opt-in policy layered on the log:
+`undo by action | transaction` is a separate opt-in layered on the log:
 
-1. An **undo group** is either every revision caused by one action invocation (`action`, the default) or each revision (`transaction`).
-2. Only groups caused by mutations are undoable by default. Tasks and subscriptions are not, unless the executable is marked `@undoable`.
-3. Undo restores the group's non-transient fields to their values before the group, as a **new** revision with `cause.kind: "undo"`. It never rewinds the log.
-4. Undo never reverts effects. If a group's revisions carry effects, undo still applies and the effects stay in the log as having happened.
+1. An **undo group** is either every revision caused by one action invocation (`by action`) or each revision (`by transaction`).
+2. Only groups caused by mutations are undoable. Tasks and subscriptions are not undoable in this RFC.
+3. Undo restores the group's non-transient fields to their values before the group, as a **new** revision with `cause.kind: "undo"`. It never rewinds the log. A lifecycle field is restored only if the reverse edge is legal; otherwise undo is rejected with `undo_conflict`.
+4. Undo never reverts effects.
 5. If a field the group wrote has since been written by a non-undoable cause, undo is rejected with `undo_conflict` and the store is unchanged.
 6. Redo re-applies the group's diff as a new revision. Any new undoable group clears the redo stack.
 
-### A.6 Hot reload migration
+### A.9 Hot reload
 
-When a glyph declares `@hot_reload(preserve: state)`:
+Reload behaviour follows from the keywords; there is no `@hot_reload` directive.
 
-- Added fields take their default.
-- Removed fields are dropped.
-- Fields whose type changed are reset to their default, with a diagnostic.
-- `@transient` fields are reset.
+- Plain and lifecycle fields are kept. Added fields take their default, removed fields are dropped, and fields whose type changed are reset with a diagnostic.
+- `transient` fields and `transient` stores are reset.
+- `const` fields are kept unless their default changed.
 - Derives are recomputed.
+- Running tasks are cancelled through the generation fence (F.2).
 - The migration is one revision with `cause.kind: "reload"`. The revision counter continues.
 
 ## Part B — Expressions
@@ -345,14 +504,14 @@ primary = value | variable | "(" expr ")" | "if" expr "then" expr "else" expr
 2. `if … then … else` as an expression requires both branches to have the same type. The existing `if` **step**, whose branches are step targets, is unchanged; the parser distinguishes them by position (value vs pipeline step) and by branch shape.
 3. Lists and strings have one built-in read-only property, `.count`.
 4. Expressions cannot call executables or module ops. Calls stay pipeline steps.
-5. A query, derive or view body may be a single expression, whose value is the result (`query ReadSelected on Panel -> Int { $state.selected }`).
+5. A query, derive or view body may be a single expression, whose value is the result (`query ReadSelected on Panel -> Int { $selected }`).
 
 This was already on the language-ergonomics roadmap; it ships first because everything else uses it.
 
 ## Part C — Views
 
 ```text
-view Name ( view_param ("," view_param)* )? ("uses" tag, ...)? ("on" Store)? directive* { element+ }
+view Name ( view_param ("," view_param)* )? ("on" Store)? directive* { element+ }
 
 view_param = "$" ident ":" type_ref ("=" expr)?        // prop
            | "on" ident ":" action_type "!"?            // event declaration (Part D)
@@ -373,10 +532,10 @@ view_for   = "for" variable ("," variable)? "in" expr "key" expr "{" element* "}
 3. **Named children** (`header: Header`) give the child a stable key. If the parent declares a slot of that name, the child fills the slot; otherwise it is an ordinary child with that key. Body order is preserved, because the view grammar does not go through object literals.
 4. **Separators** are newlines or commas inside view bodies and style blocks.
 5. **Style** values are expressions. Bare identifiers (`bg`, `full`, `center`) are resolved by the expected type: a theme role in a colour slot, an enum variant in an enum slot. Identifiers cannot contain `-`, so roles use `_` (`text_secondary`). Interaction states (`hover`, `pressed`, `focused`, `disabled`) are nested blocks.
-6. **`on Store`** gives the view `$state` (read-only). A view without `on` only sees its params, and is a reusable component.
+6. **`on Store`** puts the store's fields in scope read-only (`$selected`), plus its registry's stores (`$Prefs.density`), per A.7. A view without `on` sees its params, tags, and any `transient state` attached to it; it is a reusable component.
 7. **Conditional and repeated children.** `if` swaps subtrees. `for` requires an explicit `key`, for identity; large lists should use `VirtualList`, which is lazy.
 8. **Recursion** is allowed (layers panels, trees). Each level is a view reference that the renderer evaluates lazily, bounded by data and by the call-depth limit.
-9. Views may carry directives (`@expose`). `fragment` keeps its inline-macro contract unchanged.
+9. `fragment` keeps its inline-macro contract unchanged.
 
 ## Part D — Events and delegates
 
@@ -404,7 +563,7 @@ Inside the view, a declared event is the variable `$click`. An unbound optional 
 
 At compile time, for each binding:
 
-1. The target is a `mutation` or `task` on the same store as the view tree's glyph, or a forwarded event parameter. Queries, views and subscriptions are rejected.
+1. The target is a `mutation` or `task` on the glyph's store, on a store its registry lists, or on a `transient state` attached to the enclosing view; or it is a forwarded event parameter. Queries, views and subscriptions are rejected.
 2. Arguments bound at the binding site, plus the arguments the event's payload supplies, must match the target's parameters **exactly**: no missing required arguments, no unknown ones, no argument supplied twice, and compatible types.
 3. A forwarded `$click` must have a type compatible with the child's event declaration.
 
@@ -416,8 +575,8 @@ At compile time, for each binding:
 | `on change: Action($value: String)` | event with a payload | `EventCallback<string>` |
 | named child / named slot | a subtree in a named position | `RenderFragment` |
 | `row($item, $index): rows.Row(…)` | slot the container fills per item | `RenderFragment<T>` |
-| `uses tag` (RFC-0004) | explicit scoped context | `CascadingValue` |
-| `value: $state.query` + `on change: SetQuery` | explicit controlled value | `@bind-Value` |
+| `register … on Store`, tags (RFC-0004) | inherited stores, explicit scoped context | `CascadingValue` |
+| `value: $query` + `on change: SetQuery` | explicit controlled value | `@bind-Value` |
 
 Primitives declare their slots and the payloads they supply in the catalog. Illustrative manifest form:
 
@@ -433,15 +592,17 @@ Until RFC-0004 Part F generics land, the element type `T` linking `source` to `r
 ## Part E — Mutations and `apply`
 
 ```text
-apply_store = "apply" object_value        // new: transaction on the executable's store
-apply_lane  = "apply" ident object_value  // existing: nested lane write, unchanged
+apply_store = "apply" object_value              // new: the executable's own store
+apply_named = "apply" ident object_value        // new when ident is a registry store; else the existing lane write
+transition  = "transition" variable "->" value object_value?   // existing; targets lifecycle fields (A.4)
 ```
 
-1. `apply { … }` names store fields only. Writing a derive, an unknown field, or a value of the wrong type is a compile error.
-2. Unnamed fields keep their values; there is no `...$state`.
-3. All right-hand sides in one `apply` read the same revision, so `apply { a: $state.b, b: $state.a }` swaps.
-4. A mutation on a store is a pure, synchronous transaction. Its `apply` steps are combined into one revision. It may call other mutations on the same store, which join the same transaction. It may not call capability ops; effects belong in tasks.
-5. Mutations on plain structs keep their current semantics.
+1. `apply { … }` names fields of the executable's own store. `apply Prefs { … }` names fields of a store its registry lists. Writing a derive, a `const` field, a lifecycle field, an unknown field, or a value of the wrong type is a compile error.
+2. `apply name { … }` resolves `name` as a store if the registry lists one by that name, and otherwise as a lane, as today. Store names are `PascalCase` and lanes are `snake_case` by convention; a store and lane with the same name in one scope is a compile error.
+3. Unnamed fields keep their values; there is no spread.
+4. All right-hand sides in one `apply` read the same revision, so `apply { a: $b, b: $a }` swaps.
+5. A mutation on a store is a pure, synchronous transaction. Its `apply` and `transition` steps are combined into one revision, across every store it writes. It may call other mutations on the same store, which join the same transaction. It may not call capability ops; effects belong in tasks.
+6. Mutations on plain structs keep their current semantics.
 
 ## Part F — Tasks
 
@@ -453,10 +614,10 @@ A task is a workflow that runs against a store and may call capabilities under n
 
 ### F.1 `apply` across async boundaries
 
-1. **Latest committed revision.** Each `apply` in a task is its own transaction. When it commits, `$state` reads the latest committed revision, not a snapshot from when the task started. Reading and committing are one atomic step in the store.
+1. **Latest committed revision.** Each `apply` or `transition` in a task is its own transaction. When it commits, its field reads see the latest committed revision, not a snapshot from when the task started. Reading and committing are one atomic step in the store.
 2. **Field-level writes.** An `apply` writes only the fields it names. Two tasks writing different fields never overwrite each other.
 3. **Optimistic guard.** `apply @if_unchanged(pulse) { … }` fails with `stale_state` if any listed field was written by someone else since this task last read or wrote it. The failure goes through the normal error path, so `@retry` can retry it (and the retry re-reads the latest revision).
-4. Outside `apply`, a task's `$state` refreshes after each of its own commits and after each suspension point.
+4. Outside `apply`, a task's field reads refresh after each of its own commits and after each suspension point.
 
 ### F.2 Concurrency and fencing
 
@@ -473,6 +634,7 @@ A task is a workflow that runs against a store and may call capabilities under n
 2. The store **rejects** any `apply` from an instance whose generation is no longer current. The instance ends with `cancelled`, not an error. An older instance can never commit after its replacement has started, even if its `time.sleep` completed concurrently with the restart.
 3. Cancellation is delivered at suspension points (`time.sleep`, capability calls). Committed transactions are not rolled back.
 4. `@retry`, `@timeout` and `@resilient` work unchanged on tasks.
+5. Capability calls are checked against the store's registry grants (A.6) and then the host policy.
 
 ### F.3 Steps
 
@@ -487,17 +649,17 @@ A task is a workflow that runs against a store and may call capabilities under n
 
 ## Part H — UI glyphs
 
-`glyph Name on Store directive* { element }` declares a UI application:
+`glyph Name on Store { glyph_clause* element }` declares a UI application:
 
-1. The store is created from its defaults (or migrated on hot reload).
-2. The body is the root element. It is re-evaluated per revision, only where read sets intersect the diff, and emitted as View IR.
+1. The store is created from its defaults, and its registry's singleton stores are created at start-up if they do not exist yet.
+2. The body's final element is the root. It is re-evaluated per revision, only where read sets intersect the diff, and emitted as View IR.
 3. Events from the renderer or the app session (Part I) arrive as action invocations. The runtime commits the mutation or starts the task.
 
-Directives:
+Clauses:
 
-- `glyph_def` gains `on Store` and `directive*`.
-- `@hot_reload(preserve: state | none, tasks: cancel | keep)`, with migration per A.6.
-- `@expose(Name, …)` makes queries readable, mutations and tasks invocable, and views mountable in a host slot, outside the rendered tree.
+- `glyph_def` gains `on Store`.
+- `expose Name, …` makes queries readable, mutations and tasks invocable, and views mountable in a host slot, outside the rendered tree.
+- Hot reload has no clause; it follows A.9.
 
 ## Part I — View IR and the headless app session
 
@@ -531,10 +693,10 @@ The SDK exposes a renderer-free session over a running UI glyph. The native rend
 
 | Call | Returns |
 | --- | --- |
-| `snapshot()` | revision, View IR, and the **action list**: every event bound in the current tree (`{ id, key, event, target, bound_args, payload_params, role, label }`) plus every `@expose`d executable |
+| `snapshot()` | revision, View IR, and the **action list**: every event bound in the current tree (`{ id, key, event, target, bound_args, payload_params, role, label }`) plus every `expose`d executable |
 | `invoke(action_id, payload, expect_revision?)` | the new revision and diff, or an error |
 | `query(name, args)` | an exposed query's value |
-| `revisions(since)` | revision log entries (with `@history`) |
+| `revisions(since)` | revision log entries (with `history N`) |
 | `undo()` / `redo()` | the new revision, or `undo_conflict` |
 
 Rules:
@@ -553,11 +715,13 @@ Rules:
 
 | Construct | `view` | `derive` | `query` | `mutation` on store | `task` | `subscription` on store |
 | --- | --- | --- | --- | --- | --- | --- |
-| Read `$state`, params, tags | allow | allow | allow | allow | allow | allow |
+| Read store fields, params, tags | allow | allow | allow | allow | allow | allow |
 | Element syntax | **only here** | deny | deny | deny | deny | deny |
 | Pipelines / `\|>` | deny | pure ops | allow | allow | allow | allow |
-| Capability ops | deny | deny | per profile | deny | allow | deny |
-| `apply { … }` | deny | deny | deny | allow (one transaction) | allow (one per `apply`) | allow (one transaction) |
+| Capability ops | deny | deny | per profile | deny | registry grants ∩ host policy | deny |
+| `apply { … }`, `apply Store { … }` | deny | deny | deny | allow (one transaction) | allow (one per `apply`) | allow (one transaction) |
+| `transition` on a lifecycle field | deny | deny | deny | allow | allow | allow |
+| Write `const`, derive or lifecycle field with `apply` | deny | deny | deny | deny | deny | deny |
 | Call mutation on store | deny | deny | deny | allow (same transaction) | allow | allow |
 | Start a task | deny | deny | deny | deny | allow | allow |
 | Event bindings | allow | — | — | — | — | — |
@@ -573,11 +737,19 @@ Rules:
 
 ## Open questions
 
-1. **`apply { … }` or `set { … }` for store writes.** `set` already exists as a root patch, but `apply` pairs with `apply lane { … }` and reads as "apply to the store". This RFC uses `apply`.
-2. **`$state.` prefix in views.** Kept for clarity and to avoid colliding with parameter names. Bare field names would be shorter.
-3. **Catalog location.** Built into GraphemeUI, or published by each renderer as a module manifest.
-4. **Stores outside UI.** A typed, revisioned store is useful to plain workflows and agents too. Should `state` be available to non-UI glyphs from the start?
-5. **Undo defaults.** Whether `group: action` is the right default, and whether any tasks should be undoable without `@undoable`.
+1. **Registries without a store.** Should a glyph-level `register Name { … }` exist for programs with no store, or is the host policy enough there?
+2. **Singleton initialisation.** A `singleton state` is created at start-up from its defaults. Should the host be able to seed it (for example from saved preferences) before the first glyph runs?
+3. **Transient wipes beyond unmount.** Should a `VirtualList` row scrolling out of view count as an unmount for stores attached to its row view? This RFC says yes.
+4. **Trailing `@pure`.** Keep it as an accepted alias for `pure query`, or reject it once this lands?
+
+Resolved since r2:
+
+- Store writes use `apply` (E).
+- `$state.` is dropped where the store is known from scope (A.7).
+- The component catalog is new, owned by GraphemeUI, not an existing Grapheme catalog.
+- Stores are available to non-UI glyphs from the start (A.1.4).
+- Tasks are not undoable in this RFC (A.8).
+- Store and field semantics are keywords, not directives (principle 9).
 
 Resolved since r1: state lane (a store, A.1.4); commas (optional inside view, style and state blocks only); `view` versus `fragment` (a new kind).
 
@@ -585,10 +757,10 @@ Resolved since r1: state lane (a store, A.1.4); commas (optional inside view, st
 
 1. **Phase 0:** Part J fixes (independently useful).
 2. **Phase 1:** expressions (Part B), including expression bodies. Useful to workflows on their own.
-3. **Phase 2:** state stores, `apply`, store mutations, revisions and diffs (Parts A.1–A.3, E); a headless session with `invoke`, `query` and diffs.
+3. **Phase 2:** state stores with field kinds, lifecycle fields, `apply`, store mutations, revisions and diffs (Parts A.1–A.4, A.7, E); a headless session with `invoke`, `query` and diffs. Usable by non-UI glyphs.
 4. **Phase 3:** view grammar, events and delegates, View IR, `grapheme compile --emit view-ir` for golden tests (Parts C, D, I.1); `snapshot()` with the action list.
-5. **Phase 4:** tasks, concurrency, fencing, `@if_unchanged`, `time.sleep`, subscriptions on stores (Parts F, G).
-6. **Phase 5:** UI glyph lifecycle, `@hot_reload`, `@expose`, `@history`, `@undo`, `@transient` (Parts A.4–A.6, H).
+5. **Phase 4:** store lifetimes, registries and capability grants, tasks, concurrency, fencing, `@if_unchanged`, `time.sleep`, subscriptions on stores (Parts A.5, A.6, F, G).
+6. **Phase 5:** UI glyph lifecycle, `expose`, `history`, `undo`, hot reload (Parts A.8, A.9, H).
 7. **Phase 6:** GraphemeUI renderer on rndr consuming View IR.
 8. **Phase 7:** LSP completion and hover for primitives, props and event signatures; MCP adapter.
 
@@ -599,12 +771,19 @@ Resolved since r1: state lane (a store, A.1.4); commas (optional inside view, st
    - `click Select(index: 3)` → one revision, `selected: [0, 3]`, `presses: [0, 1]`.
    - `click Pulse` twice 200 ms apart → no revision from the first generation after the second starts, and `pulse` reaches 0 ten steps after the second click.
    - `subscription Pinged(count: 2)` → `pings: [·, 2]`.
-   - `undo()` after `Select` restores `selected` and `presses`; `pulse` changes are absent from the log; a `Ping`'s `host.emit` stays in the log after undo.
+   - `click Pulse` → `mode: [idle, pulsing]`, then `mode: [pulsing, idle]` after the loop; a stale `Pulse` generation never moves `mode`.
+   - `undo()` after `Select` restores `selected` and `presses`; `pulse` changes are absent from the log; a `Ping`'s `host.emit` stays in the log after undo; a task's revisions are not undoable.
+   - `ToggleDensity` from two glyphs whose registries both list `Prefs` changes one shared instance.
+   - Unmounting a `PanelButton` drops its `ButtonHint`; remounting starts from `shown: false`.
 3. `snapshot()` lists exactly the actions bound in the rendered tree plus the exposed ones; invoking an unrendered, unexposed action is rejected.
 4. Verifier errors for:
    - element syntax outside a view, or a pipeline inside one;
    - a capability call in a view, derive or store mutation;
-   - a write to a derive or unknown field;
+   - an `apply` to a derive, `const`, lifecycle or unknown field;
+   - a `transition` along an undeclared edge or out of a `terminal` member;
+   - a plain `state` listed in two registries (`ambiguous_store_owner`);
+   - a task calling an op its registry does not grant;
+   - a parameter that shadows a field in scope;
    - an event bound to a query;
    - missing, unknown or duplicate action arguments;
    - an unbound required event;
