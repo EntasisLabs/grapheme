@@ -107,6 +107,11 @@ pub struct AgentState {
     /// The current output value — result of the last completed step
     pub current: JsonValue,
 
+    /// Store-bound runs keep `$state` here so capability calls that replace
+    /// [`Self::current`] do not erase store fields (RFC-0007 Part F).
+    #[serde(skip, default)]
+    pub state_lane: Option<JsonValue>,
+
     /// Diff between the previous step's output and this step's output
     /// (null if this is the first step or nothing changed)
     pub diff: Option<JsonValue>,
@@ -151,6 +156,7 @@ impl AgentState {
     pub fn with_trace_policy(trace_policy: TracePolicy) -> Self {
         AgentState {
             current: JsonValue::Null,
+            state_lane: None,
             diff: None,
             errors: vec![],
             pipeline: vec![],

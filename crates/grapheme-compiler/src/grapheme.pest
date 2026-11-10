@@ -399,6 +399,14 @@ mutation_def = {
     ~ "}"
 }
 
+// Store-bound effect workflow (RFC-0007 Part F). Same shape as mutation; bodies
+// may call capabilities. Declared `on Store` (enforced in lowering).
+task_def = {
+    "task" ~ ident ~ variable_defs? ~ executable_signature? ~ directive* ~ "{"
+    ~ pipeline+
+    ~ "}"
+}
+
 // Iterators: reusable named executable pipelines (like functions)
 iterator_def = {
     "iterator" ~ ident ~ variable_defs? ~ executable_signature ~ directive* ~ "{"
@@ -446,6 +454,7 @@ definition = {
     |
     query_def
   | mutation_def
+  | task_def
     | iterator_def
         | node_def
     | fragment_def

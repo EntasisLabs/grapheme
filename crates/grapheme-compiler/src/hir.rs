@@ -122,6 +122,7 @@ pub struct HirExecutable {
 pub enum HirExecutableKind {
     Query,
     Mutation,
+    Task,
     Subscription,
     Fragment,
 }
@@ -159,6 +160,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
             Definition::Glyph(g) if g.store.is_none() => Some(g.name.clone()),
             Definition::Query(q) => Some(q.name.clone()),
             Definition::Mutation(m) => Some(m.name.clone()),
+            Definition::Task(t) => Some(t.name.clone()),
             Definition::Subscription(s) => Some(s.name.clone()),
             Definition::Iterator(f) => Some(f.name.clone()),
             Definition::Glyph(_)
@@ -313,6 +315,37 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
                     pipelines: lower_pipelines(
                         &m.name,
                         &m.pipelines,
+                        &executable_names,
+                        first_recursive_max_depth(first_recursive_args(&directives).as_ref()),
+                        &fragment_defs,
+                        has_core_default_directive(&directives),
+                    )?,
+                })
+            }
+            Definition::Task(t) => {
+                let directives = normalize_executable_directives(&t.name, &t.directives)?;
+                executable_defs.push(HirExecutable {
+                    kind: HirExecutableKind::Task,
+                    name: t.name.clone(),
+                    params: lower_params(&t.variables),
+                    input_type: t.signature.as_ref().map(|sig| sig.input.clone()),
+                    output_type: t.signature.as_ref().and_then(|sig| sig.output.clone()),
+                    loop_directive_count: loop_directive_count(&directives),
+                    loop_args: first_loop_args(&directives),
+                    recursive_directive_count: recursive_directive_count(&directives),
+                    recursive_args: first_recursive_args(&directives),
+                    recursive_max_depth: first_recursive_max_depth(
+                        first_recursive_args(&directives).as_ref(),
+                    ),
+                    retry_directive_count: retry_directive_count(&directives),
+                    retry_args: first_retry_args(&directives),
+                    timeout_directive_count: timeout_directive_count(&directives),
+                    timeout_args: first_timeout_args(&directives),
+                    intent_args: first_intent_args(&directives),
+                    store: None,
+                    pipelines: lower_pipelines(
+                        &t.name,
+                        &t.pipelines,
                         &executable_names,
                         first_recursive_max_depth(first_recursive_args(&directives).as_ref()),
                         &fragment_defs,

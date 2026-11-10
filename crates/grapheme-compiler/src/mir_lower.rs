@@ -399,6 +399,7 @@ fn lower_kind(kind: &HirExecutableKind) -> MirFunctionKind {
     match kind {
         HirExecutableKind::Query => MirFunctionKind::Query,
         HirExecutableKind::Mutation => MirFunctionKind::Mutation,
+        HirExecutableKind::Task => MirFunctionKind::Task,
         HirExecutableKind::Subscription => MirFunctionKind::Subscription,
         HirExecutableKind::Fragment => MirFunctionKind::Fragment,
     }

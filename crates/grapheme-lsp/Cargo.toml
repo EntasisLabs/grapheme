@@ -1,6 +1,6 @@
 [package]
 name = "grapheme-lsp"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 rust-version = "1.94"
 description = "Language Server Protocol implementation for Grapheme"
@@ -20,5 +20,5 @@ full = ["grapheme-signatures/full", "grapheme-compiler/full"]
 # RUSTSEC-2026-0386.
 tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread", "io-std"] }
 tower-lsp = "0.20"
-grapheme-compiler = { path = "../grapheme-compiler", version = "0.8.0", default-features = false, features = ["full"] }
-grapheme-signatures = { path = "../grapheme-signatures", version = "0.8.0", default-features = false, features = ["full"] }
+grapheme-compiler = { path = "../grapheme-compiler", version = "0.9.0", default-features = false, features = ["full"] }
+grapheme-signatures = { path = "../grapheme-signatures", version = "0.9.0", default-features = false, features = ["full"] }

@@ -174,7 +174,7 @@ Opens a store session for a program that declares `state` stores (RFC-0007 Part 
 grapheme session counter.gr --invoke Increment --invoke 'Add:{"by":3}' --query Total
 ```
 
-Prints JSON with `revisions` (each `{store, revision, cause, diff, history_diff}`, where `diff` maps a field to `[old, new]`), `queries` (`{query, result}`) and `stores` (each store's `fields`, derives included, and current `revision`). A failed invoke exits non-zero and commits nothing.
+Prints JSON with `revisions` (each `{store, revision, cause, diff, history_diff}`, where `diff` maps a field to `[old, new]`), `queries` (`{query, result}`) and `stores` (each store's `fields`, derives included, and current `revision`). A failed mutation invoke exits non-zero and commits nothing. A failed task invoke exits non-zero and keeps revisions its earlier `apply` or `transition` steps already committed.
 
 `--render View` evaluates a view (RFC-0007 step 2) at that point in the sequence and adds it to `renders` (each `{view, store, revision, ir, actions}`). `--mount [Glyph]` mounts a UI glyph (`glyph Name on Store { … }`; omit the name when the file has exactly one) and adds the app snapshot to `apps` (`{glyph, store, revision, ir, actions}`, including `expose:<Name>` actions). `--action <id>` invokes an action id from a render or mount; an id whose binding changed since that snapshot fails with `stale_action`.
 

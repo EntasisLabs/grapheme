@@ -189,10 +189,10 @@ fn checks_binding_targets_and_arguments() {
             "on click: Missing",
             "binding target 'Missing' is not declared",
         ),
-        ("on click: Read", "'Read' is not a mutation"),
+        ("on click: Read", "'Read' is not a mutation or task"),
         (
             "on click: Bump",
-            "'Bump' is not a mutation on state 'Counter'",
+            "'Bump' is not a mutation or task on state 'Counter'",
         ),
         ("on click: Add", "'Add' needs argument 'by'"),
         (

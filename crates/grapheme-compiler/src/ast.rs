@@ -425,6 +425,16 @@ pub struct MutationDef {
     pub pipelines: Vec<Pipeline>,
 }
 
+/// Task: a store-bound effect workflow (RFC-0007 Part F).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskDef {
+    pub name: String,
+    pub variables: Vec<VariableDef>,
+    pub signature: Option<ExecutableSignature>,
+    pub directives: Vec<Directive>,
+    pub pipelines: Vec<Pipeline>,
+}
+
 /// Iterator: a named, reusable executable pipeline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IteratorDef {
@@ -460,6 +470,7 @@ pub enum Definition {
     Glyph(GlyphDef),
     Query(QueryDef),
     Mutation(MutationDef),
+    Task(TaskDef),
     Iterator(IteratorDef),
     Fragment(FragmentDef),
     Subscription(SubscriptionDef),

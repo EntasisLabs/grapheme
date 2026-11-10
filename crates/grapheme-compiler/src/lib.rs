@@ -472,10 +472,12 @@ struct Counter {
             ExecutableKindPolicyMode::Compatibility,
         )
         .expect("compat mode should compile");
-        assert!(artifact
-            .lint_warnings
-            .iter()
-            .any(|w| w.code == "expression-type" && w.message.contains("expression body")));
+        assert!(
+            artifact
+                .lint_warnings
+                .iter()
+                .any(|w| w.code == "expression-type" && w.message.contains("expression body"))
+        );
     }
 
     #[test]
@@ -509,7 +511,11 @@ query Q {
         let err = compile_program(ast, options)
             .expect_err("strict policy should reject write-like op in query");
         let msg = err.to_string();
-        assert!(msg.contains("restricted to mutation declarations"));
+        assert!(
+            msg.contains("restricted to mutation")
+                || msg.contains("restricted to mutation and task"),
+            "{msg}"
+        );
     }
 
     #[test]
@@ -585,7 +591,11 @@ query Q {
         let err =
             compile_program(ast, options).expect_err("strict policy should reject apply in query");
         let msg = err.to_string();
-        assert!(msg.contains("restricted to mutation declarations"));
+        assert!(
+            msg.contains("restricted to mutation")
+                || msg.contains("restricted to mutation and task"),
+            "{msg}"
+        );
     }
 
     #[test]
@@ -2439,11 +2449,23 @@ state Counter {
             ),
             (
                 "subscription S on Counter { core.echo(message: \"x\") }",
-                "only queries and mutations",
+                "only queries, mutations and tasks",
             ),
             (
                 "mutation Other { core.echo(message: \"x\") }\nmutation M on Counter { call Other }",
                 "not declared on 'Counter'",
+            ),
+            (
+                "task Effect on Counter { core.echo(message: \"side effect\") }\nmutation Start on Counter { call Effect }",
+                "a mutation cannot start a task",
+            ),
+            (
+                "task Effect on Counter { core.echo(message: \"side effect\") }\nmutation Inner on Counter { call Effect }\nmutation Start on Counter { call Inner }",
+                "a mutation cannot start a task",
+            ),
+            (
+                "task Effect on Counter { apply { count: 1 } }\nmutation Start on Counter { if $count == 0 then call Effect else return }",
+                "a mutation cannot start a task",
             ),
         ];
         for (body, expected) in cases {
@@ -2494,6 +2516,35 @@ state Counter {
                 "{body}: expected '{expected}' in '{err}'"
             );
         }
+    }
+
+    #[test]
+    fn bare_if_and_match_read_the_store_lane() {
+        let source = r#"
+state S { status: String = "pending", n: Int = 0 }
+task T on S {
+  if $status == "pending" then apply { n: 1 } else apply { n: 9 }
+  match $status { case "pending" => apply { n: 1 } default => apply { n: 9 } }
+}
+"#;
+        let compilation = compile(source).expect("bare if/match compile");
+        let task = compilation
+            .mir
+            .functions
+            .iter()
+            .find(|f| f.name == "T")
+            .expect("task T");
+        let insts = &task.blocks[0].instructions;
+        let branch = insts.iter().find_map(|inst| match inst {
+            grapheme_artifact::MirInst::BranchCall { field, .. } => Some(field.as_str()),
+            _ => None,
+        });
+        let matched = insts.iter().find_map(|inst| match inst {
+            grapheme_artifact::MirInst::MatchCall { field, .. } => Some(field.as_str()),
+            _ => None,
+        });
+        assert_eq!(branch, Some("state.status"));
+        assert_eq!(matched, Some("state.status"));
     }
 
     #[test]

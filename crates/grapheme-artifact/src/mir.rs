@@ -187,6 +187,9 @@ pub struct MirLoopUntil {
 pub enum MirFunctionKind {
     Query,
     Mutation,
+    /// Store-bound effect workflow (RFC-0007 Part F). May call capabilities;
+    /// each `apply`/`transition` commits its own revision.
+    Task,
     Subscription,
     Fragment,
 }

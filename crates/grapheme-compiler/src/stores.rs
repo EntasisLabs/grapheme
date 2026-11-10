@@ -55,7 +55,14 @@ pub(crate) fn bind_stores(
     let read_only = bind_executables(&stores, executables)?;
 
     for exec in executables.iter_mut() {
+        if matches!(exec.kind, HirExecutableKind::Task) && exec.store.is_none() {
+            return Err(type_error(format!(
+                "task '{}': tasks must be declared on a state store (`task {} on Store {{ ... }}`)",
+                exec.name, exec.name
+            )));
+        }
         let is_read_only = read_only.contains(&exec.name);
+        let allow_effects = matches!(exec.kind, HirExecutableKind::Task);
         let store = match &exec.store {
             Some(name) => stores.iter().find(|s| &s.name == name),
             None => None,
@@ -63,7 +70,9 @@ pub(crate) fn bind_stores(
         for pipeline in &mut exec.pipelines {
             for step in &mut pipeline.steps {
                 match store {
-                    Some(store) => lower_store_step(&exec.name, store, is_read_only, step)?,
+                    Some(store) => {
+                        lower_store_step(&exec.name, store, is_read_only, allow_effects, step)?
+                    }
                     None => lower_plain_step(&exec.name, step)?,
                 }
             }
@@ -302,6 +311,7 @@ fn bind_executables(
 ) -> Result<HashSet<String>, GraphemeError> {
     let mut queue = Vec::new();
     let mut read_only = HashSet::new();
+    let mut blocks_tasks = HashSet::new();
     for (idx, exec) in executables.iter_mut().enumerate() {
         let Some(store) =
             store_input_name(exec).and_then(|name| stores.iter().find(|s| s.name == name))
@@ -309,13 +319,14 @@ fn bind_executables(
             continue;
         };
         match exec.kind {
-            HirExecutableKind::Mutation | HirExecutableKind::Fragment => {}
+            HirExecutableKind::Mutation | HirExecutableKind::Task | HirExecutableKind::Fragment => {
+            }
             HirExecutableKind::Query => {
                 read_only.insert(exec.name.clone());
             }
             _ => {
                 return Err(type_error(format!(
-                    "definition '{}': only queries and mutations can be declared on state '{}' so far",
+                    "definition '{}': only queries, mutations and tasks can be declared on state '{}'",
                     exec.name, store.name
                 )));
             }
@@ -329,7 +340,15 @@ fn bind_executables(
             }
         }
         exec.store = Some(store.name.clone());
-        if matches!(exec.kind, HirExecutableKind::Mutation) && exec.output_type.is_none() {
+        if matches!(exec.kind, HirExecutableKind::Mutation) {
+            // A mutation, and anything it calls, must not start a task (verifier matrix).
+            blocks_tasks.insert(exec.name.clone());
+        }
+        if matches!(
+            exec.kind,
+            HirExecutableKind::Mutation | HirExecutableKind::Task
+        ) && exec.output_type.is_none()
+        {
             exec.output_type = Some(TypeRef::Named(store.name.clone(), true));
         }
         queue.push(idx);
@@ -344,6 +363,7 @@ fn bind_executables(
         let store = executables[idx].store.clone().unwrap_or_default();
         let caller = executables[idx].name.clone();
         let caller_read_only = read_only.contains(&caller);
+        let caller_blocks_tasks = blocks_tasks.contains(&caller);
         let mut targets = Vec::new();
         for step in executables[idx]
             .pipelines
@@ -372,6 +392,14 @@ fn bind_executables(
             if caller_read_only && is_synthetic(callee) && read_only.insert(target.clone()) {
                 queue.push(t);
             }
+            if caller_blocks_tasks && matches!(callee.kind, HirExecutableKind::Task) {
+                return Err(type_error(format!(
+                    "definition '{caller}' on state '{store}' calls task '{target}'; a mutation cannot start a task"
+                )));
+            }
+            if caller_blocks_tasks && is_synthetic(callee) && blocks_tasks.insert(target.clone()) {
+                queue.push(t);
+            }
             match &callee.store {
                 Some(s) if *s == store => {}
                 Some(s) => {
@@ -398,6 +426,7 @@ fn lower_store_step(
     exec: &str,
     store: &HirStore,
     read_only: bool,
+    allow_effects: bool,
     step: &mut HirStep,
 ) -> Result<(), GraphemeError> {
     let field = |name: &str| find_field(store, name);
@@ -484,15 +513,20 @@ fn lower_store_step(
             lower_to_set_fields(step);
         }
         (Some("core"), _) if read_only => {}
+        (Some("core"), op) if allow_effects => {
+            // Tasks may call pure core helpers (echo, value, …) between applies.
+            let _ = op;
+        }
         (Some("core"), op) => {
             return Err(type_error(format!(
                 "{context}: 'core.{op}' cannot run in a store mutation; write fields with apply {{ ... }} or transition"
             )));
         }
         (Some("call"), _) | (Some("flow"), _) => {}
+        (_module, _op) if allow_effects => {}
         (module, op) => {
             return Err(type_error(format!(
-                "{context}: '{}.{op}' cannot run in a store mutation yet; store mutations only apply, transition, branch and call",
+                "{context}: '{}.{op}' cannot run in a store mutation; store mutations only apply, transition, branch and call (use a task for capability calls)",
                 module.unwrap_or("?")
             )));
         }
@@ -555,7 +589,10 @@ fn rewrite_bare(s: &str, context: &str, store: &HirStore) -> Result<String, Grap
         Some(f) if f.kind == StoreFieldKind::Derive => Err(type_error(format!(
             "{context}: derived field '{head}' cannot be used here yet"
         ))),
-        Some(_) => Ok(path.to_string()),
+        // `if` / `match` look this string up with `select_scoped_json_path`.
+        // A bare name must stay on the store lane after a capability replaces
+        // `$current`. Object keys that write fields strip the prefix back off.
+        Some(_) => Ok(format!("state.{path}")),
         None => Err(type_error(format!(
             "{context}: '${path}' is not a field of the store"
         ))),
@@ -650,7 +687,19 @@ pub(crate) fn rewrite_strings(
             let entries = std::mem::take(map);
             for (key, mut v) in entries {
                 rewrite_strings(&mut v, f)?;
-                map.insert(f(&key)?, v);
+                let rewritten = f(&key)?;
+                // Keys name fields being written (`transition $status`). The
+                // `state.` prefix is for reads (`if` / `match`), not for the
+                // field `set_fields` writes.
+                let key = if key.starts_with(BARE_FIELD_PREFIX) {
+                    rewritten
+                        .strip_prefix("state.")
+                        .unwrap_or(&rewritten)
+                        .to_string()
+                } else {
+                    rewritten
+                };
+                map.insert(key, v);
             }
         }
         _ => {}
