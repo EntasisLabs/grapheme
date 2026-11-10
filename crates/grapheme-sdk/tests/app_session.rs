@@ -81,9 +81,9 @@ fn mounted_tree_action_and_expose_action_commit_the_same_way() {
         .find(|a| a.key == "CounterView/increment")
         .unwrap()
         .id;
-    via_tree.invoke_action(&tree_id).unwrap();
+    via_tree.invoke_action(&tree_id, None).unwrap();
     via_expose.mount(None).unwrap();
-    via_expose.invoke_action("expose:Increment").unwrap();
+    via_expose.invoke_action("expose:Increment", None).unwrap();
     assert_eq!(
         via_tree.snapshot("Counter").unwrap(),
         via_expose.snapshot("Counter").unwrap()
@@ -98,7 +98,7 @@ fn expose_action_with_required_params_is_rejected() {
     session.mount(None).unwrap();
     // Add is not exposed; inventing an expose id for it must fail as stale.
     let err = session
-        .invoke_action("expose:Add")
+        .invoke_action("expose:Add", None)
         .unwrap_err()
         .to_string();
     assert!(err.contains("stale_action"), "{err}");
@@ -115,7 +115,7 @@ fn app_snapshot_refreshes_after_an_invoke() {
         .unwrap()
         .id
         .clone();
-    session.invoke_action(&id).unwrap();
+    session.invoke_action(&id, None).unwrap();
     let second = session.app_snapshot().unwrap();
     assert_eq!(second.revision, 1);
     assert_eq!(second.ir["root"]["children"][0]["props"]["content"], "1");

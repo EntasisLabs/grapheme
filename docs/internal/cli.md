@@ -13,7 +13,7 @@ grapheme plugins build [all|core|docs|io|http|memory|tcp|smtp|secrets ...]
 grapheme examples [list] [--yaml|--json] [--query q] [--tag tag] [--complexity level] [--native-only]
 grapheme examples show <name> [--summary] [--raw] [--yaml|--json]
 grapheme examples init [--out dir]
-grapheme session <file.gr> [--invoke Name[:<json-object>] ...] [--query Name[:<json-object>] ...] [--render View ...] [--mount [Glyph] ...] [--action <id> ...]
+grapheme session <file.gr> [--invoke Name[:<json-object>] ...] [--query Name[:<json-object>] ...] [--render View ...] [--mount [Glyph] ...] [--action <id|id:<json-object>> ...]
 grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules]
                     [--state-json '<json>' | --state-file path.json]
                     [--args-json '<json-object>']
@@ -176,11 +176,12 @@ grapheme session counter.gr --invoke Increment --invoke 'Add:{"by":3}' --query T
 
 Prints JSON with `revisions` (each `{store, revision, cause, diff, history_diff}`, where `diff` maps a field to `[old, new]`), `queries` (`{query, result}`) and `stores` (each store's `fields`, derives included, and current `revision`). A failed mutation invoke exits non-zero and commits nothing. A failed task invoke exits non-zero and keeps revisions its earlier `apply` or `transition` steps already committed.
 
-`--render View` evaluates a view (RFC-0007 step 2) at that point in the sequence and adds it to `renders` (each `{view, store, revision, ir, actions}`). `--mount [Glyph]` mounts a UI glyph (`glyph Name on Store { … }`; omit the name when the file has exactly one) and adds the app snapshot to `apps` (`{glyph, store, revision, ir, actions}`, including `expose:<Name>` actions). `--action <id>` invokes an action id from a render or mount; an id whose binding changed since that snapshot fails with `stale_action`.
+`--render View` evaluates a view (RFC-0007 step 2) at that point in the sequence and adds it to `renders` (each `{view, store, revision, ir, actions}`). `--mount [Glyph]` mounts a UI glyph (`glyph Name on Store { … }`; omit the name when the file has exactly one) and adds the app snapshot to `apps` (`{glyph, store, revision, ir, actions}`, including `expose:<Name>` actions). `--action <id>` invokes an action id from a render or mount; an id whose binding changed since that snapshot fails with `stale_action`. A payload is `id:{"value":"…"}` (the split is `:{`, so `expose:Search` stays one id). The object fills `payload_params` such as TextField `change`'s `value`.
 
 ```bash
 grapheme session examples/view-counter.gr --render CounterView --action 'CounterView/actions/add_five#click@1' --render CounterView
 grapheme session examples/view-counter.gr --mount --action 'CounterView/actions/increment#click@1'
+grapheme session examples/feed-view.gr --mount --action 'expose:LoadFeed' --action 'FeedView/search#change@1:{"value":"Store"}'
 ```
 
 ### `plugins build`

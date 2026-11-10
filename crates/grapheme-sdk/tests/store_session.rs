@@ -407,7 +407,7 @@ fn exposed_task_invokes_through_mount() {
         "{:?}",
         snap.actions
     );
-    session.invoke_action("expose:LoadFeed").unwrap();
+    session.invoke_action("expose:LoadFeed", None).unwrap();
     assert_eq!(session.snapshot("Feed").unwrap()["status"], json!("ready"));
 }
 
@@ -422,7 +422,7 @@ fn view_can_bind_click_to_a_task() {
         .unwrap();
     let rendered = session.render("FeedView").unwrap();
     let id = rendered.actions[0].id.clone();
-    session.invoke_action(&id).unwrap();
+    session.invoke_action(&id, None).unwrap();
     assert_eq!(session.snapshot("Feed").unwrap()["status"], json!("ready"));
 }
 
@@ -586,7 +586,7 @@ view V on S {
         .unwrap();
     let rendered = session.render("V").unwrap();
     let id = rendered.actions[0].id.clone();
-    let err = session.invoke_action(&id).unwrap_err();
+    let err = session.invoke_action(&id, None).unwrap_err();
     let effects = err.task_effects().expect("action failure returns receipts");
     assert_eq!(effects[0].cause.action.as_deref(), Some(id.as_str()));
     assert_eq!(effects[0].cause.task, "T");

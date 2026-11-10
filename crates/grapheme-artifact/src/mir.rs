@@ -93,13 +93,18 @@ pub struct MirViewFor {
     pub key: JsonValue,
 }
 
-/// `on event: Target(args)`: the mutation an event invokes, with its bound arguments.
+/// `on event: Target(args)`: the mutation/task an event invokes, with its bound
+/// arguments. Params listed in [`Self::payload_params`] are supplied at invoke
+/// time (e.g. TextField `change` → `value`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MirViewBinding {
     #[serde(rename = "$action")]
     pub target: String,
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub args: Map<String, JsonValue>,
+    /// Parameter names the event payload must supply (RFC-0007 Part D).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub payload_params: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

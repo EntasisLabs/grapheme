@@ -27,6 +27,14 @@ enum PropType {
     Bool,
 }
 
+/// Catalog event: name plus payload params the host/widget supplies at invoke.
+struct CatalogEvent {
+    name: &'static str,
+    /// Params the event supplies, as `(name, type)`. TextField `change` is
+    /// `("value", "String")`.
+    payload: &'static [(&'static str, &'static str)],
+}
+
 /// A built-in primitive of the GraphemeUI catalog.
 struct Primitive {
     name: &'static str,
@@ -34,13 +42,17 @@ struct Primitive {
     /// Accepts positional content, stored as the `content` prop.
     content: bool,
     props: &'static [(&'static str, PropType)],
-    events: &'static [&'static str],
+    events: &'static [CatalogEvent],
     children: bool,
 }
 
 impl Primitive {
     fn interactive(&self) -> bool {
         !self.events.is_empty()
+    }
+
+    fn event(&self, name: &str) -> Option<&'static CatalogEvent> {
+        self.events.iter().find(|e| e.name == name)
     }
 }
 
@@ -74,8 +86,26 @@ const CATALOG: &[Primitive] = &[
         role: "button",
         content: false,
         props: &[("label", PropType::String), ("enabled", PropType::Bool)],
-        events: &["click"],
+        events: &[CatalogEvent {
+            name: "click",
+            payload: &[],
+        }],
         children: true,
+    },
+    Primitive {
+        name: "TextField",
+        role: "textbox",
+        content: false,
+        props: &[
+            ("value", PropType::Text),
+            ("placeholder", PropType::String),
+            ("label", PropType::String),
+        ],
+        events: &[CatalogEvent {
+            name: "change",
+            payload: &[("value", "String")],
+        }],
+        children: false,
     },
 ];
 
@@ -436,19 +466,25 @@ impl Ctx<'_> {
 
         let mut events = BTreeMap::new();
         for event in &element.events {
-            if !prim.events.contains(&event.event.as_str()) {
+            let Some(catalog_event) = prim.event(&event.event) else {
                 return Err(self.error(
                     &key,
                     format!("'{}' has no event '{}'", prim.name, event.event),
                 ));
-            }
+            };
             if events.contains_key(&event.event) {
                 return Err(self.error(
                     &key,
                     format!("event '{}' is bound more than once", event.event),
                 ));
             }
-            let binding = self.lower_binding(&key, &event.target, &event.args, items)?;
+            let binding = self.lower_binding(
+                &key,
+                &event.target,
+                &event.args,
+                catalog_event.payload,
+                items,
+            )?;
             events.insert(event.event.clone(), binding);
         }
 
@@ -717,6 +753,7 @@ impl Ctx<'_> {
         key: &str,
         target: &str,
         args: &[(String, Value)],
+        event_payload: &[(&str, &str)],
         items: &[String],
     ) -> Result<MirViewBinding, GraphemeError> {
         let Some(exec) = self.executables.iter().find(|e| e.name == target) else {
@@ -763,6 +800,14 @@ impl Ctx<'_> {
             if bound.contains_key(name) {
                 return Err(self.error(key, format!("argument '{name}' is given more than once")));
             }
+            if event_payload.iter().any(|(payload_name, _)| payload_name == name) {
+                return Err(self.error(
+                    key,
+                    format!(
+                        "argument '{name}' of '{target}' is supplied by the binding and by the event payload"
+                    ),
+                ));
+            }
             let lowered = self.lower_value(key, value, items)?;
             if let (Some(actual), Some(expected)) =
                 (self.static_type(&lowered), scalar_name(&param.type_ref))
@@ -775,22 +820,41 @@ impl Ctx<'_> {
             }
             bound.insert(name.clone(), lowered);
         }
-        if let Some(missing) = exec
-            .params
-            .iter()
-            .find(|p| p.required && p.default.is_none() && !bound.contains_key(&p.name))
-        {
+
+        let mut payload_params = Vec::new();
+        for param in &exec.params {
+            if !param.required || param.default.is_some() || bound.contains_key(&param.name) {
+                continue;
+            }
+            if let Some((_, payload_ty)) = event_payload
+                .iter()
+                .find(|(payload_name, _)| *payload_name == param.name)
+            {
+                let expected = scalar_name(&param.type_ref).unwrap_or("a non-scalar type");
+                if !payload_type_compatible(expected, payload_ty) {
+                    return Err(self.error(
+                        key,
+                        format!(
+                            "parameter '{}' of '{target}' has type {expected}, but the event payload supplies {payload_ty}",
+                            param.name
+                        ),
+                    ));
+                }
+                payload_params.push(param.name.clone());
+                continue;
+            }
             return Err(self.error(
                 key,
                 format!(
                     "'{target}' needs argument '{}', which the binding does not supply",
-                    missing.name
+                    param.name
                 ),
             ));
         }
         Ok(MirViewBinding {
             target: target.to_string(),
             args: bound,
+            payload_params,
         })
     }
 
@@ -894,6 +958,10 @@ impl Ctx<'_> {
             _ => None,
         }
     }
+}
+
+fn payload_type_compatible(expected: &str, payload_ty: &str) -> bool {
+    expected == payload_ty || (expected == "Float" && payload_ty == "Int")
 }
 
 fn scalar_name(type_ref: &TypeRef) -> Option<&'static str> {

@@ -575,20 +575,26 @@ impl GraphemeStoreSession {
     /// Invokes an action id from a rendered view's current action list, or an
     /// `expose:<Name>` action from a mounted UI glyph. An id whose binding
     /// epoch is no longer current fails with `stale_action`.
+    ///
+    /// `payload` supplies the action's `payload_params` (e.g. TextField
+    /// `change` → `{ "value": "…" }`). Pass `None` when the action needs none.
     pub fn invoke_action(
         &mut self,
         id: &str,
+        payload: Option<JsonValue>,
     ) -> Result<grapheme_runtime::StoreCommit, GraphemeSdkError> {
         let options = self.runtime_options.clone();
         let commit = if let Some(factory) = &self.host_factory {
             let mut host = factory();
-            self.session.invoke_action(id, options, host.as_mut())?
+            self.session
+                .invoke_action(id, payload, options, host.as_mut())?
         } else {
             let mut host = StdlibHost {
                 capability_observer: self.capability_observer.clone(),
                 capability_interceptor: self.capability_interceptor.clone(),
             };
-            self.session.invoke_action(id, options, &mut host)?
+            self.session
+                .invoke_action(id, payload, options, &mut host)?
         };
         Ok(commit)
     }

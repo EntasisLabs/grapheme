@@ -581,7 +581,7 @@ view_for   = "for" variable ("," variable)? "in" expr "key" expr "{" element* "}
 8. **Recursion** is allowed (layers panels, trees). Each level is a view reference that the renderer evaluates lazily, bounded by data and by the call-depth limit.
 9. `fragment` keeps its inline-macro contract unchanged.
 
-**Implementation status (rollout step 2 + C.7):** the element grammar (named children, positional content, props, view references, rule 1's rejection of steps and module calls), rules 2–4, 6 and 7 (`if` / `else` / `for`, including `for $item, $index`) for `on Store` views, with a built-in catalog of `Column`, `Row`, `Text` and `Button`. A view `if` condition must be `Bool`. Nested `for` bodies see outer items; shadowing an outer binding is a compile error. Unnamed `if` / `for` keys use a `$if` / `$for` segment. `for` keys must be a non-empty string or number (`/` and `#` escaped); duplicates fail the render. Compiler `--emit view-ir` is `grapheme-ui/2` because it still contains `$if` / `$for` nodes. Expanded session trees stay `grapheme-ui/1`. Not yet: view params, `style`, slots, `VirtualList`, `transient state` on views, registry stores in scope, and recursion beyond eager inlining.
+**Implementation status (rollout step 2 + C.7 + TextField):** the element grammar (named children, positional content, props, view references, rule 1's rejection of steps and module calls), rules 2–4, 6 and 7 (`if` / `else` / `for`, including `for $item, $index`) for `on Store` views, with a built-in catalog of `Column`, `Row`, `Text`, `Button` and `TextField` (`change` supplies `value: String`). A view `if` condition must be `Bool`. Nested `for` bodies see outer items; shadowing an outer binding is a compile error. Unnamed `if` / `for` keys use a `$if` / `$for` segment. `for` keys must be a non-empty string or number (`/` and `#` escaped); duplicates fail the render. Compiler `--emit view-ir` is `grapheme-ui/2` because it still contains `$if` / `$for` nodes. Expanded session trees stay `grapheme-ui/1`. Not yet: view params, `style`, slots, `VirtualList`, `transient state` on views, registry stores in scope, and recursion beyond eager inlining.
 
 ## Part D — Events and delegates
 
@@ -613,7 +613,7 @@ At compile time, for each binding:
 2. Arguments bound at the binding site, plus the arguments the event's payload supplies, must match the target's parameters **exactly**: no missing required arguments, no unknown ones, no argument supplied twice, and compatible types.
 3. A forwarded `$click` must have a type compatible with the child's event declaration.
 
-**Implementation status (rollout step 2 + Part F slice):** element-body bindings `on click: Target(args)` with check 1 for mutations or tasks on the view's own store and check 2 for bound arguments. Not yet: event declarations and forwarding (D.1 rows 1–3 and 5), registry `write` stores and payload arguments.
+**Implementation status (rollout step 2 + Part F + TextField slice):** element-body bindings `on click: Target(args)` / `on change: Target` with check 1 for mutations or tasks on the view's own store and check 2 for bound arguments plus catalog event payloads (`TextField` `change` → `value: String` → `payload_params`). The payload type must be compatible with the parameter, and a name cannot be supplied both in the binding and by the event. `invoke_action(id, payload)` merges the payload and checks the JSON type again. Not yet: event declarations and forwarding (D.1 rows 1–3 and 5), registry `write` stores.
 
 ### D.3 Delegate types and MudBlazor
 
@@ -800,7 +800,7 @@ Three identities exist and are never interchangeable:
 3. A store id never appears in an action id. The store a binding targets is resolved from the binding's target, at invocation, through the registry (A.6).
 4. Action ids are opaque to clients; they may only be obtained from `snapshot()` or an `expose` list.
 
-**Implementation status:** I.1 node keys, roles and the `view-accessibility` lint (rule 4), `grapheme compile --emit view-ir`; I.2 as a store session (`render(view)` with the action list, `invoke_action(id)` with `stale_action`) and as an app session over a mounted UI glyph (`mount` / `app_snapshot`, with `expose:<Name>` actions for exposed mutations); I.3 binding epochs. Not yet: lazy memoised `$view` evaluation, `$derive` handles, `expect_revision`, `origin: "agent"`, `revisions(since)`, `undo`/`redo`, and virtualized-row keys.
+**Implementation status:** I.1 node keys, roles and the `view-accessibility` lint (rule 4), `grapheme compile --emit view-ir`; I.2 as a store session (`render(view)` with the action list, `invoke_action(id, payload)` with `stale_action` and payload merge for `payload_params`) and as an app session over a mounted UI glyph (`mount` / `app_snapshot`, with `expose:<Name>` actions for exposed mutations/tasks); I.3 binding epochs. Not yet: lazy memoised `$view` evaluation, `$derive` handles, `expect_revision`, `origin: "agent"`, `revisions(since)`, `undo`/`redo`, and virtualized-row keys.
 
 ## Part J — Independent fixes
 

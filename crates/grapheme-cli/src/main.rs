@@ -2700,7 +2700,7 @@ fn emit_parse(file_path: &str, output_mode: DiscoveryOutputMode) -> Result<(), C
 }
 
 /// `grapheme session <file.gr> [--invoke|--query Name[:<json-args>] | --render View |
-/// --mount [Glyph] | --action <id> ...]`: opens a headless store session, runs
+/// --mount [Glyph] | --action <id|id:<json-object>> ...]`: opens a headless store session, runs
 /// store mutations, queries, view renders / UI glyph mounts and actions in
 /// order, and prints every committed revision, query results, renders, app
 /// snapshots and each store's final snapshot as JSON.
@@ -2734,18 +2734,39 @@ fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
                 invokes.push((if is_query { "query" } else { "invoke" }, name, payload));
                 i += 2;
             }
-            flag @ ("--render" | "--action") => {
+            "--render" => {
                 let value = args.get(i + 1).ok_or_else(|| {
-                    CompilerError::RuntimeError(format!(
-                        "{flag} requires {}",
-                        if flag == "--render" {
-                            "a view name"
-                        } else {
-                            "an action id"
-                        }
-                    ))
+                    CompilerError::RuntimeError("--render requires a view name".to_string())
                 })?;
-                invokes.push((&flag[2..], value.clone(), None));
+                invokes.push(("render", value.clone(), None));
+                i += 2;
+            }
+            "--action" => {
+                let spec = args.get(i + 1).ok_or_else(|| {
+                    CompilerError::RuntimeError(
+                        "--action requires an action id or id:<json-object>".to_string(),
+                    )
+                })?;
+                // Payload starts at `:{` so `expose:Name` and `view/key#event@n`
+                // stay intact; only `id:{"…"}` splits.
+                let (id, payload) = if let Some(idx) = spec.find(":{") {
+                    let id = &spec[..idx];
+                    let raw = &spec[idx + 1..];
+                    let value: JsonValue = serde_json::from_str(raw).map_err(|e| {
+                        CompilerError::RuntimeError(format!(
+                            "--action {id}: payload must be a JSON object: {e}"
+                        ))
+                    })?;
+                    if !value.is_object() {
+                        return Err(CompilerError::RuntimeError(format!(
+                            "--action {id}: payload must be a JSON object"
+                        )));
+                    }
+                    (id.to_string(), Some(value))
+                } else {
+                    (spec.clone(), None)
+                };
+                invokes.push(("action", id, payload));
                 i += 2;
             }
             "--mount" => {
@@ -2793,7 +2814,9 @@ fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
                 apps.push(json!(session.mount(glyph).map_err(sdk_error)?));
             }
             "action" => {
-                session.invoke_action(&name).map_err(sdk_error)?;
+                session
+                    .invoke_action(&name, payload)
+                    .map_err(sdk_error)?;
             }
             _ => {
                 session.invoke(&name, payload).map_err(sdk_error)?;
@@ -3107,7 +3130,7 @@ fn print_usage() {
     eprintln!("  grapheme examples show <name> [--summary] [--raw] [--yaml|--json]");
     eprintln!("  grapheme examples init [--out dir]");
     eprintln!(
-        "  grapheme session [<file.gr>] [--invoke|--query Name[:<json-object>] | --render View | --mount [Glyph] | --action <id> ...]"
+        "  grapheme session [<file.gr>] [--invoke|--query Name[:<json-object>] | --render View | --mount [Glyph] | --action <id|id:<json-object>> ...]"
     );
     eprintln!(
         "  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules]"

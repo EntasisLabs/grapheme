@@ -1,9 +1,12 @@
-// RFC-0007 C.7 + Part F: feed UI with if/for over task-loaded posts.
+// RFC-0007 C.7 + D + Part F: feed UI with if/for, TextField search, task-loaded posts.
 //
 //   grapheme compile examples/feed-view.gr --emit view-ir --json
 //   grapheme session examples/feed-view.gr --mount
 //   grapheme session examples/feed-view.gr --mount --action 'expose:LoadFeed'
 //   grapheme session examples/feed-view.gr --mount --action 'expose:LoadFeed' --render FeedView
+//   # after render, invoke search via the TextField change action id + payload:
+//   grapheme session examples/feed-view.gr --mount --action 'expose:LoadFeed' \
+//     --action 'FeedView/search#change@1:{"value":"Store"}' --render FeedView
 
 struct Post {
   id: String
@@ -18,14 +21,19 @@ state Feed {
   posts: [Post] = []
   failure: String = ""
   likes_total: Int = 0
+  query: String = ""
 }
 
 mutation Like($id: String) on Feed {
   apply { likes_total: $likes_total + 1 }
 }
 
+mutation Search($value: String) on Feed {
+  apply { query: $value }
+}
+
 mutation Reset on Feed {
-  apply { status: "idle", posts: [], failure: "", likes_total: 0 }
+  apply { status: "idle", posts: [], failure: "", likes_total: 0, query: "" }
 }
 
 task LoadFeed on Feed {
@@ -40,6 +48,9 @@ task LoadFeed on Feed {
 view FeedView on Feed {
   Column(gap: 8) {
     header: Text("Feed ({$likes_total} likes)")
+    search: TextField(value: $query, placeholder: "Search posts", label: "Search") {
+      on change: Search
+    }
     if $status == "idle" {
       Button(label: "Load feed") { on click: LoadFeed }
     }
@@ -61,6 +72,6 @@ view FeedView on Feed {
 }
 
 glyph FeedApp on Feed {
-  expose LoadFeed, Reset, Like
+  expose LoadFeed, Reset, Like, Search
   FeedView
 }
