@@ -15,7 +15,7 @@
 ///                          [--aot-stage stage_a|stage_b] [--strict-stage-b]
 ///    grapheme modules [search <query> | ops <query> | info <module> | types <module> | examples <module> | scan [paths...]]
 /// ─────────────────────────────────────────────────────────────
-use grapheme_artifact::{ExecutionResult, MirInst};
+use grapheme_artifact::{ExecutionOutcome, ExecutionResult, MirFunctionKind, MirInst};
 use grapheme_compiler::ast::Definition;
 use grapheme_compiler::verifier::{ExecutableKindPolicyMode, LintWarning};
 use grapheme_compiler::{Compiler, CompilerError, CompilerOptions};
@@ -1918,6 +1918,9 @@ fn run_program(file_path: &str, run_options: RunOptions) -> Result<(), CompilerE
     compiler_options.compile_options.executable_kind_policy_mode =
         run_options.executable_kind_policy_mode;
     let compiled = Compiler::compile_source(&source, compiler_options.clone())?;
+    if ui_glyph_without_workflow(&compiled.artifact) {
+        return launch_grapheme_ui(file_path);
+    }
 
     let cwd = env::current_dir()
         .map_err(|e| CompilerError::RuntimeError(format!("resolve current directory: {e}")))?;
@@ -2022,6 +2025,7 @@ fn run_program(file_path: &str, run_options: RunOptions) -> Result<(), CompilerE
     let final_state = result.final_state;
     let execution = result.execution;
     let lint_warnings = result.lint_warnings;
+    let fatal = fatal_failure_error(&execution);
 
     match run_options.output_mode {
         RunOutputMode::Json => {
@@ -2043,11 +2047,11 @@ fn run_program(file_path: &str, run_options: RunOptions) -> Result<(), CompilerE
                 )
                 .map_err(|e| CompilerError::RuntimeError(e.to_string()))?;
             println!("{rendered}");
-            Ok(())
+            fatal
         }
         RunOutputMode::Plain => {
             if run_options.stream_steps {
-                return Ok(());
+                return fatal;
             }
 
             let current_lines = collect_printable_lines_from_json(
@@ -2057,7 +2061,7 @@ fn run_program(file_path: &str, run_options: RunOptions) -> Result<(), CompilerE
                 for line in current_lines {
                     println!("{line}");
                 }
-                return Ok(());
+                return fatal;
             }
 
             let mut printed_any = false;
@@ -2076,22 +2080,22 @@ fn run_program(file_path: &str, run_options: RunOptions) -> Result<(), CompilerE
             }
 
             if printed_any {
-                return Ok(());
+                return fatal;
             }
 
             let current = final_state.get("current").unwrap_or(&final_state);
             if let Some(message) = current.get("message").and_then(|v| v.as_str()) {
                 println!("{message}");
-                Ok(())
+                fatal
             } else if let Some(text) = current.get("text").and_then(|v| v.as_str()) {
                 println!("{text}");
-                Ok(())
+                fatal
             } else if let Some(stdout) = current.get("stdout").and_then(|v| v.as_str()) {
                 println!("{stdout}");
-                Ok(())
+                fatal
             } else if current.is_string() {
                 println!("{}", current.as_str().unwrap_or_default());
-                Ok(())
+                fatal
             } else {
                 let out = CliRunOutput {
                     artifact_id: result.artifact_id,
@@ -2099,8 +2103,68 @@ fn run_program(file_path: &str, run_options: RunOptions) -> Result<(), CompilerE
                     final_state,
                     lint_warnings,
                 };
-                print_json(&out)
+                print_json(&out)?;
+                fatal
             }
+        }
+    }
+}
+
+/// A UI glyph is not a workflow entrypoint. `grapheme run` on that file opens
+/// it with `grapheme-ui` instead of executing the first store mutation.
+fn ui_glyph_without_workflow(artifact: &grapheme_artifact::ArtifactEnvelope) -> bool {
+    let mir = &artifact.payload.mir;
+    if mir.ui_glyphs.is_empty() {
+        return false;
+    }
+    let has_workflow_entry = mir.functions.iter().any(|function| {
+        function.store.is_none() && !matches!(function.kind, MirFunctionKind::Fragment)
+    });
+    !has_workflow_entry
+}
+
+fn fatal_failure_error(execution: &ExecutionResult) -> Result<(), CompilerError> {
+    if matches!(execution.outcome, ExecutionOutcome::FatalFailure) {
+        let detail = execution
+            .message
+            .clone()
+            .unwrap_or_else(|| "execution failed".to_string());
+        Err(CompilerError::RuntimeError(format!(
+            "fatal_failure: {detail}"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+fn grapheme_ui_launch_error(err: std::io::Error) -> CompilerError {
+    if err.kind() == std::io::ErrorKind::NotFound {
+        CompilerError::RuntimeError(
+            "`grapheme run` launches `grapheme-ui run <file>` from PATH when the file has a UI glyph and no workflow entry. `grapheme-ui` is not installed. Install the grapheme-ui desktop binary and ensure it is on PATH.".into(),
+        )
+    } else {
+        CompilerError::RuntimeError(format!("failed to launch grapheme-ui: {err}"))
+    }
+}
+
+fn launch_grapheme_ui(file_path: &str) -> Result<(), CompilerError> {
+    let mut command = std::process::Command::new("grapheme-ui");
+    command.arg("run").arg(file_path);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        let err = command.exec();
+        Err(grapheme_ui_launch_error(err))
+    }
+    #[cfg(not(unix))]
+    {
+        match command.status() {
+            Ok(status) if status.success() => Ok(()),
+            Ok(status) => Err(CompilerError::RuntimeError(format!(
+                "grapheme-ui run exited with status {}",
+                status.code().unwrap_or(1)
+            ))),
+            Err(err) => Err(grapheme_ui_launch_error(err)),
         }
     }
 }
@@ -2771,10 +2835,7 @@ fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
             }
             "--mount" => {
                 // Optional glyph name; omit to mount the program's sole UI glyph.
-                let name = args
-                    .get(i + 1)
-                    .filter(|v| !v.starts_with("--"))
-                    .cloned();
+                let name = args.get(i + 1).filter(|v| !v.starts_with("--")).cloned();
                 if name.is_some() {
                     i += 2;
                 } else {
@@ -2814,9 +2875,7 @@ fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
                 apps.push(json!(session.mount(glyph).map_err(sdk_error)?));
             }
             "action" => {
-                session
-                    .invoke_action(&name, payload)
-                    .map_err(sdk_error)?;
+                session.invoke_action(&name, payload).map_err(sdk_error)?;
             }
             _ => {
                 session.invoke(&name, payload).map_err(sdk_error)?;
@@ -3135,6 +3194,9 @@ fn print_usage() {
     eprintln!(
         "  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules]"
     );
+    eprintln!(
+        "               a file with a UI glyph and no workflow entry runs `grapheme-ui run <file>` from PATH"
+    );
     eprintln!("               [--state-json '<json>' | --state-file path.json]");
     eprintln!("               [--args-json '<json-object>']");
     eprintln!(
@@ -3216,6 +3278,64 @@ mod tests {
             }),
         );
         assert_eq!(out, json!(4.5));
+    }
+
+    #[test]
+    fn ui_file_without_a_workflow_hands_off_and_a_workflow_does_not() {
+        let ui = r#"
+state S { n: Int = 0 }
+mutation Inc on S { apply { n: $n + 1 } }
+view V on S { Text("{$n}") }
+glyph App on S { V }
+"#;
+        let compiled = Compiler::compile_source(ui, CompilerOptions::default()).unwrap();
+        assert!(ui_glyph_without_workflow(&compiled.artifact));
+
+        let workflow = "glyph Main { core.echo(message: \"hi\") }\n";
+        let compiled = Compiler::compile_source(workflow, CompilerOptions::default()).unwrap();
+        assert!(!ui_glyph_without_workflow(&compiled.artifact));
+    }
+
+    #[test]
+    fn fatal_failure_is_an_error_and_success_is_not() {
+        let fatal = ExecutionResult {
+            outcome: ExecutionOutcome::FatalFailure,
+            output_sttp_node_id: None,
+            trace_summary: grapheme_artifact::TraceSummary {
+                steps: 1,
+                failed_step: Some(0),
+            },
+            message: Some("cannot apply '+' to Null and Int".into()),
+        };
+        let err = fatal_failure_error(&fatal).unwrap_err().to_string();
+        assert!(
+            err.contains("fatal_failure") && err.contains("cannot apply"),
+            "{err}"
+        );
+
+        let ok = ExecutionResult {
+            outcome: ExecutionOutcome::Succeeded,
+            output_sttp_node_id: None,
+            trace_summary: grapheme_artifact::TraceSummary {
+                steps: 1,
+                failed_step: None,
+            },
+            message: None,
+        };
+        assert!(fatal_failure_error(&ok).is_ok());
+    }
+
+    #[test]
+    fn missing_grapheme_ui_names_the_install() {
+        let err = grapheme_ui_launch_error(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "not found",
+        ));
+        let text = err.to_string();
+        assert!(
+            text.contains("grapheme-ui") && text.contains("PATH"),
+            "{text}"
+        );
     }
 
     #[test]
