@@ -4,7 +4,9 @@ Grapheme is a language and runtime for building governed automation workflows wi
 
 Write workflows in `.gr`, compile them into verified MIR artifacts, and run them with policy controls across host-backed and Wasix-backed module paths.
 
-**0.7.2:** the `sql` capability uses sqlx 0.9 so a workspace can also depend on rusqlite 0.37 (`libsqlite3-sys` 0.35). Requires Rust **1.94+** / edition **2024**. See [CHANGELOG.md](CHANGELOG.md#072---2026-10-18).
+**0.8.0 (GraphemeUI language):** state stores, value expressions, views / View IR, and headless UI glyph mount (RFC-0007). Drive apps with `grapheme session` or an external renderer bridge. See [CHANGELOG.md](CHANGELOG.md#080---2026-11-10).
+
+**0.7.2:** the `sql` capability uses sqlx 0.9 so a workspace can also depend on rusqlite 0.37 (`libsqlite3-sys` 0.35). Requires Rust **1.94+** / edition **2024**. See [CHANGELOG.md](CHANGELOG.md#072---2026-10-23).
 
 **0.7.0 (language + Stage B):** executable parameters and tagged variables (RFC-0004), plus a Wasm-compilable Stage B AOT container with host fulfillment and Stage A parity (RFC-0005). See [CHANGELOG.md](CHANGELOG.md#070---2026-08-21).
 
@@ -15,6 +17,7 @@ Write workflows in `.gr`, compile them into verified MIR artifacts, and run them
 - Operational runbooks that branch and recover safely (`if`, `match`, `@loop`, `@retry`, `@timeout`).
 - Data and integration pipelines with explicit state transitions (`set`, `transition`, typed state machines).
 - **Reusable callables (0.7.0):** executable `$param` lists, tagged ambient vars, and scoped `using`.
+- **Interactive apps (0.8.0):** `state` stores, pure `view` trees, UI glyphs with `expose`, and headless `grapheme session` mount/render/action.
 - Policy-scoped automations that call HTTP, SQL, SMTP, secrets, TCP, memory, and custom modules.
 - **Stage B AOT (0.7.0):** Wasm-safe workflow containers with host capability fulfillment.
 - **Capability pipelines (0.6.0+):** Polars CSV ingest (`data`), Wasm PDF/image/plot plugins, ffmpeg probe/transcode (`media`).
@@ -128,6 +131,15 @@ cargo run -- run examples/hello-world.gr --aot-stage stage_b --json
 ```
 
 Author extract: `docs/internal/language/params-and-tags-v1.md`. Cut checklist: `docs/internal/release/release-0.7.0.md`.
+
+### GraphemeUI stores + views (0.8.0)
+
+```bash
+cargo run -- session examples/view-counter.gr --mount --invoke Increment
+cargo run -- compile examples/view-counter.gr --emit view-ir
+```
+
+Headless session, View IR, and SDK `store_session` / `mount` / `render` notes: `docs/internal/cli.md`, `docs/internal/sdk.md`, `docs/internal/release/release-0.8.0.md`.
 
 ## Copy-Paste Examples
 

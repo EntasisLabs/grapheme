@@ -18,6 +18,8 @@ Think in three layers:
 - Executables: define named workflow entry points (`query`, `mutation`, `iterator`, …).
 - **Parameters (0.7.0):** named `$param` lists with defaults; bind via `call` or CLI `--args-json`.
 - **Tags / `using` (0.7.0):** ambient tagged bindings activated for a scoped block.
+- **State stores (0.8.0):** `state Name { … }` with `mutation` / `apply`, revisions, and `grapheme session`.
+- **Views / UI glyphs (0.8.0):** pure `view` trees, View IR, and `glyph … on Store { expose …; View }`.
 - Operations: call module functions.
 - State transitions: evolve structured data through steps.
 - Control flow: branch and iterate with explicit intent.

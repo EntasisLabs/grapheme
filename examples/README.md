@@ -27,6 +27,12 @@ Run these first:
 
 Author extract: `docs/internal/language/params-and-tags-v1.md`.
 
+### 0.8.0 GraphemeUI (stores + views)
+
+- `view-counter.gr` — `state` store, `view`, UI glyph mount; try `grapheme session examples/view-counter.gr --mount --invoke Increment`
+
+Author extract: `docs/internal/rfc/rfc-0007-graphemeui-views-v1.md`. Cut checklist: `docs/internal/release/release-0.8.0.md`.
+
 ### Core / control flow
 
 - `core-merge.gr`
@@ -134,6 +140,13 @@ cargo run -- run examples/tag-using-scope.gr --json
 ./scripts/build-aot-container.sh
 cargo run -- build examples/hello-world.gr --aot-stage stage_b --json
 cargo run -- run examples/hello-world.gr --aot-stage stage_b --json
+```
+
+0.8.0 GraphemeUI stores + views:
+
+```bash
+cargo run -- session examples/view-counter.gr --mount --invoke Increment
+cargo run -- compile examples/view-counter.gr --emit view-ir
 ```
 
 Capability modules (0.6.0+, still current):

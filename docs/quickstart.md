@@ -67,6 +67,17 @@ grapheme run examples/tag-using-scope.gr --json
 
 Author notes: `docs/internal/language/params-and-tags-v1.md`.
 
+## 0.8.0 GraphemeUI path (stores + views)
+
+Mount the counter app, invoke an exposed mutation, and inspect state:
+
+```bash
+grapheme session examples/view-counter.gr --mount --invoke Increment
+grapheme compile examples/view-counter.gr --emit view-ir
+```
+
+Author notes: `docs/internal/rfc/rfc-0007-graphemeui-views-v1.md`, cut checklist `docs/internal/release/release-0.8.0.md`.
+
 ## Stage B AOT path (0.7.0)
 
 `grapheme build` defaults to Stage B. For a quick smoke:
@@ -119,7 +130,7 @@ grapheme run examples/data-read-csv.gr
 grapheme run examples/media-probe.gr   # requires ffmpeg/ffprobe on PATH
 ```
 
-See `docs/internal/sdk-feature-flags.md` and [CHANGELOG.md](../CHANGELOG.md#070---2026-08-21) for the **0.7.0** release notes (and the 0.6.0 capability train beneath it).
+See `docs/internal/sdk-feature-flags.md` and [CHANGELOG.md](../CHANGELOG.md#080---2026-11-10) for the **0.8.0** release notes (and the 0.7.0 / 0.6.0 trains beneath it).
 
 ## Next Step
 
