@@ -19,5 +19,6 @@ pub use mir::{
     MirBlock, MirCompareOp, MirFunction, MirFunctionKind, MirInst, MirIntentConfig, MirLoopConfig,
     MirLifecycle, MirLoopMergeMode, MirLoopUntil, MirMatchCase, MirMatchTarget, MirParam, MirProgram,
     MirRetryConfig, MirStore, MirStoreField, MirStoreFieldKind, MirTerminator, MirTimeoutConfig,
-    MirUiGlyph, MirView, MirViewBinding, MirViewNode, VIEW_IR_VERSION, view_ir_document,
+    MirUiGlyph, MirView, MirViewBinding, MirViewFor, MirViewNode, VIEW_IR_COMPILER_VERSION,
+    VIEW_IR_VERSION, view_ir_document,
 };

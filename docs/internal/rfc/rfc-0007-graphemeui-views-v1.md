@@ -1,6 +1,6 @@
 # RFC-0007: GraphemeUI — State Stores, Views and Tasks v1
 
-Status: Accepted — Implementation in progress (revision 4; rollout steps 0–2, Part H headless mount, Part F tasks headless slice)
+Status: Accepted — Implementation in progress (revision 4; rollout steps 0–2, Part H headless mount, Part F tasks headless slice, Part C.7 view `if` / `for`)
 Authors: language + runtime
 Created: 2026-11-07
 Revised: 2026-11-09
@@ -581,7 +581,7 @@ view_for   = "for" variable ("," variable)? "in" expr "key" expr "{" element* "}
 8. **Recursion** is allowed (layers panels, trees). Each level is a view reference that the renderer evaluates lazily, bounded by data and by the call-depth limit.
 9. `fragment` keeps its inline-macro contract unchanged.
 
-**Implementation status (rollout step 2):** the element grammar (named children, positional content, props, view references, rule 1's rejection of steps and module calls), rules 2–4 and 6 for `on Store` views, with a built-in catalog of `Column`, `Row`, `Text` and `Button`. Not yet: view params, `style`, slots, `if`/`for`, `transient state` on views, registry stores in scope, and recursion beyond eager inlining.
+**Implementation status (rollout step 2 + C.7):** the element grammar (named children, positional content, props, view references, rule 1's rejection of steps and module calls), rules 2–4, 6 and 7 (`if` / `else` / `for`, including `for $item, $index`) for `on Store` views, with a built-in catalog of `Column`, `Row`, `Text` and `Button`. A view `if` condition must be `Bool`. Nested `for` bodies see outer items; shadowing an outer binding is a compile error. Unnamed `if` / `for` keys use a `$if` / `$for` segment. `for` keys must be a non-empty string or number (`/` and `#` escaped); duplicates fail the render. Compiler `--emit view-ir` is `grapheme-ui/2` because it still contains `$if` / `$for` nodes. Expanded session trees stay `grapheme-ui/1`. Not yet: view params, `style`, slots, `VirtualList`, `transient state` on views, registry stores in scope, and recursion beyond eager inlining.
 
 ## Part D — Events and delegates
 

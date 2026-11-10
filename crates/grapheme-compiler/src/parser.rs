@@ -366,14 +366,73 @@ fn parse_view_def(pair: Pair<Rule>) -> Result<ViewDef, GraphemeError> {
 }
 
 fn parse_view_element(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
-    let mut element = ViewElement {
+    match pair.as_rule() {
+        Rule::view_if => parse_view_if(pair),
+        Rule::view_for => parse_view_for(pair),
+        Rule::view_element => parse_view_prim(pair),
+        other => Err(GraphemeError::ParseError(format!(
+            "expected a view element, found {other:?}"
+        ))),
+    }
+}
+
+fn empty_view_element() -> ViewElement {
+    ViewElement {
         child_name: None,
         kind: String::new(),
         content: None,
         props: Vec::new(),
         events: Vec::new(),
         children: Vec::new(),
-    };
+        condition: None,
+        else_children: Vec::new(),
+        repeat: None,
+    }
+}
+
+fn parse_view_body_children(
+    body: Pair<Rule>,
+    events: &mut Vec<crate::ast::ViewEvent>,
+    children: &mut Vec<ViewElement>,
+) -> Result<(), GraphemeError> {
+    for item in body.into_inner() {
+        match item.as_rule() {
+            Rule::view_event => events.push(parse_view_event(item)?),
+            Rule::view_if | Rule::view_for | Rule::view_element => {
+                children.push(parse_view_element(item)?)
+            }
+            Rule::view_step => {
+                return Err(GraphemeError::ParseError(format!(
+                    "a view contains elements only; '{}' is a pipeline step or module call",
+                    item.as_str().trim()
+                )));
+            }
+            Rule::view_child => {
+                // Flatten the choice wrapper if pest surfaces it.
+                for inner in item.into_inner() {
+                    match inner.as_rule() {
+                        Rule::view_event => events.push(parse_view_event(inner)?),
+                        Rule::view_if | Rule::view_for | Rule::view_element => {
+                            children.push(parse_view_element(inner)?)
+                        }
+                        Rule::view_step => {
+                            return Err(GraphemeError::ParseError(format!(
+                                "a view contains elements only; '{}' is a pipeline step or module call",
+                                inner.as_str().trim()
+                            )));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn parse_view_prim(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
+    let mut element = empty_view_element();
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::view_child_name => {
@@ -385,23 +444,99 @@ fn parse_view_element(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
                 element.content = Some(parse_value(p.into_inner().next().unwrap())?)
             }
             Rule::view_body => {
-                for item in p.into_inner() {
-                    match item.as_rule() {
-                        Rule::view_event => element.events.push(parse_view_event(item)?),
-                        Rule::view_element => element.children.push(parse_view_element(item)?),
-                        Rule::view_step => {
-                            return Err(GraphemeError::ParseError(format!(
-                                "a view contains elements only; '{}' is a pipeline step or module call",
-                                item.as_str().trim()
-                            )));
-                        }
-                        _ => {}
-                    }
-                }
+                parse_view_body_children(p, &mut element.events, &mut element.children)?
             }
             _ => {}
         }
     }
+    Ok(element)
+}
+
+fn parse_view_if(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
+    let mut element = empty_view_element();
+    element.kind = "if".to_string();
+    let mut bodies = Vec::new();
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::view_child_name => {
+                element.child_name = Some(p.into_inner().next().unwrap().as_str().to_string())
+            }
+            Rule::value => element.condition = Some(parse_value(p)?),
+            Rule::view_body => bodies.push(p),
+            _ => {}
+        }
+    }
+    if element.condition.is_none() {
+        return Err(GraphemeError::ParseError(
+            "if requires a condition expression".to_string(),
+        ));
+    }
+    let mut bodies = bodies.into_iter();
+    let Some(then_body) = bodies.next() else {
+        return Err(GraphemeError::ParseError(
+            "if requires a body".to_string(),
+        ));
+    };
+    element.children = parse_if_body(then_body, "if")?;
+    if let Some(else_body) = bodies.next() {
+        element.else_children = parse_if_body(else_body, "else")?;
+    }
+    Ok(element)
+}
+
+fn parse_if_body(body: Pair<Rule>, which: &str) -> Result<Vec<ViewElement>, GraphemeError> {
+    let mut events = Vec::new();
+    let mut children = Vec::new();
+    parse_view_body_children(body, &mut events, &mut children)?;
+    if !events.is_empty() {
+        return Err(GraphemeError::ParseError(format!(
+            "{which} {{ … }} may only contain elements"
+        )));
+    }
+    Ok(children)
+}
+
+fn parse_view_for(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
+    let mut element = empty_view_element();
+    element.kind = "for".to_string();
+    let mut names = Vec::new();
+    let mut source = None;
+    let mut key = None;
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::view_child_name => {
+                element.child_name = Some(p.into_inner().next().unwrap().as_str().to_string())
+            }
+            Rule::ident => names.push(p.as_str().to_string()),
+            Rule::value if source.is_none() => source = Some(parse_value(p)?),
+            Rule::value if key.is_none() => key = Some(parse_value(p)?),
+            Rule::view_body => {
+                element.children = parse_if_body(p, "for")?;
+            }
+            _ => {}
+        }
+    }
+    let Some(item) = names.first().cloned() else {
+        return Err(GraphemeError::ParseError(
+            "for requires `$item in <source> key <expr>`".to_string(),
+        ));
+    };
+    if names.len() > 2 {
+        return Err(GraphemeError::ParseError(
+            "for takes at most `$item, $index`".to_string(),
+        ));
+    }
+    let (Some(source), Some(key_expr)) = (source, key) else {
+        return Err(GraphemeError::ParseError(
+            "for requires `$item in <source> key <expr>`".to_string(),
+        ));
+    };
+    element.repeat = Some(crate::ast::ViewFor {
+        item,
+        index: names.get(1).cloned(),
+        source,
+        key: key_expr,
+    });
     Ok(element)
 }
 

@@ -505,7 +505,16 @@ impl StoreSession {
             None => (JsonValue::Object(Map::new()), None),
         };
         let mut events = Vec::new();
-        let root = self.evaluate_node(view, &view.root, &view.root.key, &scope, 0, &mut events)?;
+        let root = self.evaluate_node(
+            view,
+            &view.root,
+            &Place {
+                key: &view.root.key,
+                scope: &scope,
+                depth: 0,
+            },
+            &mut events,
+        )?;
         let ir = serde_json::json!({ "$ir": VIEW_IR_VERSION, "root": root });
         Ok((
             ViewSnapshot {
@@ -529,29 +538,165 @@ impl StoreSession {
             .ok_or_else(|| session_error(format!("no view named '{name}'")))
     }
 
+    /// Expands `if` / `for` children into realized nodes (RFC-0007 C.7).
+    fn evaluate_children(
+        &self,
+        view: &MirView,
+        node: &MirViewNode,
+        place: &Place<'_>,
+        events: &mut Vec<BoundEvent>,
+        out: &mut Vec<JsonValue>,
+    ) -> Result<(), RuntimeError> {
+        self.expand_list(view, &node.key, &node.children, place, events, out)
+    }
+
+    /// Splices `nodes` into `out`. `struct_key` is the compiler key of their
+    /// parent; `place.key` is that parent's key in this render.
+    fn expand_list(
+        &self,
+        view: &MirView,
+        struct_key: &str,
+        nodes: &[MirViewNode],
+        place: &Place<'_>,
+        events: &mut Vec<BoundEvent>,
+        out: &mut Vec<JsonValue>,
+    ) -> Result<(), RuntimeError> {
+        for child in nodes {
+            let suffix = child.key.strip_prefix(struct_key).unwrap_or(&child.key);
+            let child_key = format!("{}{suffix}", place.key);
+            if child.when.is_some() {
+                let branch = self.if_branch(view, child, &child_key, place.scope)?;
+                let branch_place = Place {
+                    key: &child_key,
+                    scope: place.scope,
+                    depth: place.depth,
+                };
+                self.expand_list(view, &child.key, branch, &branch_place, events, out)?;
+                continue;
+            }
+            if child.repeat.is_some() {
+                self.expand_for(view, child, &child_key, place, events, out)?;
+                continue;
+            }
+            out.push(self.evaluate_node(
+                view,
+                child,
+                &Place {
+                    key: &child_key,
+                    scope: place.scope,
+                    depth: place.depth,
+                },
+                events,
+            )?);
+        }
+        Ok(())
+    }
+
+    fn expand_for(
+        &self,
+        view: &MirView,
+        node: &MirViewNode,
+        child_key: &str,
+        place: &Place<'_>,
+        events: &mut Vec<BoundEvent>,
+        out: &mut Vec<JsonValue>,
+    ) -> Result<(), RuntimeError> {
+        let Some(repeat) = &node.repeat else {
+            return Ok(());
+        };
+        let fail = |message: String| {
+            session_error(format!("view '{}', element '{child_key}': {message}", view.name))
+        };
+        let source = eval_view_value(&repeat.source, place.scope)
+            .map_err(|e| fail(format!("for source: {e}")))?;
+        let items = source.as_array().ok_or_else(|| {
+            fail(format!(
+                "for source must be a list, found {}",
+                type_name(&source)
+            ))
+        })?;
+        let mut seen_keys = BTreeSet::new();
+        for (index, item_value) in items.iter().enumerate() {
+            let mut item_scope = place.scope.as_object().cloned().unwrap_or_default();
+            item_scope.insert(repeat.item.clone(), item_value.clone());
+            if let Some(index_name) = &repeat.index {
+                item_scope.insert(index_name.clone(), JsonValue::from(index as u64));
+            }
+            let item_scope = JsonValue::Object(item_scope);
+            let item_key = eval_view_value(&repeat.key, &item_scope)
+                .map_err(|e| fail(format!("for key: {e}")))?;
+            let item_key = match row_key(&item_key) {
+                Ok(key) => key,
+                Err(message) => return Err(fail(message)),
+            };
+            if !seen_keys.insert(item_key.clone()) {
+                return Err(fail(format!("duplicate for key '{item_key}'")));
+            }
+            let row_key = format!("{child_key}/{item_key}");
+            let row = Place {
+                key: &row_key,
+                scope: &item_scope,
+                depth: place.depth,
+            };
+            self.evaluate_children(view, node, &row, events, out)?;
+        }
+        Ok(())
+    }
+
+    /// The `if` branch to expand. The condition must be `Bool`; `0` is not true.
+    fn if_branch<'a>(
+        &self,
+        view: &MirView,
+        node: &'a MirViewNode,
+        key: &str,
+        scope: &JsonValue,
+    ) -> Result<&'a [MirViewNode], RuntimeError> {
+        let fail = |message: String| {
+            session_error(format!("view '{}', element '{key}': {message}", view.name))
+        };
+        let cond = node
+            .when
+            .as_ref()
+            .ok_or_else(|| fail("if is missing a condition".to_string()))?;
+        let value = eval_view_value(cond, scope).map_err(|e| fail(format!("if condition: {e}")))?;
+        match value {
+            JsonValue::Bool(true) => Ok(&node.children),
+            JsonValue::Bool(false) => Ok(&node.else_children),
+            other => Err(fail(format!(
+                "if condition must be Bool, found {}",
+                type_name(&other)
+            ))),
+        }
+    }
+
     /// Evaluates `node` with its key rebased from the view's root key onto `key`,
     /// expanding view references in place.
     fn evaluate_node(
         &self,
         view: &MirView,
         node: &MirViewNode,
-        key: &str,
-        scope: &JsonValue,
-        depth: usize,
+        place: &Place<'_>,
         events: &mut Vec<BoundEvent>,
     ) -> Result<JsonValue, RuntimeError> {
         let fail = |message: String| {
-            session_error(format!("view '{}', element '{key}': {message}", view.name))
+            session_error(format!(
+                "view '{}', element '{}': {message}",
+                view.name, place.key
+            ))
         };
         if let Some(name) = &node.view {
-            if depth >= MAX_VIEW_DEPTH {
+            if place.depth >= MAX_VIEW_DEPTH {
                 return Err(fail(format!(
                     "view references nest deeper than {MAX_VIEW_DEPTH}"
                 )));
             }
             let referenced = self.find_view(name)?;
-            let mut out =
-                self.evaluate_node(referenced, &referenced.root, key, scope, depth + 1, events)?;
+            let nested = Place {
+                key: place.key,
+                scope: place.scope,
+                depth: place.depth + 1,
+            };
+            let mut out = self.evaluate_node(referenced, &referenced.root, &nested, events)?;
             out["view"] = JsonValue::from(name.clone());
             return Ok(out);
         }
@@ -560,28 +705,18 @@ impl StoreSession {
         if let Some(prim) = &node.prim {
             out.insert("$prim".to_string(), JsonValue::from(prim.clone()));
         }
-        out.insert("key".to_string(), JsonValue::from(key));
+        out.insert("key".to_string(), JsonValue::from(place.key));
         if let Some(role) = &node.role {
             out.insert("role".to_string(), JsonValue::from(role.clone()));
         }
         let mut props = Map::new();
         for (name, value) in &node.props {
-            let value =
-                eval_view_value(value, scope).map_err(|e| fail(format!("prop '{name}': {e}")))?;
+            let value = eval_view_value(value, place.scope)
+                .map_err(|e| fail(format!("prop '{name}': {e}")))?;
             props.insert(name.clone(), value);
         }
         let mut children = Vec::new();
-        for child in &node.children {
-            let suffix = child.key.strip_prefix(&node.key).unwrap_or(&child.key);
-            children.push(self.evaluate_node(
-                view,
-                child,
-                &format!("{key}{suffix}"),
-                scope,
-                depth,
-                events,
-            )?);
-        }
+        self.evaluate_children(view, node, place, events, &mut children)?;
         let label = props
             .get("label")
             .and_then(JsonValue::as_str)
@@ -591,7 +726,7 @@ impl StoreSession {
         for (event, binding) in &node.events {
             let mut args = Map::new();
             for (name, value) in &binding.args {
-                let value = eval_view_value(value, scope)
+                let value = eval_view_value(value, place.scope)
                     .map_err(|e| fail(format!("argument '{name}' of '{}': {e}", binding.target)))?;
                 args.insert(name.clone(), value);
             }
@@ -600,7 +735,7 @@ impl StoreSession {
                 serde_json::json!({ "$action": binding.target, "args": args }),
             );
             events.push(BoundEvent {
-                key: key.to_string(),
+                key: place.key.to_string(),
                 event: event.clone(),
                 target: binding.target.clone(),
                 args,
@@ -1277,7 +1412,9 @@ fn attach_action_ids(node: &mut JsonValue, actions: &[ViewAction]) {
         .to_string();
     if let Some(events) = node.get_mut("events").and_then(JsonValue::as_object_mut) {
         for (event, binding) in events.iter_mut() {
-            if let Some(action) = actions.iter().find(|a| a.key == key && &a.event == event) {
+            // Last match: if two rows ever shared a key, the later epoch is the live id.
+            if let Some(action) = actions.iter().rev().find(|a| a.key == key && &a.event == event)
+            {
                 binding["id"] = JsonValue::from(action.id.clone());
             }
         }
@@ -1403,4 +1540,54 @@ fn resolve(value: &JsonValue, root: &JsonValue) -> JsonValue {
         }
         other => other.clone(),
     }
+}
+
+fn type_name(value: &JsonValue) -> &'static str {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(_) => "Bool",
+        JsonValue::Number(_) => "Number",
+        JsonValue::String(_) => "String",
+        JsonValue::Array(_) => "List",
+        JsonValue::Object(_) => "Object",
+    }
+}
+
+/// Where a node is being evaluated: its runtime key, the scope, and the view depth.
+struct Place<'a> {
+    key: &'a str,
+    scope: &'a JsonValue,
+    depth: usize,
+}
+
+/// A `for` row key. Empty strings, nulls, bools and objects are not identity.
+/// `/` and `#` are escaped so they cannot splice into a node path or an action id.
+fn row_key(value: &JsonValue) -> Result<String, String> {
+    let raw = match value {
+        JsonValue::String(s) if !s.is_empty() => s.clone(),
+        JsonValue::Number(n) => n.to_string(),
+        JsonValue::String(_) => {
+            return Err("for key must be a non-empty string or number".to_string());
+        }
+        other => {
+            return Err(format!(
+                "for key must be a non-empty string or number, found {}",
+                type_name(other)
+            ));
+        }
+    };
+    Ok(escape_key_segment(&raw))
+}
+
+fn escape_key_segment(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        match ch {
+            '%' => out.push_str("%25"),
+            '/' => out.push_str("%2F"),
+            '#' => out.push_str("%23"),
+            other => out.push(other),
+        }
+    }
+    out
 }

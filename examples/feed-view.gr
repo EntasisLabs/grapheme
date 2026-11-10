@@ -1,0 +1,66 @@
+// RFC-0007 C.7 + Part F: feed UI with if/for over task-loaded posts.
+//
+//   grapheme compile examples/feed-view.gr --emit view-ir --json
+//   grapheme session examples/feed-view.gr --mount
+//   grapheme session examples/feed-view.gr --mount --action 'expose:LoadFeed'
+//   grapheme session examples/feed-view.gr --mount --action 'expose:LoadFeed' --render FeedView
+
+struct Post {
+  id: String
+  title: String
+  likes: Int
+}
+
+enum FeedStatus { idle, pending, ready, failed }
+
+state Feed {
+  status: FeedStatus = idle
+  posts: [Post] = []
+  failure: String = ""
+  likes_total: Int = 0
+}
+
+mutation Like($id: String) on Feed {
+  apply { likes_total: $likes_total + 1 }
+}
+
+mutation Reset on Feed {
+  apply { status: "idle", posts: [], failure: "", likes_total: 0 }
+}
+
+task LoadFeed on Feed {
+  apply { status: "pending", failure: "" }
+  core.value(value: [
+    { id: "1", title: "Hello Grapheme", likes: 0 },
+    { id: "2", title: "Store tasks land", likes: 2 }
+  ])
+  apply { status: "ready", posts: $current }
+}
+
+view FeedView on Feed {
+  Column(gap: 8) {
+    header: Text("Feed ({$likes_total} likes)")
+    if $status == "idle" {
+      Button(label: "Load feed") { on click: LoadFeed }
+    }
+    if $status == "pending" {
+      Text("Loading…")
+    }
+    if $status == "failed" {
+      Text($failure)
+    }
+    if $status == "ready" {
+      for $post in $posts key $post.id {
+        Row(gap: 4) {
+          Text($post.title)
+          like: Button(label: "Like") { on click: Like(id: $post.id) }
+        }
+      }
+    }
+  }
+}
+
+glyph FeedApp on Feed {
+  expose LoadFeed, Reset, Like
+  FeedView
+}
