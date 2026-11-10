@@ -140,6 +140,9 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
                     Rule::mutation_def => {
                         definitions.push(Definition::Mutation(parse_mutation(def, state)?))
                     }
+                    Rule::task_def => {
+                        definitions.push(Definition::Task(parse_task(def, state)?))
+                    }
                     Rule::iterator_def => {
                         definitions.push(Definition::Iterator(parse_iterator(def, state)?))
                     }
@@ -869,6 +872,19 @@ fn parse_mutation(pair: Pair<Rule>, state: &mut ParseState) -> Result<MutationDe
     let name = inner.next().unwrap().as_str().to_string();
     let (variables, signature, directives, pipelines) = parse_operation_body(inner, state)?;
     Ok(MutationDef {
+        name,
+        variables,
+        signature,
+        directives,
+        pipelines,
+    })
+}
+
+fn parse_task(pair: Pair<Rule>, state: &mut ParseState) -> Result<crate::ast::TaskDef, GraphemeError> {
+    let mut inner = pair.into_inner();
+    let name = inner.next().unwrap().as_str().to_string();
+    let (variables, signature, directives, pipelines) = parse_operation_body(inner, state)?;
+    Ok(crate::ast::TaskDef {
         name,
         variables,
         signature,

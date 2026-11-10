@@ -1442,6 +1442,7 @@ pub struct ModuleTypesPayload {
 pub enum ExecutableReflectionKind {
     Query,
     Mutation,
+    Task,
     Subscription,
     Iterator,
 }
@@ -1538,6 +1539,7 @@ fn executable_reflection_from_hir(
     let kind = match executable.kind {
         HirExecutableKind::Query => ExecutableReflectionKind::Query,
         HirExecutableKind::Mutation => ExecutableReflectionKind::Mutation,
+        HirExecutableKind::Task => ExecutableReflectionKind::Task,
         HirExecutableKind::Subscription => ExecutableReflectionKind::Subscription,
         HirExecutableKind::Fragment => ExecutableReflectionKind::Iterator,
     };
@@ -1566,6 +1568,7 @@ fn executable_reflection_from_mir(
     let kind = match function.kind {
         MirFunctionKind::Query => ExecutableReflectionKind::Query,
         MirFunctionKind::Mutation => ExecutableReflectionKind::Mutation,
+        MirFunctionKind::Task => ExecutableReflectionKind::Task,
         MirFunctionKind::Subscription => ExecutableReflectionKind::Subscription,
         MirFunctionKind::Fragment => ExecutableReflectionKind::Iterator,
     };

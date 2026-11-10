@@ -285,7 +285,10 @@ fn apply_executable_kind_policy(
         return Ok(());
     }
 
-    if matches!(def_kind, HirExecutableKind::Mutation) {
+    if matches!(
+        def_kind,
+        HirExecutableKind::Mutation | HirExecutableKind::Task
+    ) {
         return Ok(());
     }
 
@@ -296,7 +299,7 @@ fn apply_executable_kind_policy(
         step.op.as_str()
     );
     let message = format!(
-        "definition '{}', pipeline {}, step {}: write-like op '{}' is restricted to mutation declarations (found in {})",
+        "definition '{}', pipeline {}, step {}: write-like op '{}' is restricted to mutation and task declarations (found in {})",
         def_name, pipeline_idx, step_idx, op_label, kind_label
     );
 
@@ -330,6 +333,7 @@ fn executable_kind_label(kind: &HirExecutableKind) -> &'static str {
     match kind {
         HirExecutableKind::Query => "query",
         HirExecutableKind::Mutation => "mutation",
+        HirExecutableKind::Task => "task",
         HirExecutableKind::Subscription => "subscription",
         HirExecutableKind::Fragment => "iterator/node",
     }
@@ -403,7 +407,7 @@ fn verify_typed_output_field_population(
 ) -> Result<(), GraphemeError> {
     if !matches!(
         def_kind,
-        HirExecutableKind::Query | HirExecutableKind::Mutation
+        HirExecutableKind::Query | HirExecutableKind::Mutation | HirExecutableKind::Task
     ) {
         return Ok(());
     }

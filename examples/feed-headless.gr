@@ -1,0 +1,51 @@
+// RFC-0007 Part F (headless): a feed store driven by tasks with capability calls.
+// Each `apply` in a task commits its own revision; `$state` survives module calls
+// so a later apply can write `$current` into store fields.
+//
+//   grapheme session examples/feed-headless.gr --invoke LoadFeed
+//   grapheme session examples/feed-headless.gr --mount --action 'expose:LoadFeed'
+
+struct Post {
+  id: String
+  title: String
+  likes: Int
+}
+
+enum FeedStatus { idle, pending, ready, failed }
+
+state Feed {
+  status: FeedStatus = idle
+  posts: [Post] = []
+  failure: String = ""
+  likes_total: Int = 0
+}
+
+mutation Reset on Feed {
+  apply { status: "idle", posts: [], failure: "", likes_total: 0 }
+}
+
+mutation Like($id: String) on Feed {
+  apply { likes_total: $likes_total + 1 }
+}
+
+// Stand-in for a host `feed.load` / `http.get` capability: returns the payload
+// as `$current`, then the following apply commits it into the store.
+task LoadFeed on Feed {
+  apply { status: "pending", failure: "" }
+  core.value(value: [
+    { id: "1", title: "Hello Grapheme", likes: 0 },
+    { id: "2", title: "Store tasks land", likes: 2 }
+  ])
+  apply { status: "ready", posts: $current }
+}
+
+task FailFeed($message: String) on Feed {
+  apply { status: "pending", failure: "" }
+  core.value(value: $message)
+  apply { status: "failed", failure: $current, posts: [] }
+}
+
+glyph FeedApp on Feed {
+  expose LoadFeed, Reset, Like
+  Text("status: {$status}")
+}

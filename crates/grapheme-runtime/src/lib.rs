@@ -42,7 +42,7 @@ pub use policy::PolicyGuard;
 pub use runtime::{RuntimeEngine, RuntimeOptions};
 pub use state::{AgentState, TracePolicy, TraceProjection};
 pub use store_session::{
-    AppSnapshot, StoreCommit, StoreRevision, StoreSession, ViewAction, ViewSnapshot,
+    AppSnapshot, EffectReceipt, StoreCommit, StoreRevision, StoreSession, ViewAction, ViewSnapshot,
 };
 #[cfg(feature = "wasix-runtime")]
 pub use wasix_backend::WasixBackend;

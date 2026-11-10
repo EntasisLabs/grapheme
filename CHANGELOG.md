@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Store tasks (RFC-0007 Part F, headless slice).** `task LoadFeed on Feed { apply { status: "pending" }; core.value(…); apply { status: "ready", posts: $current } }` declares a store-bound effect workflow. Tasks may call capabilities; each `apply`/`transition` commits its own revision. `$state` is kept on a separate lane so a capability call that replaces `$current` does not erase store fields. `StoreCommit.effects` lists effect receipts for those calls. Views may bind events to tasks; UI glyphs may `expose` them. Mutations stay pure (no module ops). Concurrency policies, `@if_unchanged`, `time.sleep`, registries and subscriptions are not in this slice. New example `examples/feed-headless.gr`.
+
 ## [0.8.0] - 2026-11-10
 
 **GraphemeUI language surface (RFC-0007 rollout steps 0–2 + Part H).** State stores, value expressions, views / View IR, and headless UI glyph mount — enough for a counter driven by `grapheme session` or an external renderer bridge. See `docs/internal/rfc/rfc-0007-graphemeui-views-v1.md`.

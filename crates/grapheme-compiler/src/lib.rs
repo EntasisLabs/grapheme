@@ -509,7 +509,11 @@ query Q {
         let err = compile_program(ast, options)
             .expect_err("strict policy should reject write-like op in query");
         let msg = err.to_string();
-        assert!(msg.contains("restricted to mutation declarations"));
+        assert!(
+            msg.contains("restricted to mutation")
+                || msg.contains("restricted to mutation and task"),
+            "{msg}"
+        );
     }
 
     #[test]
@@ -585,7 +589,11 @@ query Q {
         let err =
             compile_program(ast, options).expect_err("strict policy should reject apply in query");
         let msg = err.to_string();
-        assert!(msg.contains("restricted to mutation declarations"));
+        assert!(
+            msg.contains("restricted to mutation")
+                || msg.contains("restricted to mutation and task"),
+            "{msg}"
+        );
     }
 
     #[test]
@@ -2439,7 +2447,7 @@ state Counter {
             ),
             (
                 "subscription S on Counter { core.echo(message: \"x\") }",
-                "only queries and mutations",
+                "only queries, mutations and tasks",
             ),
             (
                 "mutation Other { core.echo(message: \"x\") }\nmutation M on Counter { call Other }",

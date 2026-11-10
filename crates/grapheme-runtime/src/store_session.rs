@@ -32,14 +32,31 @@ pub struct StoreRevision {
     pub history_diff: Map<String, JsonValue>,
 }
 
-/// The result of invoking a store mutation.
+/// One capability call made by a store task (RFC-0007 F.4, minimal).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EffectReceipt {
+    pub effect: u64,
+    pub op: String,
+    pub args: JsonValue,
+    pub store: String,
+    pub revision: u64,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// The result of invoking a store mutation or task.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StoreCommit {
     pub store: String,
     /// The store's revision after the invoke. Unchanged when nothing changed.
     pub revision: u64,
     /// `None` when the run changed no field, so no revision was committed.
+    /// For tasks, this is the *last* committed revision of the run.
     pub committed: Option<StoreRevision>,
+    /// Effect receipts from capability calls inside a task. Empty for mutations.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<EffectReceipt>,
 }
 
 #[derive(Debug, Clone)]
@@ -646,7 +663,9 @@ impl StoreSession {
             .ok_or_else(|| session_error(format!("no state named '{store}'")))?;
         let mut artifact = self.artifact.clone();
         artifact.entrypoint = name.to_string();
-        options.initial_state_current = Some(JsonValue::Object(instance.fields.clone()));
+        let fields = JsonValue::Object(instance.fields.clone());
+        options.initial_state_current = Some(fields.clone());
+        options.initial_state_lane = Some(fields);
         options.entrypoint_args = args;
         let mut recorder = WriteRecorder {
             inner: host,
@@ -663,8 +682,9 @@ impl StoreSession {
         Ok((state, recorder.writes))
     }
 
-    /// Runs `mutation` (declared `on` a store) against the store's latest
-    /// fields and commits its writes as one revision.
+    /// Runs a mutation or task (declared `on` a store) against the store's
+    /// latest fields. Mutations commit one revision for the whole run. Tasks
+    /// commit one revision per `apply`/`transition` and may call capabilities.
     pub fn invoke(
         &mut self,
         mutation: &str,
@@ -678,17 +698,111 @@ impl StoreSession {
                 "'{mutation}' is a query; queries are read-only"
             )));
         }
+        if matches!(kind, MirFunctionKind::Task) {
+            return self.invoke_task(mutation, &store_name, args, options, host);
+        }
         let (state, writes) = self.run(mutation, &store_name, args, options, host)?;
-        let instance = &self.stores[&store_name];
+        let next = state
+            .state_lane
+            .as_ref()
+            .or(Some(&state.current))
+            .and_then(JsonValue::as_object)
+            .cloned()
+            .unwrap_or_default();
+        self.commit_fields(&store_name, mutation, &next, &writes)
+    }
+
+    fn invoke_task(
+        &mut self,
+        task: &str,
+        store_name: &str,
+        args: Option<JsonValue>,
+        mut options: RuntimeOptions,
+        host: &mut dyn CapabilityHost,
+    ) -> Result<StoreCommit, RuntimeError> {
+        let (fields, mut sink) = {
+            let instance = self
+                .stores
+                .get(store_name)
+                .ok_or_else(|| session_error(format!("no state named '{store_name}'")))?;
+            (
+                JsonValue::Object(instance.fields.clone()),
+                TaskCommitSink {
+                    store: store_name.to_string(),
+                    schema: instance.schema.clone(),
+                    fields: instance.fields.clone(),
+                    revision: instance.revision,
+                    log: Vec::new(),
+                    last_committed: None,
+                },
+            )
+        };
+        let mut artifact = self.artifact.clone();
+        artifact.entrypoint = task.to_string();
+        options.initial_state_current = Some(fields.clone());
+        options.initial_state_lane = Some(fields);
+        options.entrypoint_args = args;
+
+        let mut effects = Vec::new();
+        let mut effect_seq = 0u64;
+        let result = {
+            let mut task_host = TaskHost {
+                sink: &mut sink,
+                cause: task.to_string(),
+                inner: host,
+                effects: &mut effects,
+                effect_seq: &mut effect_seq,
+                writes: Vec::new(),
+            };
+            let (_state, result) =
+                RuntimeEngine::new(options).execute_artifact(&artifact, &mut task_host)?;
+            result
+        };
+
+        // Task applies commit as they run; keep them even if a later step fails.
+        let commits = sink.log.len();
+        let last_committed = sink.last_committed.clone();
+        let revision = sink.revision;
+        {
+            let instance = self.stores.get_mut(store_name).unwrap();
+            instance.fields = sink.fields;
+            instance.revision = sink.revision;
+        }
+        self.log.extend(sink.log);
+
+        if !matches!(result.outcome, ExecutionOutcome::Succeeded) {
+            return Err(session_error(format!(
+                "'{task}' failed after {commits} commit(s): outcome={:?} message={} trace={:?}",
+                result.outcome,
+                result.message.unwrap_or_default(),
+                result.trace_summary
+            )));
+        }
+        Ok(StoreCommit {
+            store: store_name.to_string(),
+            revision,
+            committed: last_committed,
+            effects,
+        })
+    }
+
+    fn commit_fields(
+        &mut self,
+        store_name: &str,
+        cause: &str,
+        next: &Map<String, JsonValue>,
+        writes: &[FieldWrite],
+    ) -> Result<StoreCommit, RuntimeError> {
+        let instance = &self.stores[store_name];
         let mut transitioned = Vec::new();
-        for (name, from, to) in &writes {
+        for (name, from, to) in writes {
             let Some(field) = instance.schema.fields.iter().find(|f| &f.name == name) else {
                 continue;
             };
             match field.kind {
                 MirStoreFieldKind::Const | MirStoreFieldKind::Derive => {
                     return Err(session_error(format!(
-                        "mutation '{mutation}' wrote read-only field '{name}'; nothing committed"
+                        "'{cause}' wrote read-only field '{name}'; nothing committed"
                     )));
                 }
                 _ if field.lifecycle.is_some() => {
@@ -699,7 +813,6 @@ impl StoreSession {
             }
         }
 
-        let next = state.current.as_object().cloned().unwrap_or_default();
         let mut diff = Map::new();
         let mut history_diff = Map::new();
         for field in stored_fields(&instance.schema) {
@@ -711,13 +824,12 @@ impl StoreSession {
             let Some(new) = next.get(&field.name) else {
                 continue;
             };
-            // A transition along a declared self-edge is still a change.
             if *new == old && !transitioned.contains(&field.name.as_str()) {
                 continue;
             }
             if field.kind == MirStoreFieldKind::Const {
                 return Err(session_error(format!(
-                    "mutation '{mutation}' wrote read-only field '{}'; nothing committed",
+                    "'{cause}' wrote read-only field '{}'; nothing committed",
                     field.name
                 )));
             }
@@ -728,12 +840,13 @@ impl StoreSession {
             diff.insert(field.name.clone(), change);
         }
 
-        let instance = self.stores.get_mut(&store_name).unwrap();
+        let instance = self.stores.get_mut(store_name).unwrap();
         if diff.is_empty() {
             return Ok(StoreCommit {
-                store: store_name,
+                store: store_name.to_string(),
                 revision: instance.revision,
                 committed: None,
+                effects: Vec::new(),
             });
         }
         for (name, change) in &diff {
@@ -741,17 +854,18 @@ impl StoreSession {
         }
         instance.revision += 1;
         let revision = StoreRevision {
-            store: store_name.clone(),
+            store: store_name.to_string(),
             revision: instance.revision,
-            cause: mutation.to_string(),
+            cause: cause.to_string(),
             diff,
             history_diff,
         };
         self.log.push(revision.clone());
         Ok(StoreCommit {
-            store: store_name,
+            store: store_name.to_string(),
             revision: instance.revision,
             committed: Some(revision),
+            effects: Vec::new(),
         })
     }
 }
@@ -786,6 +900,175 @@ impl CapabilityHost for WriteRecorder<'_> {
             }
         }
         self.inner.call(call)
+    }
+}
+
+/// In-flight store state for a task run; merged back into the session after.
+struct TaskCommitSink {
+    store: String,
+    schema: MirStore,
+    fields: Map<String, JsonValue>,
+    revision: u64,
+    log: Vec<StoreRevision>,
+    last_committed: Option<StoreRevision>,
+}
+
+impl TaskCommitSink {
+    fn commit(
+        &mut self,
+        cause: &str,
+        next: &Map<String, JsonValue>,
+        writes: &[FieldWrite],
+    ) -> Result<(), String> {
+        let mut transitioned = Vec::new();
+        for (name, from, to) in writes {
+            let Some(field) = self.schema.fields.iter().find(|f| &f.name == name) else {
+                continue;
+            };
+            match field.kind {
+                MirStoreFieldKind::Const | MirStoreFieldKind::Derive => {
+                    return Err(format!(
+                        "'{cause}' wrote read-only field '{name}'; nothing committed"
+                    ));
+                }
+                _ if field.lifecycle.is_some() => {
+                    check_lifecycle(field, from, to).map_err(|e| e.to_string())?;
+                    transitioned.push(name.as_str());
+                }
+                _ => {}
+            }
+        }
+
+        let mut diff = Map::new();
+        let mut history_diff = Map::new();
+        for field in stored_fields(&self.schema) {
+            let old = self
+                .fields
+                .get(&field.name)
+                .cloned()
+                .unwrap_or(JsonValue::Null);
+            let Some(new) = next.get(&field.name) else {
+                continue;
+            };
+            if *new == old && !transitioned.contains(&field.name.as_str()) {
+                continue;
+            }
+            if field.kind == MirStoreFieldKind::Const {
+                return Err(format!(
+                    "'{cause}' wrote read-only field '{}'; nothing committed",
+                    field.name
+                ));
+            }
+            let change = JsonValue::Array(vec![old, new.clone()]);
+            if field.kind != MirStoreFieldKind::Transient {
+                history_diff.insert(field.name.clone(), change.clone());
+            }
+            diff.insert(field.name.clone(), change);
+        }
+        if diff.is_empty() {
+            return Ok(());
+        }
+        for (name, change) in &diff {
+            self.fields.insert(name.clone(), change[1].clone());
+        }
+        self.revision += 1;
+        let revision = StoreRevision {
+            store: self.store.clone(),
+            revision: self.revision,
+            cause: cause.to_string(),
+            diff,
+            history_diff,
+        };
+        self.last_committed = Some(revision.clone());
+        self.log.push(revision);
+        Ok(())
+    }
+}
+
+/// Host wrapper for store tasks: commits on each `set_fields` and records
+/// effect receipts for other capability calls.
+struct TaskHost<'a> {
+    sink: &'a mut TaskCommitSink,
+    cause: String,
+    inner: &'a mut dyn CapabilityHost,
+    effects: &'a mut Vec<EffectReceipt>,
+    effect_seq: &'a mut u64,
+    writes: Vec<FieldWrite>,
+}
+
+impl CapabilityHost for TaskHost<'_> {
+    fn call(&mut self, call: &CapabilityCall) -> Result<JsonValue, HostCallError> {
+        let is_apply = call.capability == "core.set_fields";
+        if is_apply {
+            self.writes.clear();
+            let input = call
+                .args
+                .get("input")
+                .or_else(|| call.args.get("__input"))
+                .and_then(JsonValue::as_object);
+            if let Some(fields) = call.args.get("fields").and_then(JsonValue::as_object) {
+                for (name, to) in fields {
+                    let from = input
+                        .and_then(|i| i.get(name))
+                        .cloned()
+                        .unwrap_or(JsonValue::Null);
+                    self.writes.push((name.clone(), from, to.clone()));
+                }
+            }
+        }
+
+        let output = if is_apply {
+            self.inner.call(call)?
+        } else {
+            let revision = self.sink.revision;
+            *self.effect_seq += 1;
+            let effect = *self.effect_seq;
+            let op = match &call.module {
+                Some(module) => format!("{module}.{}", call.op),
+                None => call.op.clone(),
+            };
+            let mut args = call.args.clone();
+            if let Some(obj) = args.as_object_mut() {
+                obj.remove("__input");
+            }
+            match self.inner.call(call) {
+                Ok(output) => {
+                    self.effects.push(EffectReceipt {
+                        effect,
+                        op,
+                        args,
+                        store: self.sink.store.clone(),
+                        revision,
+                        status: "acknowledged".to_string(),
+                        error: None,
+                    });
+                    output
+                }
+                Err(err) => {
+                    let message = match &err {
+                        HostCallError::Retryable(m) | HostCallError::Fatal(m) => m.clone(),
+                    };
+                    self.effects.push(EffectReceipt {
+                        effect,
+                        op,
+                        args,
+                        store: self.sink.store.clone(),
+                        revision,
+                        status: "failed".to_string(),
+                        error: Some(message),
+                    });
+                    return Err(err);
+                }
+            }
+        };
+
+        if is_apply {
+            let next = output.as_object().cloned().unwrap_or_default();
+            self.sink
+                .commit(&self.cause, &next, &self.writes)
+                .map_err(HostCallError::Fatal)?;
+        }
+        Ok(output)
     }
 }
 

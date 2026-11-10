@@ -312,10 +312,12 @@ pub(crate) fn lower_ui_glyphs(
                 }
                 if !matches!(
                     exec.kind,
-                    HirExecutableKind::Mutation | HirExecutableKind::Query
+                    HirExecutableKind::Mutation
+                        | HirExecutableKind::Task
+                        | HirExecutableKind::Query
                 ) {
                     return Err(type_error(format!(
-                        "glyph '{}' exposes '{name}', which is not a mutation or query",
+                        "glyph '{}' exposes '{name}', which is not a mutation, task or query",
                         glyph.name
                     )));
                 }
@@ -330,7 +332,7 @@ pub(crate) fn lower_ui_glyphs(
                 }
             } else {
                 return Err(type_error(format!(
-                    "glyph '{}' exposes '{name}', which is not a mutation, query or view on {store_name}",
+                    "glyph '{}' exposes '{name}', which is not a mutation, task, query or view on {store_name}",
                     glyph.name
                 )));
             }
@@ -552,11 +554,14 @@ impl Ctx<'_> {
         let Some(exec) = self.executables.iter().find(|e| e.name == target) else {
             return Err(self.error(key, format!("binding target '{target}' is not declared")));
         };
-        if !matches!(exec.kind, HirExecutableKind::Mutation) {
+        if !matches!(
+            exec.kind,
+            HirExecutableKind::Mutation | HirExecutableKind::Task
+        ) {
             return Err(self.error(
                 key,
                 format!(
-                    "binding target '{target}' is not a mutation; events can only invoke mutations"
+                    "binding target '{target}' is not a mutation or task; events can only invoke mutations and tasks"
                 ),
             ));
         }
@@ -565,7 +570,10 @@ impl Ctx<'_> {
             (Some(store), _) => {
                 return Err(self.error(
                     key,
-                    format!("'{target}' is not a mutation on state '{}'", store.name),
+                    format!(
+                        "'{target}' is not a mutation or task on state '{}'",
+                        store.name
+                    ),
                 ));
             }
             (None, _) => {

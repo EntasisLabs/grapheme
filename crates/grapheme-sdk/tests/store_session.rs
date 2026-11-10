@@ -299,3 +299,139 @@ fn a_failing_expression_query_reports_the_error_and_commits_nothing() {
     assert_eq!(session.query("PerStep", None).unwrap(), json!(5));
     assert_eq!(session.revision("Counter"), Some(1));
 }
+
+
+const FEED: &str = r#"
+struct Post {
+  id: String
+  title: String
+  likes: Int
+}
+enum FeedStatus { idle, pending, ready, failed }
+
+state Feed {
+  status: FeedStatus = idle
+  posts: [Post] = []
+  failure: String = ""
+  likes_total: Int = 0
+}
+
+mutation Like($id: String) on Feed {
+  apply { likes_total: $likes_total + 1 }
+}
+
+task LoadFeed on Feed {
+  apply { status: "pending", failure: "" }
+  core.value(value: [
+    { id: "1", title: "Hello", likes: 0 },
+    { id: "2", title: "Tasks", likes: 2 }
+  ])
+  apply { status: "ready", posts: $current }
+}
+
+task FailFeed($message: String) on Feed {
+  apply { status: "pending", failure: "" }
+  core.value(value: $message)
+  apply { status: "failed", failure: $current, posts: [] }
+}
+
+glyph FeedApp on Feed {
+  expose LoadFeed
+  Text("{$status}")
+}
+"#;
+
+#[test]
+fn task_applies_commit_separately_and_capability_result_writes_into_store() {
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(FEED)
+        .unwrap();
+    let commit = session.invoke("LoadFeed", None).unwrap();
+    assert_eq!(commit.revision, 2);
+    let last = commit.committed.expect("last apply committed");
+    assert_eq!(last.revision, 2);
+    assert_eq!(last.cause, "LoadFeed");
+    assert!(last.diff.contains_key("posts"), "{:?}", last.diff);
+    assert!(last.diff.contains_key("status"), "{:?}", last.diff);
+    assert_eq!(session.revisions().len(), 2);
+    assert_eq!(
+        session.revisions()[0].diff.get("status").unwrap()[1],
+        json!("pending")
+    );
+    let snap = session.snapshot("Feed").unwrap();
+    assert_eq!(snap["status"], json!("ready"));
+    assert_eq!(snap["posts"].as_array().unwrap().len(), 2);
+    assert_eq!(snap["posts"][0]["title"], json!("Hello"));
+    assert!(
+        !commit.effects.is_empty(),
+        "core.value should yield an effect receipt"
+    );
+}
+
+#[test]
+fn task_failure_keeps_earlier_applies() {
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(FEED)
+        .unwrap();
+    session
+        .invoke("FailFeed", Some(json!({"message": "boom"})))
+        .unwrap();
+    let snap = session.snapshot("Feed").unwrap();
+    assert_eq!(snap["status"], json!("failed"));
+    assert_eq!(snap["failure"], json!("boom"));
+    assert_eq!(snap["posts"], json!([]));
+}
+
+#[test]
+fn exposed_task_invokes_through_mount() {
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(FEED)
+        .unwrap();
+    let snap = session.mount(Some("FeedApp")).unwrap();
+    assert!(
+        snap.actions.iter().any(|a| a.id == "expose:LoadFeed"),
+        "{:?}",
+        snap.actions
+    );
+    session.invoke_action("expose:LoadFeed").unwrap();
+    assert_eq!(session.snapshot("Feed").unwrap()["status"], json!("ready"));
+}
+
+#[test]
+fn view_can_bind_click_to_a_task() {
+    let source = format!(
+        "{FEED}\nview FeedView on Feed {{\n  Button(label: \"Load\") {{ on click: LoadFeed }}\n}}\n"
+    );
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(&source)
+        .unwrap();
+    let rendered = session.render("FeedView").unwrap();
+    let id = rendered.actions[0].id.clone();
+    session.invoke_action(&id).unwrap();
+    assert_eq!(session.snapshot("Feed").unwrap()["status"], json!("ready"));
+}
+
+#[test]
+fn task_apply_then_capability_records_effect_receipt() {
+    let src = r#"
+state Feed { hits: Int = 0 }
+task Ping on Feed {
+  apply { hits: $hits + 1 }
+  core.echo(message: "ping")
+}
+"#;
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(src)
+        .unwrap();
+    let commit = session.invoke("Ping", None).unwrap();
+    assert_eq!(commit.revision, 1);
+    assert_eq!(commit.effects.len(), 1);
+    assert_eq!(commit.effects[0].op, "core.echo");
+    assert_eq!(commit.effects[0].status, "acknowledged");
+    assert_eq!(session.snapshot("Feed").unwrap()["hits"], json!(1));
+}

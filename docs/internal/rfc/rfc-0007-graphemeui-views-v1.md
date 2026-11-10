@@ -1,6 +1,6 @@
 # RFC-0007: GraphemeUI — State Stores, Views and Tasks v1
 
-Status: Accepted — Implementation in progress (revision 4; rollout steps 0–2 and Part H headless mount)
+Status: Accepted — Implementation in progress (revision 4; rollout steps 0–2, Part H headless mount, Part F tasks headless slice)
 Authors: language + runtime
 Created: 2026-11-07
 Revised: 2026-11-09
@@ -613,7 +613,7 @@ At compile time, for each binding:
 2. Arguments bound at the binding site, plus the arguments the event's payload supplies, must match the target's parameters **exactly**: no missing required arguments, no unknown ones, no argument supplied twice, and compatible types.
 3. A forwarded `$click` must have a type compatible with the child's event declaration.
 
-**Implementation status (rollout step 2):** element-body bindings `on click: Target(args)` with check 1 for mutations on the view's own store and check 2 for bound arguments. Not yet: event declarations and forwarding (D.1 rows 1–3 and 5), tasks, registry `write` stores and payload arguments.
+**Implementation status (rollout step 2 + Part F slice):** element-body bindings `on click: Target(args)` with check 1 for mutations or tasks on the view's own store and check 2 for bound arguments. Not yet: event declarations and forwarding (D.1 rows 1–3 and 5), registry `write` stores and payload arguments.
 
 ### D.3 Delegate types and MudBlazor
 
@@ -717,6 +717,8 @@ Every capability call a task makes produces an **effect receipt**:
 4. A call that ends `indeterminate` is surfaced as an error to the task, which `@retry` may handle. Retrying is the program's choice.
 5. **No exactly-once promise.** Delivery is at most once per attempt; whether a retry duplicates an external effect depends on the provider. Idempotency keys, durable dispatch and replay of effects are deferred to a later RFC.
 
+**Implementation status (headless slice):** `task Name on Store { … }` parses and lowers as `MirFunctionKind::Task`. Tasks may call capabilities; each `apply`/`transition` commits immediately (earlier commits kept on later failure). Store-bound runs keep `$state` on a separate lane from `$current`. `StoreCommit.effects` carries acknowledged/failed receipts for non-apply calls. View bindings and `expose` accept tasks. Not yet: `@concurrency`, generation fencing, `@if_unchanged`, `time.sleep`, registries/`use` grants, or subscription-started tasks. Example: `examples/feed-headless.gr`.
+
 ## Part G — Signals
 
 1. **Inbound:** a `subscription` on a store is an entrypoint the host (or another glyph) delivers events to. It behaves like a mutation: pure, one transaction, no capability calls. It may start a task with `call`.
@@ -736,7 +738,7 @@ Clauses:
 - `expose Name, …` makes queries readable, mutations and tasks invocable, and views mountable in a host slot, outside the rendered tree.
 - Hot reload has no clause; it follows A.9.
 
-**Implementation status:** `glyph Name on Store { expose …; Element }` parses and lowers to `MirUiGlyph` (a bare view reference reuses that view; any other element becomes a synthetic view named after the glyph). `expose` accepts mutations and queries on the glyph's store, and views on that store. `StoreSession::mount` / `app_snapshot` and `grapheme session --mount` return the app snapshot; exposed mutations appear as `expose:<Name>` actions. Workflow glyphs (`glyph Name { pipeline }`) are unchanged. Not yet: registry singletons at start-up, exposing tasks, host-slot mounting of exposed views, and hot reload.
+**Implementation status:** `glyph Name on Store { expose …; Element }` parses and lowers to `MirUiGlyph` (a bare view reference reuses that view; any other element becomes a synthetic view named after the glyph). `expose` accepts mutations, tasks and queries on the glyph's store, and views on that store. `StoreSession::mount` / `app_snapshot` and `grapheme session --mount` return the app snapshot; exposed mutations and tasks appear as `expose:<Name>` actions. Workflow glyphs (`glyph Name { pipeline }`) are unchanged. Not yet: registry singletons at start-up, host-slot mounting of exposed views, and hot reload.
 
 ## Part I — View IR and the headless app session
 

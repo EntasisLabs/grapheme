@@ -56,6 +56,10 @@ pub struct RuntimeOptions {
     pub max_call_depth: Option<usize>,
     /// Optional initial value assigned to `state.current` before first step.
     pub initial_state_current: Option<JsonValue>,
+    /// Optional initial `$state` lane for store-bound runs (RFC-0007 Part F).
+    /// When set, `$state` resolves here instead of `current`, so capability
+    /// calls can replace `current` without erasing store fields.
+    pub initial_state_lane: Option<JsonValue>,
     /// Optional entrypoint parameter bindings (`{ "priority": "high" }`).
     pub entrypoint_args: Option<JsonValue>,
 }
@@ -75,6 +79,7 @@ impl Default for RuntimeOptions {
             max_steps: Some(100_000),
             max_call_depth: Some(DEFAULT_MAX_CALL_DEPTH),
             initial_state_current: None,
+            initial_state_lane: None,
             entrypoint_args: None,
         }
     }
@@ -217,7 +222,9 @@ impl<'a> LoopFrame<'a> {
 
     fn template_scope<'b>(&'b self, state: &'b AgentState, iteration: usize) -> TemplateScope<'b> {
         let in_each = self.each_inputs.is_some();
-        let state_scope = if in_each {
+        let state_scope = if let Some(lane) = state.state_lane.as_ref() {
+            lane
+        } else if in_each {
             &self.input_snapshot
         } else {
             &state.current
@@ -436,6 +443,9 @@ impl RuntimeEngine {
         let mut state = AgentState::with_trace_policy(self.options.trace_policy.clone());
         if let Some(initial_current) = &self.options.initial_state_current {
             state.current = initial_current.clone();
+        }
+        if let Some(initial_lane) = &self.options.initial_state_lane {
+            state.state_lane = Some(initial_lane.clone());
         }
         // Pin module resolution state for the full execution so future activations
         // do not affect in-flight workflows.
@@ -1100,7 +1110,18 @@ impl RuntimeEngine {
                                 })?;
 
                             let scope = loop_frame.template_scope(state, iteration);
-                            let call_args = args_with_pipeline_input(args, &state.current, &scope);
+                            // Store applies (`core.set_fields`) patch the `$state`
+                            // lane, not the last capability result in `current`.
+                            let pipeline_input = if is_store_apply(module, op) {
+                                state
+                                    .state_lane
+                                    .as_ref()
+                                    .unwrap_or(&state.current)
+                            } else {
+                                &state.current
+                            };
+                            let call_args =
+                                args_with_pipeline_input(args, pipeline_input, &scope);
 
                             if let Some(message) = grapheme_artifact::expr::first_error(&call_args)
                             {
@@ -1207,12 +1228,16 @@ impl RuntimeEngine {
                                 emit_streamed_step_output(op, &base_context, &output);
                             }
 
+                            let is_apply = is_store_apply(module, op);
                             state.advance_in_place_with_context(
                                 *step_index,
                                 capability.0.clone(),
                                 output,
                                 base_context,
                             );
+                            if is_apply && state.state_lane.is_some() {
+                                state.state_lane = Some(state.current.clone());
+                            }
                             *step_index += 1;
                         }
                         MirInst::BranchCall {
@@ -1604,6 +1629,10 @@ fn build_function_index(functions: &[MirFunction]) -> HashMap<String, usize> {
         .enumerate()
         .map(|(idx, function)| (function.name.clone(), idx))
         .collect()
+}
+
+fn is_store_apply(module: &Option<String>, op: &str) -> bool {
+    module.as_deref() == Some("core") && op == "set_fields"
 }
 
 fn is_call_step(module: &Option<String>) -> bool {
