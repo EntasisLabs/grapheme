@@ -20,6 +20,10 @@ full = [
     "grapheme-compiler/full",
     "grapheme-runtime/full",
 ]
+# Run UI glyph files in-process: `grapheme run app.gr` opens a window.
+# Pulls grapheme-ui and its rndr/winit/wgpu window stack. Off by default so a
+# plain install stays headless. `cargo install grapheme-cli --features ui`.
+ui = ["dep:grapheme-ui", "grapheme-ui/desktop"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -32,3 +36,7 @@ grapheme-artifact = { path = "../grapheme-artifact", version = "0.5.0" }
 grapheme-aot-container = { path = "../grapheme-aot-container", version = "0.9.0" }
 grapheme-stdlib = { path = "../grapheme-stdlib", version = "0.9.0", features = ["full"] }
 grapheme-sdk = { path = "../grapheme-sdk", version = "0.9.0", default-features = false, features = ["full"] }
+# Optional: only the `ui` feature links it. grapheme-ui depends on the
+# grapheme-* crates from crates.io; the workspace `[patch.crates-io]` maps
+# them back to these paths so the binary carries one runtime.
+grapheme-ui = { git = "https://github.com/EntasisLabs/grapheme-ui", rev = "17bd33a790dec76ddf3b6b4245a333e07a93a408", version = "0.1.0", optional = true }

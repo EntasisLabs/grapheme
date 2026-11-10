@@ -89,7 +89,9 @@ cargo run -- build examples/hello-world.gr --aot-stage stage_b --out build/hello
 
 ### `run`
 
-Compiles and executes a program.
+Compiles and executes a program. A run that ends in `fatal_failure` exits non-zero.
+
+A file with a UI glyph (`glyph App on Store { … }`) and no workflow entry opens in a window instead, in-process through [grapheme-ui](https://github.com/EntasisLabs/grapheme-ui). That needs the optional `ui` feature (`cargo install grapheme-cli --features ui`, or `cargo run -p grapheme-cli --features ui -- run app.gr`). Without it, `grapheme run` prints a message naming that reinstall and exits non-zero. The default build has no window or GPU dependencies.
 
 Plain text output (best-effort extraction from final state):
 

@@ -2111,7 +2111,7 @@ fn run_program(file_path: &str, run_options: RunOptions) -> Result<(), CompilerE
 }
 
 /// A UI glyph is not a workflow entrypoint. `grapheme run` on that file opens
-/// it with `grapheme-ui` instead of executing the first store mutation.
+/// it in a window (the `ui` feature) instead of executing the first store mutation.
 fn ui_glyph_without_workflow(artifact: &grapheme_artifact::ArtifactEnvelope) -> bool {
     let mir = &artifact.payload.mir;
     if mir.ui_glyphs.is_empty() {
@@ -2137,36 +2137,25 @@ fn fatal_failure_error(execution: &ExecutionResult) -> Result<(), CompilerError>
     }
 }
 
-fn grapheme_ui_launch_error(err: std::io::Error) -> CompilerError {
-    if err.kind() == std::io::ErrorKind::NotFound {
-        CompilerError::RuntimeError(
-            "`grapheme run` launches `grapheme-ui run <file>` from PATH when the file has a UI glyph and no workflow entry. `grapheme-ui` is not installed. Install the grapheme-ui desktop binary and ensure it is on PATH.".into(),
-        )
-    } else {
-        CompilerError::RuntimeError(format!("failed to launch grapheme-ui: {err}"))
-    }
+/// Without the `ui` feature, a UI file gets a message naming the reinstall.
+#[cfg(not(feature = "ui"))]
+const UI_FEATURE_MISSING: &str = "this file has a UI glyph and no workflow entry, so `grapheme run` would open it in a window, but this `grapheme` was built without UI support. Reinstall with: cargo install grapheme-cli --features ui";
+
+/// Open a UI glyph file in a window, in-process, and block until it closes.
+#[cfg(feature = "ui")]
+fn launch_grapheme_ui(file_path: &str) -> Result<(), CompilerError> {
+    use grapheme_ui::desktop::{RunFileError, run_file};
+    run_file(Path::new(file_path), None).map_err(|err| match err {
+        RunFileError::Load(load) => CompilerError::RuntimeError(load.to_string()),
+        RunFileError::Surface(surface) => {
+            CompilerError::RuntimeError(format!("failed to open UI glyph: {surface}"))
+        }
+    })
 }
 
-fn launch_grapheme_ui(file_path: &str) -> Result<(), CompilerError> {
-    let mut command = std::process::Command::new("grapheme-ui");
-    command.arg("run").arg(file_path);
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        let err = command.exec();
-        Err(grapheme_ui_launch_error(err))
-    }
-    #[cfg(not(unix))]
-    {
-        match command.status() {
-            Ok(status) if status.success() => Ok(()),
-            Ok(status) => Err(CompilerError::RuntimeError(format!(
-                "grapheme-ui run exited with status {}",
-                status.code().unwrap_or(1)
-            ))),
-            Err(err) => Err(grapheme_ui_launch_error(err)),
-        }
-    }
+#[cfg(not(feature = "ui"))]
+fn launch_grapheme_ui(_file_path: &str) -> Result<(), CompilerError> {
+    Err(CompilerError::RuntimeError(UI_FEATURE_MISSING.into()))
 }
 
 fn default_run_options() -> RunOptions {
@@ -3195,7 +3184,7 @@ fn print_usage() {
         "  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules]"
     );
     eprintln!(
-        "               a file with a UI glyph and no workflow entry runs `grapheme-ui run <file>` from PATH"
+        "               a file with a UI glyph and no workflow entry opens in a window (needs `--features ui`)"
     );
     eprintln!("               [--state-json '<json>' | --state-file path.json]");
     eprintln!("               [--args-json '<json-object>']");
@@ -3325,17 +3314,23 @@ glyph App on S { V }
         assert!(fatal_failure_error(&ok).is_ok());
     }
 
+    #[cfg(not(feature = "ui"))]
     #[test]
-    fn missing_grapheme_ui_names_the_install() {
-        let err = grapheme_ui_launch_error(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "not found",
-        ));
-        let text = err.to_string();
+    fn ui_file_without_the_ui_feature_names_the_reinstall() {
+        let err = launch_grapheme_ui("app.gr").unwrap_err().to_string();
         assert!(
-            text.contains("grapheme-ui") && text.contains("PATH"),
-            "{text}"
+            err.contains("--features ui") && err.contains("cargo install grapheme-cli"),
+            "{err}"
         );
+    }
+
+    #[cfg(feature = "ui")]
+    #[test]
+    fn ui_feature_reports_load_diagnostics_without_opening_a_window() {
+        let err = launch_grapheme_ui("does-not-exist.gr")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("does-not-exist.gr"), "{err}");
     }
 
     #[test]

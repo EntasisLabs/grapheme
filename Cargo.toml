@@ -15,6 +15,20 @@ exclude = ["plugins/core-echo-rs", "plugins/io-rs", "plugins/http-rs", "plugins/
 default-members = ["crates/grapheme-cli"]
 resolver = "2"
 
+# grapheme-cli's optional `ui` feature depends on grapheme-ui, which depends on
+# grapheme-* from crates.io. Point those back at the workspace crates so the
+# CLI links a single copy of the runtime. Only applies while the workspace
+# versions satisfy grapheme-ui's requirement (^0.9.0 today); bump grapheme-ui
+# in lockstep with a grapheme minor release.
+[patch.crates-io]
+grapheme-artifact = { path = "crates/grapheme-artifact" }
+grapheme-signatures = { path = "crates/grapheme-signatures" }
+grapheme-stdlib = { path = "crates/grapheme-stdlib" }
+grapheme-compiler = { path = "crates/grapheme-compiler" }
+grapheme-runtime = { path = "crates/grapheme-runtime" }
+grapheme-sdk = { path = "crates/grapheme-sdk" }
+grapheme-aot-container = { path = "crates/grapheme-aot-container" }
+
 [workspace.package]
 edition = "2024"
 rust-version = "1.94"
