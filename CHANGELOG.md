@@ -7,11 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Planned as **0.9.0**. `grapheme-artifact` is **0.5.0**. Not published.
+
 ### Added
 
-- **Store tasks (RFC-0007 Part F, headless slice).** `task LoadFeed on Feed { apply { status: "pending" }; core.value(…); apply { status: "ready", posts: $current } }` declares a store-bound effect workflow. Tasks may call capabilities; each `apply`/`transition` commits its own revision. `$state` is kept on a separate lane so a capability call that replaces `$current` does not erase store fields. `StoreCommit.effects` lists effect receipts for those calls. Views may bind events to tasks; UI glyphs may `expose` them. Mutations stay pure (no module ops). Concurrency policies, `@if_unchanged`, `time.sleep`, registries and subscriptions are not in this slice. New example `examples/feed-headless.gr`.
-- **View `if` / `for` (RFC-0007 Part C.7).** `if $status == "ready" { … }` and `for $post in $posts key $post.id { … }` are view children. Compile-time IR uses `$if` / `$for`; the headless session expands them when rendering (false branches omitted; list rows keyed by the `key` expression). Item scope `$post` / `$post.field` works in props and bindings. Example `examples/feed-view.gr`. `VirtualList` is not in this slice.
-- **TextField + action payloads (RFC-0007 Part D).** Catalog `TextField` (`value`, `placeholder`, `label`; `change` supplies payload param `value`). Bindings may omit params the event supplies; those land in `payload_params`. `invoke_action(id, payload)` / CLI `--action 'id:{"value":"…"}'` merge the payload over bound args. `examples/feed-view.gr` adds `Search` + a controlled search field.
+- **Store tasks (RFC-0007 Part F, headless slice).** `task LoadFeed on Feed { apply { status: "pending" }; core.value(…); apply { status: "ready", posts: $current } }` declares a store-bound effect workflow. Tasks may call capabilities; each of the task's own `apply`/`transition` steps commits its own revision. `$state` is kept on a separate lane so a capability call that replaces `$current` does not erase store fields, and bare `$field` in `if` / `match` reads that lane. `StoreCommit.effects` lists effect receipts for capability calls (not pure `core.value` / `core.echo`), with `cause`. A failed task keeps earlier commits and returns those receipts, including a `failed` receipt when a call is refused. A mutation called from a task is one transaction. Mutations cannot call tasks. Views may bind events to tasks; UI glyphs may `expose` them. Mutations stay pure (no module ops). Concurrency policies, `@if_unchanged`, `time.sleep`, registries and subscriptions are not in this slice. New example `examples/feed-headless.gr`.
+- **View `if` / `for` (RFC-0007 Part C.7).** `if $status == "ready" { … } else { … }` and `for $post, $index in $posts key $post.id { … }` are view children. The condition must be `Bool`. Compile-time IR is `grapheme-ui/2` and uses `$if` / `$for`; the headless session expands them (`grapheme-ui/1`: false branches omitted, `else` used when present, list rows keyed by the `key` expression). Nested `for` sees outer items. Duplicate, empty or non-string/number keys fail the render. `/` and `#` in keys are escaped. Example `examples/feed-view.gr`. `VirtualList` is not in this slice.
+- **TextField + action payloads (RFC-0007 Part D).** Catalog `TextField` (`value`, `placeholder`, `label`; `change` supplies `value: String`). Bindings may omit params the event supplies; those land in `payload_params`. A bound argument whose name is also in the event payload is a compile error, and the parameter type must be compatible with the payload type. `invoke_action(id, payload)` / CLI `--action 'id:{"value":"…"}'` merge the payload over bound args and check JSON types again. `examples/feed-view.gr` adds `Search` + a controlled search field.
+
+### Fixed
+
+- **Bare `if` / `match` after a capability read the store.** `$status` in a task lowers to `state.status`, so the branch uses the store lane rather than the capability result left in `$current`.
+- **A mutation cannot call a task**, including through another mutation or an inline target. The task's capability calls no longer run on the mutation path.
+- **A mutation called from a task commits once.** Applies inside that call share one revision and roll back together if the call fails. Earlier task applies stay committed.
+- **A store field named `error` is not a step failure.** `__input.error` still fails a step when the input is a previous op's result.
+- **Effect receipts match F.4 for this slice.** Capability ops only, with `cause` (`action`, `task`, `generation`). `generation` is null until fencing exists. Refused calls get a `failed` receipt, and the list is returned when the task fails.
+
+### Changed
+
+- **Crate versions.** Language crates are **0.9.0**. `grapheme-artifact` is **0.5.0** because `MirFunctionKind::Task` is a new public enum variant; 0.4.0 deserializers reject `"Task"`. Not published.
+
+### Crate versions (this slice)
+
+| Crate | Version |
+| --- | --- |
+| `grapheme-signatures` | 0.9.0 |
+| `grapheme-stdlib` | 0.9.0 |
+| `grapheme-aot-container` | 0.9.0 |
+| `grapheme-runtime` | 0.9.0 |
+| `grapheme-compiler` | 0.9.0 |
+| `grapheme-sdk` | 0.9.0 |
+| `grapheme-cli` | 0.9.0 |
+| `grapheme-lsp` | 0.9.0 |
+| `grapheme-wasm` | 0.9.0 |
+| `grapheme-artifact` | 0.5.0 |
 
 ## [0.8.0] - 2026-11-10
 

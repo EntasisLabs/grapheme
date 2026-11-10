@@ -30,8 +30,9 @@ enum PropType {
 /// Catalog event: name plus payload params the host/widget supplies at invoke.
 struct CatalogEvent {
     name: &'static str,
-    /// e.g. TextField `change` supplies `value`.
-    payload: &'static [&'static str],
+    /// Params the event supplies, as `(name, type)`. TextField `change` is
+    /// `("value", "String")`.
+    payload: &'static [(&'static str, &'static str)],
 }
 
 /// A built-in primitive of the GraphemeUI catalog.
@@ -102,7 +103,7 @@ const CATALOG: &[Primitive] = &[
         ],
         events: &[CatalogEvent {
             name: "change",
-            payload: &["value"],
+            payload: &[("value", "String")],
         }],
         children: false,
     },
@@ -208,7 +209,7 @@ pub(crate) fn lower_views(
             Ok(MirView {
                 name: def.name.clone(),
                 store: def.store.clone(),
-                root: ctx.lower_element(&def.root, def.name.clone(), None)?,
+                root: ctx.lower_element(&def.root, def.name.clone(), &[])?,
             })
         })
         .collect()
@@ -302,7 +303,7 @@ pub(crate) fn lower_ui_glyphs(
             let mir = MirView {
                 name: glyph.name.clone(),
                 store: Some(store_name.to_string()),
-                root: ctx.lower_element(&synthetic.root, glyph.name.clone(), None)?,
+                root: ctx.lower_element(&synthetic.root, glyph.name.clone(), &[])?,
             };
             let name = mir.name.clone();
             views.push(mir);
@@ -351,13 +352,13 @@ pub(crate) fn lower_ui_glyphs(
                     )));
                 }
             } else if let Some(store_of) = view_stores.get(name.as_str()) {
-                if let Some(other) = *store_of {
-                    if other != store_name {
-                        return Err(type_error(format!(
-                            "glyph '{}' exposes view '{name}' on {other}, not on {store_name}",
-                            glyph.name
-                        )));
-                    }
+                if let Some(other) = *store_of
+                    && other != store_name
+                {
+                    return Err(type_error(format!(
+                        "glyph '{}' exposes view '{name}' on {other}, not on {store_name}",
+                        glyph.name
+                    )));
                 }
             } else {
                 return Err(type_error(format!(
@@ -397,13 +398,13 @@ impl Ctx<'_> {
         &self,
         element: &ViewElement,
         key: String,
-        item: Option<&str>,
+        items: &[String],
     ) -> Result<MirViewNode, GraphemeError> {
         if element.kind == "if" {
-            return self.lower_if(element, key, item);
+            return self.lower_if(element, key, items);
         }
         if element.kind == "for" {
-            return self.lower_for(element, key, item);
+            return self.lower_for(element, key, items);
         }
         let Some(prim) = primitive(&element.kind) else {
             if self.views.contains_key(element.kind.as_str()) {
@@ -436,7 +437,7 @@ impl Ctx<'_> {
             }
             props.insert(
                 "content".to_string(),
-                self.lower_prop(&key, "content", PropType::Text, content, item)?,
+                self.lower_prop(&key, "content", PropType::Text, content, items)?,
             );
         }
         for (name, value) in &element.props {
@@ -457,7 +458,10 @@ impl Ctx<'_> {
             if props.contains_key(name) {
                 return Err(self.error(&key, format!("prop '{name}' is given more than once")));
             }
-            props.insert(name.clone(), self.lower_prop(&key, name, *ty, value, item)?);
+            props.insert(
+                name.clone(),
+                self.lower_prop(&key, name, *ty, value, items)?,
+            );
         }
 
         let mut events = BTreeMap::new();
@@ -479,7 +483,7 @@ impl Ctx<'_> {
                 &event.target,
                 &event.args,
                 catalog_event.payload,
-                item,
+                items,
             )?;
             events.insert(event.event.clone(), binding);
         }
@@ -487,12 +491,13 @@ impl Ctx<'_> {
         if !prim.children && !element.children.is_empty() {
             return Err(self.error(&key, format!("'{}' cannot have children", prim.name)));
         }
-        let children = self.lower_children(element, &key, item)?;
+        let children = self.lower_children(&element.children, &key, items)?;
 
         Ok(MirViewNode {
             prim: Some(prim.name.to_string()),
             view: None,
             when: None,
+            else_children: Vec::new(),
             repeat: None,
             key,
             role: Some(prim.role.to_string()),
@@ -506,7 +511,7 @@ impl Ctx<'_> {
         &self,
         element: &ViewElement,
         key: String,
-        item: Option<&str>,
+        items: &[String],
     ) -> Result<MirViewNode, GraphemeError> {
         let Some(cond) = &element.condition else {
             return Err(self.error(&key, "if is missing a condition".to_string()));
@@ -517,12 +522,22 @@ impl Ctx<'_> {
                 "if cannot have props, content or event bindings".to_string(),
             ));
         }
-        let when = self.lower_value(&key, cond, item)?;
-        let children = self.lower_children(element, &key, item)?;
+        let when = self.lower_value(&key, cond, items)?;
+        if let Some(actual) = self.condition_type(&when)
+            && actual != "Bool"
+        {
+            return Err(self.error(
+                &key,
+                format!("if condition must be Bool, found {actual}"),
+            ));
+        }
+        let children = self.lower_children(&element.children, &key, items)?;
+        let else_children = self.lower_children(&element.else_children, &key, items)?;
         Ok(MirViewNode {
             prim: None,
             view: None,
             when: Some(when),
+            else_children,
             repeat: None,
             key,
             role: None,
@@ -536,7 +551,7 @@ impl Ctx<'_> {
         &self,
         element: &ViewElement,
         key: String,
-        outer_item: Option<&str>,
+        items: &[String],
     ) -> Result<MirViewNode, GraphemeError> {
         let Some(repeat) = &element.repeat else {
             return Err(self.error(&key, "for is missing its bindings".to_string()));
@@ -547,27 +562,32 @@ impl Ctx<'_> {
                 "for cannot have props, content or event bindings".to_string(),
             ));
         }
-        if self
-            .store
-            .is_some_and(|s| s.fields.iter().any(|f| f.name == repeat.item))
-        {
-            return Err(self.error(
-                &key,
-                format!(
-                    "for item '${}' has the same name as a field of the store",
-                    repeat.item
-                ),
-            ));
+        self.reject_for_name(&key, &repeat.item, items, "item")?;
+        if let Some(index) = &repeat.index {
+            if index == &repeat.item {
+                return Err(self.error(
+                    &key,
+                    format!("for index '${index}' has the same name as the item"),
+                ));
+            }
+            self.reject_for_name(&key, index, items, "index")?;
         }
-        let source = self.lower_value(&key, &repeat.source, outer_item)?;
-        let key_expr = self.lower_value(&key, &repeat.key, Some(repeat.item.as_str()))?;
-        let children = self.lower_children(element, &key, Some(repeat.item.as_str()))?;
+        let source = self.lower_value(&key, &repeat.source, items)?;
+        let mut inner = items.to_vec();
+        inner.push(repeat.item.clone());
+        if let Some(index) = &repeat.index {
+            inner.push(index.clone());
+        }
+        let key_expr = self.lower_value(&key, &repeat.key, &inner)?;
+        let children = self.lower_children(&element.children, &key, &inner)?;
         Ok(MirViewNode {
             prim: None,
             view: None,
             when: None,
+            else_children: Vec::new(),
             repeat: Some(MirViewFor {
                 item: repeat.item.clone(),
+                index: repeat.index.clone(),
                 source,
                 key: key_expr,
             }),
@@ -579,18 +599,53 @@ impl Ctx<'_> {
         })
     }
 
+    /// `$if` / `$for` cannot be written as a child name (`$` is not an ident),
+    /// so an unnamed conditional never collides with `if: Button` or `for: Text`.
+    fn control_segment(kind: &str, count: usize) -> String {
+        if count == 0 {
+            format!("${kind}")
+        } else {
+            format!("${kind}{count}")
+        }
+    }
+
+    fn reject_for_name(
+        &self,
+        key: &str,
+        name: &str,
+        items: &[String],
+        role: &str,
+    ) -> Result<(), GraphemeError> {
+        if self
+            .store
+            .is_some_and(|s| s.fields.iter().any(|f| f.name == name))
+        {
+            return Err(self.error(
+                key,
+                format!("for {role} '${name}' has the same name as a field of the store"),
+            ));
+        }
+        if items.iter().any(|item| item == name) {
+            return Err(self.error(
+                key,
+                format!("for {role} '${name}' shadows an outer for binding"),
+            ));
+        }
+        Ok(())
+    }
+
     fn lower_children(
         &self,
-        element: &ViewElement,
+        elements: &[ViewElement],
         key: &str,
-        item: Option<&str>,
+        items: &[String],
     ) -> Result<Vec<MirViewNode>, GraphemeError> {
         let mut children = Vec::new();
         let mut named = HashSet::new();
         let mut ordinal = 0usize;
         let mut if_count = 0usize;
         let mut for_count = 0usize;
-        for child in &element.children {
+        for child in elements {
             let segment = match &child.child_name {
                 Some(name) => {
                     if !named.insert(name.as_str()) {
@@ -599,20 +654,12 @@ impl Ctx<'_> {
                     name.clone()
                 }
                 None if child.kind == "if" => {
-                    let segment = if if_count == 0 {
-                        "if".to_string()
-                    } else {
-                        format!("if{if_count}")
-                    };
+                    let segment = Self::control_segment("if", if_count);
                     if_count += 1;
                     segment
                 }
                 None if child.kind == "for" => {
-                    let segment = if for_count == 0 {
-                        "for".to_string()
-                    } else {
-                        format!("for{for_count}")
-                    };
+                    let segment = Self::control_segment("for", for_count);
                     for_count += 1;
                     segment
                 }
@@ -622,7 +669,7 @@ impl Ctx<'_> {
                     segment
                 }
             };
-            children.push(self.lower_element(child, format!("{key}/{segment}"), item)?);
+            children.push(self.lower_element(child, format!("{key}/{segment}"), items)?);
         }
         Ok(children)
     }
@@ -665,6 +712,7 @@ impl Ctx<'_> {
             prim: None,
             view: Some(element.kind.clone()),
             when: None,
+            else_children: Vec::new(),
             repeat: None,
             key,
             role: None,
@@ -680,9 +728,9 @@ impl Ctx<'_> {
         name: &str,
         ty: PropType,
         value: &Value,
-        item: Option<&str>,
+        items: &[String],
     ) -> Result<JsonValue, GraphemeError> {
-        let lowered = self.lower_value(key, value, item)?;
+        let lowered = self.lower_value(key, value, items)?;
         if let Some(actual) = self.static_type(&lowered) {
             let expected = match ty {
                 PropType::Text => return Ok(lowered),
@@ -705,8 +753,8 @@ impl Ctx<'_> {
         key: &str,
         target: &str,
         args: &[(String, Value)],
-        event_payload: &[&str],
-        item: Option<&str>,
+        event_payload: &[(&str, &str)],
+        items: &[String],
     ) -> Result<MirViewBinding, GraphemeError> {
         let Some(exec) = self.executables.iter().find(|e| e.name == target) else {
             return Err(self.error(key, format!("binding target '{target}' is not declared")));
@@ -752,7 +800,15 @@ impl Ctx<'_> {
             if bound.contains_key(name) {
                 return Err(self.error(key, format!("argument '{name}' is given more than once")));
             }
-            let lowered = self.lower_value(key, value, item)?;
+            if event_payload.iter().any(|(payload_name, _)| payload_name == name) {
+                return Err(self.error(
+                    key,
+                    format!(
+                        "argument '{name}' of '{target}' is supplied by the binding and by the event payload"
+                    ),
+                ));
+            }
+            let lowered = self.lower_value(key, value, items)?;
             if let (Some(actual), Some(expected)) =
                 (self.static_type(&lowered), scalar_name(&param.type_ref))
                 && !(actual == expected || (expected == "Float" && actual == "Int"))
@@ -770,7 +826,20 @@ impl Ctx<'_> {
             if !param.required || param.default.is_some() || bound.contains_key(&param.name) {
                 continue;
             }
-            if event_payload.contains(&param.name.as_str()) {
+            if let Some((_, payload_ty)) = event_payload
+                .iter()
+                .find(|(payload_name, _)| *payload_name == param.name)
+            {
+                let expected = scalar_name(&param.type_ref).unwrap_or("a non-scalar type");
+                if !payload_type_compatible(expected, payload_ty) {
+                    return Err(self.error(
+                        key,
+                        format!(
+                            "parameter '{}' of '{target}' has type {expected}, but the event payload supplies {payload_ty}",
+                            param.name
+                        ),
+                    ));
+                }
                 payload_params.push(param.name.clone());
                 continue;
             }
@@ -795,15 +864,13 @@ impl Ctx<'_> {
         &self,
         key: &str,
         value: &Value,
-        item: Option<&str>,
+        items: &[String],
     ) -> Result<JsonValue, GraphemeError> {
         let mut json = value_to_json(value);
         let mut error = None;
         rewrite_vars(&mut json, &mut |path| {
             let path = path.strip_prefix("state.").unwrap_or(path);
-            if let Some(item) = item
-                && (path == item || path.starts_with(&format!("{item}.")))
-            {
+            if item_in_scope(items, path) {
                 return Some(plain_var(path));
             }
             match self.field_path(path) {
@@ -818,7 +885,7 @@ impl Ctx<'_> {
             return Err(self.error(key, message));
         }
         rewrite_strings(&mut json, &mut |s| {
-            self.rewrite_interpolation(s, item)
+            self.rewrite_interpolation(s, items)
                 .map_err(|m| self.error(key, m))
         })?;
         Ok(json)
@@ -839,7 +906,7 @@ impl Ctx<'_> {
         }
     }
 
-    fn rewrite_interpolation(&self, s: &str, item: Option<&str>) -> Result<String, String> {
+    fn rewrite_interpolation(&self, s: &str, items: &[String]) -> Result<String, String> {
         if !s.contains("{$") {
             return Ok(s.to_string());
         }
@@ -850,9 +917,7 @@ impl Ctx<'_> {
             rest = &rest[pos + 2..];
             let end = rest.find('}').unwrap_or(rest.len());
             let path = rest[..end].strip_prefix("state.").unwrap_or(&rest[..end]);
-            if let Some(item) = item
-                && (path == item || path.starts_with(&format!("{item}.")))
-            {
+            if item_in_scope(items, path) {
                 out.push_str(path);
             } else {
                 out.push_str("state.");
@@ -862,6 +927,18 @@ impl Ctx<'_> {
         }
         out.push_str(rest);
         Ok(out)
+    }
+
+    /// Bool for a view `if`, when the condition's type is known.
+    fn condition_type(&self, value: &JsonValue) -> Option<&'static str> {
+        if let Some(ty) = self.static_type(value) {
+            return Some(ty);
+        }
+        let (op, _) = value.as_object().and_then(grapheme_artifact::expr::expr_parts)?;
+        match op {
+            "==" | "!=" | "<" | "<=" | ">" | ">=" | "&&" | "||" | "!" => Some("Bool"),
+            _ => None,
+        }
     }
 
     /// The type of a literal or a direct field read, when it is known statically.
@@ -883,6 +960,10 @@ impl Ctx<'_> {
     }
 }
 
+fn payload_type_compatible(expected: &str, payload_ty: &str) -> bool {
+    expected == payload_ty || (expected == "Float" && payload_ty == "Int")
+}
+
 fn scalar_name(type_ref: &TypeRef) -> Option<&'static str> {
     match type_ref {
         TypeRef::Scalar(ScalarKind::String, _) => Some("String"),
@@ -898,6 +979,12 @@ fn scalar_name(type_ref: &TypeRef) -> Option<&'static str> {
         },
         _ => None,
     }
+}
+
+fn item_in_scope(items: &[String], path: &str) -> bool {
+    items
+        .iter()
+        .any(|item| path == item || path.starts_with(&format!("{item}.")))
 }
 
 fn state_var(path: &str) -> JsonValue {

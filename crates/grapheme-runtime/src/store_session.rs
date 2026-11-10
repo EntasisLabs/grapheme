@@ -3,7 +3,10 @@
 //! A store is a runtime object separate from the pipeline [`AgentState`](crate::AgentState).
 //! Each invoked mutation runs against the store's latest committed fields and
 //! commits as one transaction: one revision, with a complete runtime diff and a
-//! history diff that omits `transient` fields. A failed run commits nothing.
+//! history diff that omits `transient` fields. A failed mutation commits nothing.
+//! A task commits each of its own `apply` steps immediately and keeps those
+//! revisions if a later step fails. A mutation the task calls is still one
+//! transaction.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -12,6 +15,7 @@ use grapheme_artifact::{
     ArtifactEnvelope, ExecutionOutcome, MirFunctionKind, MirStore, MirStoreField,
     MirStoreFieldKind, MirUiGlyph, MirView, MirViewNode, VIEW_IR_VERSION,
 };
+use grapheme_signatures::{SignatureEffect, find_op_spec};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as JsonValue};
 
@@ -32,17 +36,39 @@ pub struct StoreRevision {
     pub history_diff: Map<String, JsonValue>,
 }
 
-/// One capability call made by a store task (RFC-0007 F.4, minimal).
+/// Why a task made a capability call (RFC-0007 F.4). `generation` is unset in
+/// this slice: concurrency fencing is not implemented yet.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EffectCause {
+    /// Action id when the task was started from a view or `expose` action.
+    pub action: Option<String>,
+    pub task: String,
+    pub generation: Option<u64>,
+}
+
+/// One capability call a store task made (RFC-0007 F.4).
+///
+/// Pure core helpers (`core.value`, `core.echo`, `core.set_fields`) are not
+/// receipts. A call refused before dispatch is `failed`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EffectReceipt {
     pub effect: u64,
     pub op: String,
     pub args: JsonValue,
+    pub cause: EffectCause,
     pub store: String,
     pub revision: u64,
     pub status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+/// Receipts carried by [`RuntimeError::TaskFailed`], if `err` is that failure.
+pub fn task_failure_effects(err: &RuntimeError) -> Option<Vec<EffectReceipt>> {
+    let RuntimeError::TaskFailed { effects, .. } = err else {
+        return None;
+    };
+    serde_json::from_value(effects.clone()).ok()
 }
 
 /// The result of invoking a store mutation or task.
@@ -54,7 +80,9 @@ pub struct StoreCommit {
     /// `None` when the run changed no field, so no revision was committed.
     /// For tasks, this is the *last* committed revision of the run.
     pub committed: Option<StoreRevision>,
-    /// Effect receipts from capability calls inside a task. Empty for mutations.
+    /// Capability-call receipts from a task (RFC-0007 F.4). Empty for mutations
+    /// and when the task only called pure core helpers. A failed task returns
+    /// the same list on [`RuntimeError::TaskFailed`] instead of here.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<EffectReceipt>,
 }
@@ -297,16 +325,17 @@ impl StoreSession {
             .mounted
             .clone()
             .ok_or_else(|| session_error("no UI glyph is mounted; call mount first"))?;
-        let glyph = self
-            .find_ui_glyph(&glyph_name)?
-            .clone();
+        let glyph = self.find_ui_glyph(&glyph_name)?.clone();
         let mut view = self.render(&glyph.root)?;
         let mut actions = view.actions;
         actions.extend(self.expose_actions(&glyph)?);
         // Keep `view.actions` aligned for callers that read the ViewSnapshot fields.
         view.actions = actions.clone();
         let revision = self.revision(&glyph.store).ok_or_else(|| {
-            session_error(format!("glyph '{}': no state named '{}'", glyph.name, glyph.store))
+            session_error(format!(
+                "glyph '{}': no state named '{}'",
+                glyph.name, glyph.store
+            ))
         })?;
         Ok(AppSnapshot {
             glyph: glyph.name,
@@ -379,8 +408,15 @@ impl StoreSession {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
-            let args = merge_action_args(Map::new(), &required, payload.as_ref(), id)?;
-            return self.invoke(name, args, options, host);
+            let args = merge_action_args(
+                &self.artifact,
+                name,
+                Map::new(),
+                &required,
+                payload.as_ref(),
+                id,
+            )?;
+            return self.invoke_calling(name, args, options, host, Some(id));
         }
         let Some(binding) = self
             .bindings
@@ -393,12 +429,14 @@ impl StoreSession {
             )));
         };
         let args = merge_action_args(
+            &self.artifact,
+            &binding.target,
             binding.args.clone(),
             &binding.payload_params,
             payload.as_ref(),
             id,
         )?;
-        self.invoke(&binding.target, args, options, host)
+        self.invoke_calling(&binding.target, args, options, host, Some(id))
     }
 
     fn resolve_ui_glyph(&self, glyph: Option<&str>) -> Result<&MirUiGlyph, RuntimeError> {
@@ -478,7 +516,16 @@ impl StoreSession {
             None => (JsonValue::Object(Map::new()), None),
         };
         let mut events = Vec::new();
-        let root = self.evaluate_node(view, &view.root, &view.root.key, &scope, 0, &mut events)?;
+        let root = self.evaluate_node(
+            view,
+            &view.root,
+            &Place {
+                key: &view.root.key,
+                scope: &scope,
+                depth: 0,
+            },
+            &mut events,
+        )?;
         let ir = serde_json::json!({ "$ir": VIEW_IR_VERSION, "root": root });
         Ok((
             ViewSnapshot {
@@ -507,58 +554,130 @@ impl StoreSession {
         &self,
         view: &MirView,
         node: &MirViewNode,
-        key: &str,
-        scope: &JsonValue,
-        depth: usize,
+        place: &Place<'_>,
         events: &mut Vec<BoundEvent>,
         out: &mut Vec<JsonValue>,
     ) -> Result<(), RuntimeError> {
+        self.expand_list(view, &node.key, &node.children, place, events, out)
+    }
+
+    /// Splices `nodes` into `out`. `struct_key` is the compiler key of their
+    /// parent; `place.key` is that parent's key in this render.
+    fn expand_list(
+        &self,
+        view: &MirView,
+        struct_key: &str,
+        nodes: &[MirViewNode],
+        place: &Place<'_>,
+        events: &mut Vec<BoundEvent>,
+        out: &mut Vec<JsonValue>,
+    ) -> Result<(), RuntimeError> {
+        for child in nodes {
+            let suffix = child.key.strip_prefix(struct_key).unwrap_or(&child.key);
+            let child_key = format!("{}{suffix}", place.key);
+            if child.when.is_some() {
+                let branch = self.if_branch(view, child, &child_key, place.scope)?;
+                let branch_place = Place {
+                    key: &child_key,
+                    scope: place.scope,
+                    depth: place.depth,
+                };
+                self.expand_list(view, &child.key, branch, &branch_place, events, out)?;
+                continue;
+            }
+            if child.repeat.is_some() {
+                self.expand_for(view, child, &child_key, place, events, out)?;
+                continue;
+            }
+            out.push(self.evaluate_node(
+                view,
+                child,
+                &Place {
+                    key: &child_key,
+                    scope: place.scope,
+                    depth: place.depth,
+                },
+                events,
+            )?);
+        }
+        Ok(())
+    }
+
+    fn expand_for(
+        &self,
+        view: &MirView,
+        node: &MirViewNode,
+        child_key: &str,
+        place: &Place<'_>,
+        events: &mut Vec<BoundEvent>,
+        out: &mut Vec<JsonValue>,
+    ) -> Result<(), RuntimeError> {
+        let Some(repeat) = &node.repeat else {
+            return Ok(());
+        };
+        let fail = |message: String| {
+            session_error(format!("view '{}', element '{child_key}': {message}", view.name))
+        };
+        let source = eval_view_value(&repeat.source, place.scope)
+            .map_err(|e| fail(format!("for source: {e}")))?;
+        let items = source.as_array().ok_or_else(|| {
+            fail(format!(
+                "for source must be a list, found {}",
+                type_name(&source)
+            ))
+        })?;
+        let mut seen_keys = BTreeSet::new();
+        for (index, item_value) in items.iter().enumerate() {
+            let mut item_scope = place.scope.as_object().cloned().unwrap_or_default();
+            item_scope.insert(repeat.item.clone(), item_value.clone());
+            if let Some(index_name) = &repeat.index {
+                item_scope.insert(index_name.clone(), JsonValue::from(index as u64));
+            }
+            let item_scope = JsonValue::Object(item_scope);
+            let item_key = eval_view_value(&repeat.key, &item_scope)
+                .map_err(|e| fail(format!("for key: {e}")))?;
+            let item_key = match row_key(&item_key) {
+                Ok(key) => key,
+                Err(message) => return Err(fail(message)),
+            };
+            if !seen_keys.insert(item_key.clone()) {
+                return Err(fail(format!("duplicate for key '{item_key}'")));
+            }
+            let row_key = format!("{child_key}/{item_key}");
+            let row = Place {
+                key: &row_key,
+                scope: &item_scope,
+                depth: place.depth,
+            };
+            self.evaluate_children(view, node, &row, events, out)?;
+        }
+        Ok(())
+    }
+
+    /// The `if` branch to expand. The condition must be `Bool`; `0` is not true.
+    fn if_branch<'a>(
+        &self,
+        view: &MirView,
+        node: &'a MirViewNode,
+        key: &str,
+        scope: &JsonValue,
+    ) -> Result<&'a [MirViewNode], RuntimeError> {
         let fail = |message: String| {
             session_error(format!("view '{}', element '{key}': {message}", view.name))
         };
-        for child in &node.children {
-            let suffix = child.key.strip_prefix(&node.key).unwrap_or(&child.key);
-            let child_key = format!("{key}{suffix}");
-            if let Some(cond) = &child.when {
-                let value = eval_view_value(cond, scope)
-                    .map_err(|e| fail(format!("if condition: {e}")))?;
-                if grapheme_artifact::expr::truthy(&value) {
-                    self.evaluate_children(view, child, &child_key, scope, depth, events, out)?;
-                }
-                continue;
-            }
-            if let Some(repeat) = &child.repeat {
-                let source = eval_view_value(&repeat.source, scope)
-                    .map_err(|e| fail(format!("for source: {e}")))?;
-                let items = source.as_array().ok_or_else(|| {
-                    fail(format!(
-                        "for source must be a list, found {}",
-                        type_name(&source)
-                    ))
-                })?;
-                for (index, item_value) in items.iter().enumerate() {
-                    let mut item_scope = scope.as_object().cloned().unwrap_or_default();
-                    item_scope.insert(repeat.item.clone(), item_value.clone());
-                    let item_scope = JsonValue::Object(item_scope);
-                    let item_key = eval_view_value(&repeat.key, &item_scope)
-                        .map_err(|e| fail(format!("for key: {e}")))?;
-                    let item_key = display_key(&item_key, index);
-                    let row_key = format!("{child_key}/{item_key}");
-                    self.evaluate_children(
-                        view,
-                        child,
-                        &row_key,
-                        &item_scope,
-                        depth,
-                        events,
-                        out,
-                    )?;
-                }
-                continue;
-            }
-            out.push(self.evaluate_node(view, child, &child_key, scope, depth, events)?);
+        let cond = node
+            .when
+            .as_ref()
+            .ok_or_else(|| fail("if is missing a condition".to_string()))?;
+        let value = eval_view_value(cond, scope).map_err(|e| fail(format!("if condition: {e}")))?;
+        match value {
+            JsonValue::Bool(true) => Ok(&node.children),
+            JsonValue::Bool(false) => Ok(&node.else_children),
+            other => Err(fail(format!(
+                "if condition must be Bool, found {}",
+                type_name(&other)
+            ))),
         }
-        Ok(())
     }
 
     /// Evaluates `node` with its key rebased from the view's root key onto `key`,
@@ -567,23 +686,28 @@ impl StoreSession {
         &self,
         view: &MirView,
         node: &MirViewNode,
-        key: &str,
-        scope: &JsonValue,
-        depth: usize,
+        place: &Place<'_>,
         events: &mut Vec<BoundEvent>,
     ) -> Result<JsonValue, RuntimeError> {
         let fail = |message: String| {
-            session_error(format!("view '{}', element '{key}': {message}", view.name))
+            session_error(format!(
+                "view '{}', element '{}': {message}",
+                view.name, place.key
+            ))
         };
         if let Some(name) = &node.view {
-            if depth >= MAX_VIEW_DEPTH {
+            if place.depth >= MAX_VIEW_DEPTH {
                 return Err(fail(format!(
                     "view references nest deeper than {MAX_VIEW_DEPTH}"
                 )));
             }
             let referenced = self.find_view(name)?;
-            let mut out =
-                self.evaluate_node(referenced, &referenced.root, key, scope, depth + 1, events)?;
+            let nested = Place {
+                key: place.key,
+                scope: place.scope,
+                depth: place.depth + 1,
+            };
+            let mut out = self.evaluate_node(referenced, &referenced.root, &nested, events)?;
             out["view"] = JsonValue::from(name.clone());
             return Ok(out);
         }
@@ -592,18 +716,18 @@ impl StoreSession {
         if let Some(prim) = &node.prim {
             out.insert("$prim".to_string(), JsonValue::from(prim.clone()));
         }
-        out.insert("key".to_string(), JsonValue::from(key));
+        out.insert("key".to_string(), JsonValue::from(place.key));
         if let Some(role) = &node.role {
             out.insert("role".to_string(), JsonValue::from(role.clone()));
         }
         let mut props = Map::new();
         for (name, value) in &node.props {
-            let value =
-                eval_view_value(value, scope).map_err(|e| fail(format!("prop '{name}': {e}")))?;
+            let value = eval_view_value(value, place.scope)
+                .map_err(|e| fail(format!("prop '{name}': {e}")))?;
             props.insert(name.clone(), value);
         }
         let mut children = Vec::new();
-        self.evaluate_children(view, node, key, scope, depth, events, &mut children)?;
+        self.evaluate_children(view, node, place, events, &mut children)?;
         let label = props
             .get("label")
             .and_then(JsonValue::as_str)
@@ -613,7 +737,7 @@ impl StoreSession {
         for (event, binding) in &node.events {
             let mut args = Map::new();
             for (name, value) in &binding.args {
-                let value = eval_view_value(value, scope)
+                let value = eval_view_value(value, place.scope)
                     .map_err(|e| fail(format!("argument '{name}' of '{}': {e}", binding.target)))?;
                 args.insert(name.clone(), value);
             }
@@ -628,7 +752,7 @@ impl StoreSession {
             }
             bound.insert(event.clone(), JsonValue::Object(event_ir));
             events.push(BoundEvent {
-                key: key.to_string(),
+                key: place.key.to_string(),
                 event: event.clone(),
                 target: binding.target.clone(),
                 args,
@@ -748,12 +872,24 @@ impl StoreSession {
     /// Runs a mutation or task (declared `on` a store) against the store's
     /// latest fields. Mutations commit one revision for the whole run. Tasks
     /// commit one revision per `apply`/`transition` and may call capabilities.
+    /// A mutation called from a task commits once, when that call returns.
     pub fn invoke(
         &mut self,
         mutation: &str,
         args: Option<JsonValue>,
         options: RuntimeOptions,
         host: &mut dyn CapabilityHost,
+    ) -> Result<StoreCommit, RuntimeError> {
+        self.invoke_calling(mutation, args, options, host, None)
+    }
+
+    fn invoke_calling(
+        &mut self,
+        mutation: &str,
+        args: Option<JsonValue>,
+        options: RuntimeOptions,
+        host: &mut dyn CapabilityHost,
+        action: Option<&str>,
     ) -> Result<StoreCommit, RuntimeError> {
         let (store_name, kind) = self.bound_store(mutation)?;
         if matches!(kind, MirFunctionKind::Query) {
@@ -762,7 +898,7 @@ impl StoreSession {
             )));
         }
         if matches!(kind, MirFunctionKind::Task) {
-            return self.invoke_task(mutation, &store_name, args, options, host);
+            return self.invoke_task(mutation, &store_name, args, options, host, action);
         }
         let (state, writes) = self.run(mutation, &store_name, args, options, host)?;
         let next = state
@@ -782,6 +918,7 @@ impl StoreSession {
         args: Option<JsonValue>,
         mut options: RuntimeOptions,
         host: &mut dyn CapabilityHost,
+        action: Option<&str>,
     ) -> Result<StoreCommit, RuntimeError> {
         let (fields, mut sink) = {
             let instance = self
@@ -808,38 +945,47 @@ impl StoreSession {
 
         let mut effects = Vec::new();
         let mut effect_seq = 0u64;
-        let result = {
+        let executed = {
             let mut task_host = TaskHost {
                 sink: &mut sink,
                 cause: task.to_string(),
+                action: action.map(str::to_string),
                 inner: host,
                 effects: &mut effects,
                 effect_seq: &mut effect_seq,
-                writes: Vec::new(),
+                txns: Vec::new(),
             };
-            let (_state, result) =
-                RuntimeEngine::new(options).execute_artifact(&artifact, &mut task_host)?;
-            result
+            RuntimeEngine::new(options).execute_artifact(&artifact, &mut task_host)
         };
 
         // Task applies commit as they run; keep them even if a later step fails.
         let commits = sink.log.len();
         let last_committed = sink.last_committed.clone();
         let revision = sink.revision;
-        {
-            let instance = self.stores.get_mut(store_name).unwrap();
-            instance.fields = sink.fields;
-            instance.revision = sink.revision;
-        }
+        let Some(instance) = self.stores.get_mut(store_name) else {
+            return Err(session_error(format!("no state named '{store_name}'")));
+        };
+        instance.fields = sink.fields;
+        instance.revision = sink.revision;
         self.log.extend(sink.log);
 
-        if !matches!(result.outcome, ExecutionOutcome::Succeeded) {
-            return Err(session_error(format!(
+        let failure = match executed {
+            Ok((_, result)) if matches!(result.outcome, ExecutionOutcome::Succeeded) => None,
+            Ok((_, result)) => Some(format!(
                 "'{task}' failed after {commits} commit(s): outcome={:?} message={} trace={:?}",
                 result.outcome,
                 result.message.unwrap_or_default(),
                 result.trace_summary
-            )));
+            )),
+            Err(err) => Some(format!("'{task}' failed after {commits} commit(s): {err}")),
+        };
+        if let Some(message) = failure {
+            let effects_json =
+                serde_json::to_value(&effects).unwrap_or_else(|_| JsonValue::Array(Vec::new()));
+            return Err(RuntimeError::TaskFailed {
+                message,
+                effects: effects_json,
+            });
         }
         Ok(StoreCommit {
             store: store_name.to_string(),
@@ -903,7 +1049,9 @@ impl StoreSession {
             diff.insert(field.name.clone(), change);
         }
 
-        let instance = self.stores.get_mut(store_name).unwrap();
+        let Some(instance) = self.stores.get_mut(store_name) else {
+            return Err(session_error(format!("no state named '{store_name}'")));
+        };
         if diff.is_empty() {
             return Ok(StoreCommit {
                 store: store_name.to_string(),
@@ -1048,90 +1196,194 @@ impl TaskCommitSink {
     }
 }
 
-/// Host wrapper for store tasks: commits on each `set_fields` and records
-/// effect receipts for other capability calls.
+/// Writes buffered while a task is inside `call` of a mutation. Committed
+/// once, when the outermost mutation call returns (RFC-0007 F.3).
+struct TxnFrame {
+    name: String,
+    writes: Vec<FieldWrite>,
+    next: Option<Map<String, JsonValue>>,
+}
+
+/// Host wrapper for store tasks. The task's own `set_fields` commits
+/// immediately. Writes inside a called mutation stay in [`TxnFrame`] until
+/// that call returns. Capability ops (not pure core helpers) become receipts.
 struct TaskHost<'a> {
     sink: &'a mut TaskCommitSink,
     cause: String,
+    action: Option<String>,
     inner: &'a mut dyn CapabilityHost,
     effects: &'a mut Vec<EffectReceipt>,
     effect_seq: &'a mut u64,
-    writes: Vec<FieldWrite>,
+    txns: Vec<TxnFrame>,
 }
 
 impl CapabilityHost for TaskHost<'_> {
+    fn enter_call(&mut self, name: &str, kind: &MirFunctionKind) {
+        if matches!(kind, MirFunctionKind::Mutation) {
+            self.txns.push(TxnFrame {
+                name: name.to_string(),
+                writes: Vec::new(),
+                next: None,
+            });
+        }
+    }
+
+    fn leave_call(&mut self, name: &str, failed: bool) -> Result<(), HostCallError> {
+        let top_is_call = self.txns.last().is_some_and(|frame| frame.name == name);
+        if !top_is_call {
+            return Ok(());
+        }
+        let Some(frame) = self.txns.pop() else {
+            return Ok(());
+        };
+        if failed {
+            return Ok(());
+        }
+        if let Some(parent) = self.txns.last_mut() {
+            parent.writes.extend(frame.writes);
+            if frame.next.is_some() {
+                parent.next = frame.next;
+            }
+            return Ok(());
+        }
+        if let Some(next) = frame.next {
+            self.sink
+                .commit(&self.cause, &next, &frame.writes)
+                .map_err(HostCallError::Fatal)?;
+        }
+        Ok(())
+    }
+
+    fn refuse_call(&mut self, module: Option<&str>, op: &str, args: &JsonValue, message: &str) {
+        self.push_receipt(module, op, args, "failed", Some(message.to_string()));
+    }
+
     fn call(&mut self, call: &CapabilityCall) -> Result<JsonValue, HostCallError> {
         let is_apply = call.capability == "core.set_fields";
         if is_apply {
-            self.writes.clear();
-            let input = call
-                .args
-                .get("input")
-                .or_else(|| call.args.get("__input"))
-                .and_then(JsonValue::as_object);
-            if let Some(fields) = call.args.get("fields").and_then(JsonValue::as_object) {
-                for (name, to) in fields {
-                    let from = input
-                        .and_then(|i| i.get(name))
-                        .cloned()
-                        .unwrap_or(JsonValue::Null);
-                    self.writes.push((name.clone(), from, to.clone()));
-                }
-            }
-        }
-
-        let output = if is_apply {
-            self.inner.call(call)?
-        } else {
-            let revision = self.sink.revision;
-            *self.effect_seq += 1;
-            let effect = *self.effect_seq;
-            let op = match &call.module {
-                Some(module) => format!("{module}.{}", call.op),
-                None => call.op.clone(),
-            };
-            let mut args = call.args.clone();
-            if let Some(obj) = args.as_object_mut() {
-                obj.remove("__input");
-            }
-            match self.inner.call(call) {
-                Ok(output) => {
-                    self.effects.push(EffectReceipt {
-                        effect,
-                        op,
-                        args,
-                        store: self.sink.store.clone(),
-                        revision,
-                        status: "acknowledged".to_string(),
-                        error: None,
-                    });
-                    output
-                }
-                Err(err) => {
-                    let message = match &err {
-                        HostCallError::Retryable(m) | HostCallError::Fatal(m) => m.clone(),
-                    };
-                    self.effects.push(EffectReceipt {
-                        effect,
-                        op,
-                        args,
-                        store: self.sink.store.clone(),
-                        revision,
-                        status: "failed".to_string(),
-                        error: Some(message),
-                    });
-                    return Err(err);
-                }
-            }
-        };
-
-        if is_apply {
+            let writes = field_writes_of(call);
+            let output = self.inner.call(call)?;
             let next = output.as_object().cloned().unwrap_or_default();
-            self.sink
-                .commit(&self.cause, &next, &self.writes)
-                .map_err(HostCallError::Fatal)?;
+            if let Some(frame) = self.txns.last_mut() {
+                // Validate now so a bad transition fails this step. The
+                // revision is committed in `leave_call` if the mutation returns.
+                validate_writes(&self.sink.schema, &self.cause, &writes)
+                    .map_err(HostCallError::Fatal)?;
+                frame.writes.extend(writes);
+                frame.next = Some(next);
+            } else {
+                self.sink
+                    .commit(&self.cause, &next, &writes)
+                    .map_err(HostCallError::Fatal)?;
+            }
+            return Ok(output);
         }
-        Ok(output)
+
+        let module = call.module.as_deref();
+        match self.inner.call(call) {
+            Ok(output) => {
+                self.push_receipt(module, &call.op, &call.args, "acknowledged", None);
+                Ok(output)
+            }
+            Err(err) => {
+                let message = match &err {
+                    HostCallError::Retryable(m) | HostCallError::Fatal(m) => m.clone(),
+                };
+                self.push_receipt(module, &call.op, &call.args, "failed", Some(message));
+                Err(err)
+            }
+        }
+    }
+}
+
+impl TaskHost<'_> {
+    fn push_receipt(
+        &mut self,
+        module: Option<&str>,
+        op: &str,
+        args: &JsonValue,
+        status: &str,
+        error: Option<String>,
+    ) {
+        let module_name = module.unwrap_or("core");
+        if !is_capability_effect(module_name, op) {
+            return;
+        }
+        *self.effect_seq += 1;
+        let mut args = args.clone();
+        if let Some(obj) = args.as_object_mut() {
+            obj.remove("__input");
+        }
+        self.effects.push(EffectReceipt {
+            effect: *self.effect_seq,
+            op: format!("{module_name}.{op}"),
+            args,
+            cause: EffectCause {
+                action: self.action.clone(),
+                task: self.cause.clone(),
+                generation: None,
+            },
+            store: self.sink.store.clone(),
+            revision: self.sink.revision,
+            status: status.to_string(),
+            error,
+        });
+    }
+}
+
+fn field_writes_of(call: &CapabilityCall) -> Vec<FieldWrite> {
+    let mut writes = Vec::new();
+    let input = call
+        .args
+        .get("input")
+        .or_else(|| call.args.get("__input"))
+        .and_then(JsonValue::as_object);
+    if let Some(fields) = call.args.get("fields").and_then(JsonValue::as_object) {
+        for (name, to) in fields {
+            let from = input
+                .and_then(|i| i.get(name))
+                .cloned()
+                .unwrap_or(JsonValue::Null);
+            writes.push((name.clone(), from, to.clone()));
+        }
+    }
+    writes
+}
+
+/// Lifecycle and read-only checks shared with [`TaskCommitSink::commit`], so a
+/// bad write fails the step before the mutation's transaction commits.
+fn validate_writes(schema: &MirStore, cause: &str, writes: &[FieldWrite]) -> Result<(), String> {
+    for (name, from, to) in writes {
+        let Some(field) = schema.fields.iter().find(|f| &f.name == name) else {
+            continue;
+        };
+        match field.kind {
+            MirStoreFieldKind::Const | MirStoreFieldKind::Derive => {
+                return Err(format!(
+                    "'{cause}' wrote read-only field '{name}'; nothing committed"
+                ));
+            }
+            _ if field.lifecycle.is_some() => {
+                check_lifecycle(field, from, to).map_err(|e| e.to_string())?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Receipts are for capability ops (network, io, secrets, state modules).
+/// Pure helpers such as `core.value` and `core.echo` are not effects.
+fn is_capability_effect(module: &str, op: &str) -> bool {
+    match find_op_spec(module, op) {
+        Some(spec) => matches!(
+            spec.effect,
+            SignatureEffect::Network
+                | SignatureEffect::Io
+                | SignatureEffect::Secrets
+                | SignatureEffect::State
+        ),
+        None => !matches!(module, "core" | "call" | "flow" | "runtime"),
     }
 }
 
@@ -1182,7 +1434,9 @@ fn attach_action_ids(node: &mut JsonValue, actions: &[ViewAction]) {
         .to_string();
     if let Some(events) = node.get_mut("events").and_then(JsonValue::as_object_mut) {
         for (event, binding) in events.iter_mut() {
-            if let Some(action) = actions.iter().find(|a| a.key == key && &a.event == event) {
+            // Last match: if two rows ever shared a key, the later epoch is the live id.
+            if let Some(action) = actions.iter().rev().find(|a| a.key == key && &a.event == event)
+            {
                 binding["id"] = JsonValue::from(action.id.clone());
             }
         }
@@ -1200,7 +1454,10 @@ fn action_id(key: &str, event: &str, epoch: u64) -> String {
 
 /// Merges view-bound args with an invoke-time payload. Every name in
 /// `payload_params` must appear in `payload`; unknown payload keys are rejected.
+/// JSON values are checked against the target parameter's declared type.
 fn merge_action_args(
+    artifact: &ArtifactEnvelope,
+    target: &str,
     mut args: Map<String, JsonValue>,
     payload_params: &[String],
     payload: Option<&JsonValue>,
@@ -1224,6 +1481,14 @@ fn merge_action_args(
             }
         }
         for (key, value) in map {
+            if let Some(expected) = param_type_name(artifact, target, key)
+                && !json_matches_type(value, expected)
+            {
+                return Err(session_error(format!(
+                    "action '{action_id}': payload param '{key}' expects {expected}, found {}",
+                    json_type_name(value)
+                )));
+            }
             args.insert(key.clone(), value.clone());
         }
     }
@@ -1238,6 +1503,44 @@ fn merge_action_args(
         Ok(None)
     } else {
         Ok(Some(JsonValue::Object(args)))
+    }
+}
+
+fn param_type_name<'a>(
+    artifact: &'a ArtifactEnvelope,
+    target: &str,
+    name: &str,
+) -> Option<&'a str> {
+    artifact
+        .payload
+        .mir
+        .functions
+        .iter()
+        .find(|f| f.name == target)
+        .and_then(|f| f.params.iter().find(|p| p.name == name))
+        .and_then(|p| p.type_name.as_deref())
+}
+
+fn json_matches_type(value: &JsonValue, type_name: &str) -> bool {
+    let type_name = type_name.strip_suffix('!').unwrap_or(type_name);
+    match type_name {
+        "String" => value.is_string(),
+        "Int" => value.as_i64().is_some() || value.as_u64().is_some(),
+        "Float" => value.is_number(),
+        "Bool" => value.is_boolean(),
+        _ => true,
+    }
+}
+
+fn json_type_name(value: &JsonValue) -> &'static str {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(_) => "Bool",
+        JsonValue::Number(n) if n.is_i64() || n.is_u64() => "Int",
+        JsonValue::Number(_) => "Float",
+        JsonValue::String(_) => "String",
+        JsonValue::Array(_) => "List",
+        JsonValue::Object(_) => "Object",
     }
 }
 
@@ -1364,11 +1667,41 @@ fn type_name(value: &JsonValue) -> &'static str {
     }
 }
 
-fn display_key(value: &JsonValue, index: usize) -> String {
-    match value {
+/// Where a node is being evaluated: its runtime key, the scope, and the view depth.
+struct Place<'a> {
+    key: &'a str,
+    scope: &'a JsonValue,
+    depth: usize,
+}
+
+/// A `for` row key. Empty strings, nulls, bools and objects are not identity.
+/// `/` and `#` are escaped so they cannot splice into a node path or an action id.
+fn row_key(value: &JsonValue) -> Result<String, String> {
+    let raw = match value {
         JsonValue::String(s) if !s.is_empty() => s.clone(),
         JsonValue::Number(n) => n.to_string(),
-        JsonValue::Bool(b) => b.to_string(),
-        _ => index.to_string(),
+        JsonValue::String(_) => {
+            return Err("for key must be a non-empty string or number".to_string());
+        }
+        other => {
+            return Err(format!(
+                "for key must be a non-empty string or number, found {}",
+                type_name(other)
+            ));
+        }
+    };
+    Ok(escape_key_segment(&raw))
+}
+
+fn escape_key_segment(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        match ch {
+            '%' => out.push_str("%25"),
+            '/' => out.push_str("%2F"),
+            '#' => out.push_str("%23"),
+            other => out.push(other),
+        }
     }
+    out
 }

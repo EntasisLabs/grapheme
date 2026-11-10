@@ -581,7 +581,7 @@ view_for   = "for" variable ("," variable)? "in" expr "key" expr "{" element* "}
 8. **Recursion** is allowed (layers panels, trees). Each level is a view reference that the renderer evaluates lazily, bounded by data and by the call-depth limit.
 9. `fragment` keeps its inline-macro contract unchanged.
 
-**Implementation status (rollout step 2 + C.7 + TextField):** the element grammar (named children, positional content, props, view references, rule 1's rejection of steps and module calls), rules 2–4, 6 and 7 (`if` / `for`) for `on Store` views, with a built-in catalog of `Column`, `Row`, `Text`, `Button` and `TextField`. Not yet: view params, `style`, slots, `VirtualList`, `transient state` on views, registry stores in scope, and recursion beyond eager inlining.
+**Implementation status (rollout step 2 + C.7 + TextField):** the element grammar (named children, positional content, props, view references, rule 1's rejection of steps and module calls), rules 2–4, 6 and 7 (`if` / `else` / `for`, including `for $item, $index`) for `on Store` views, with a built-in catalog of `Column`, `Row`, `Text`, `Button` and `TextField` (`change` supplies `value: String`). A view `if` condition must be `Bool`. Nested `for` bodies see outer items; shadowing an outer binding is a compile error. Unnamed `if` / `for` keys use a `$if` / `$for` segment. `for` keys must be a non-empty string or number (`/` and `#` escaped); duplicates fail the render. Compiler `--emit view-ir` is `grapheme-ui/2` because it still contains `$if` / `$for` nodes. Expanded session trees stay `grapheme-ui/1`. Not yet: view params, `style`, slots, `VirtualList`, `transient state` on views, registry stores in scope, and recursion beyond eager inlining.
 
 ## Part D — Events and delegates
 
@@ -613,7 +613,7 @@ At compile time, for each binding:
 2. Arguments bound at the binding site, plus the arguments the event's payload supplies, must match the target's parameters **exactly**: no missing required arguments, no unknown ones, no argument supplied twice, and compatible types.
 3. A forwarded `$click` must have a type compatible with the child's event declaration.
 
-**Implementation status (rollout step 2 + Part F + TextField slice):** element-body bindings `on click: Target(args)` / `on change: Target` with check 1 for mutations or tasks on the view's own store and check 2 for bound arguments plus catalog event payloads (`TextField` `change` → `value` → `payload_params`). `invoke_action(id, payload)` merges the payload over those params. Not yet: event declarations and forwarding (D.1 rows 1–3 and 5), registry `write` stores.
+**Implementation status (rollout step 2 + Part F + TextField slice):** element-body bindings `on click: Target(args)` / `on change: Target` with check 1 for mutations or tasks on the view's own store and check 2 for bound arguments plus catalog event payloads (`TextField` `change` → `value: String` → `payload_params`). The payload type must be compatible with the parameter, and a name cannot be supplied both in the binding and by the event. `invoke_action(id, payload)` merges the payload and checks the JSON type again. Not yet: event declarations and forwarding (D.1 rows 1–3 and 5), registry `write` stores.
 
 ### D.3 Delegate types and MudBlazor
 
@@ -717,7 +717,7 @@ Every capability call a task makes produces an **effect receipt**:
 4. A call that ends `indeterminate` is surfaced as an error to the task, which `@retry` may handle. Retrying is the program's choice.
 5. **No exactly-once promise.** Delivery is at most once per attempt; whether a retry duplicates an external effect depends on the provider. Idempotency keys, durable dispatch and replay of effects are deferred to a later RFC.
 
-**Implementation status (headless slice):** `task Name on Store { … }` parses and lowers as `MirFunctionKind::Task`. Tasks may call capabilities; each `apply`/`transition` commits immediately (earlier commits kept on later failure). Store-bound runs keep `$state` on a separate lane from `$current`. `StoreCommit.effects` carries acknowledged/failed receipts for non-apply calls. View bindings and `expose` accept tasks. Not yet: `@concurrency`, generation fencing, `@if_unchanged`, `time.sleep`, registries/`use` grants, or subscription-started tasks. Example: `examples/feed-headless.gr`.
+**Implementation status (headless slice):** `task Name on Store { … }` parses and lowers as `MirFunctionKind::Task`. Tasks may call capabilities; each of the task's own `apply`/`transition` steps commits immediately (earlier commits kept on later failure). A mutation called from a task is one transaction. Mutations cannot call tasks. Store-bound runs keep `$state` on a separate lane from `$current`, and bare `$field` in `if`/`match` reads that lane. `StoreCommit.effects` carries acknowledged/failed receipts for capability ops only (not pure `core.value` / `core.echo`), including `cause` (`action`, `task`, `generation`). `generation` is null in this slice. A failed task returns those receipts on the error, including a `failed` receipt when policy refuses the call before dispatch. View bindings and `expose` accept tasks. Not yet: `@concurrency`, generation fencing, `@if_unchanged`, `time.sleep`, registries/`use` grants, or subscription-started tasks. Example: `examples/feed-headless.gr`.
 
 ## Part G — Signals
 

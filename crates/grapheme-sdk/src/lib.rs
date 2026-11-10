@@ -71,6 +71,18 @@ pub enum GraphemeSdkError {
     ModuleLifecycle(String),
 }
 
+impl GraphemeSdkError {
+    /// Effect receipts from a failed task invoke (RFC-0007 F.4).
+    /// `Some` only when the error is that failure, including an empty list
+    /// when the task made no capability calls.
+    pub fn task_effects(&self) -> Option<Vec<grapheme_runtime::EffectReceipt>> {
+        match self {
+            GraphemeSdkError::Runtime(err) => grapheme_runtime::task_failure_effects(err),
+            _ => None,
+        }
+    }
+}
+
 /// Builder for configuring `GraphemeEngine` runtime behavior.
 pub struct GraphemeEngineBuilder {
     runtime_options: RuntimeOptions,

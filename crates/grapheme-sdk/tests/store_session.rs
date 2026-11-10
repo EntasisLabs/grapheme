@@ -300,7 +300,6 @@ fn a_failing_expression_query_reports_the_error_and_commits_nothing() {
     assert_eq!(session.revision("Counter"), Some(1));
 }
 
-
 const FEED: &str = r#"
 struct Post {
   id: String
@@ -364,24 +363,36 @@ fn task_applies_commit_separately_and_capability_result_writes_into_store() {
     assert_eq!(snap["posts"].as_array().unwrap().len(), 2);
     assert_eq!(snap["posts"][0]["title"], json!("Hello"));
     assert!(
-        !commit.effects.is_empty(),
-        "core.value should yield an effect receipt"
+        commit.effects.is_empty(),
+        "core.value is a pure helper, not an effect receipt: {:?}",
+        commit.effects
     );
 }
 
 #[test]
 fn task_failure_keeps_earlier_applies() {
+    let src = r#"
+state S { n: Int = 0 }
+task Boom on S {
+  apply { n: 1 }
+  apply { n: 1 / 0 }
+}
+"#;
     let mut session = GraphemeEngine::builder()
         .build()
-        .store_session(FEED)
+        .store_session(src)
         .unwrap();
-    session
-        .invoke("FailFeed", Some(json!({"message": "boom"})))
-        .unwrap();
-    let snap = session.snapshot("Feed").unwrap();
-    assert_eq!(snap["status"], json!("failed"));
-    assert_eq!(snap["failure"], json!("boom"));
-    assert_eq!(snap["posts"], json!([]));
+    let err = session.invoke("Boom", None).unwrap_err();
+    assert!(err.to_string().contains("division by zero"), "{err}");
+    let effects = err
+        .task_effects()
+        .expect("failure returns the receipt list");
+    assert!(effects.is_empty(), "{effects:?}");
+    assert_eq!(session.revision("S"), Some(1));
+    let snap = session.snapshot("S").unwrap();
+    assert_eq!(snap["n"], json!(1));
+    assert_eq!(session.revisions().len(), 1);
+    assert_eq!(session.revisions()[0].diff["n"][1], json!(1));
 }
 
 #[test]
@@ -430,8 +441,172 @@ task Ping on Feed {
         .unwrap();
     let commit = session.invoke("Ping", None).unwrap();
     assert_eq!(commit.revision, 1);
-    assert_eq!(commit.effects.len(), 1);
-    assert_eq!(commit.effects[0].op, "core.echo");
-    assert_eq!(commit.effects[0].status, "acknowledged");
+    assert!(
+        commit.effects.is_empty(),
+        "core.echo is not a capability effect: {:?}",
+        commit.effects
+    );
     assert_eq!(session.snapshot("Feed").unwrap()["hits"], json!(1));
+}
+
+#[test]
+fn bare_if_after_capability_reads_the_store() {
+    let src = r#"
+state S { status: String = "idle", n: Int = 0 }
+task T on S {
+  apply { status: "pending" }
+  core.value(value: "x")
+  if $status == "pending" then apply { n: 1 } else apply { n: 9 }
+}
+task M on S {
+  apply { status: "pending" }
+  core.value(value: "x")
+  match $status { case "pending" => apply { n: 1 } default => apply { n: 9 } }
+}
+"#;
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(src)
+        .unwrap();
+    session.invoke("T", None).unwrap();
+    let snap = session.snapshot("S").unwrap();
+    assert_eq!(snap["status"], json!("pending"));
+    assert_eq!(
+        snap["n"],
+        json!(1),
+        "bare if read $current instead of the store"
+    );
+
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(src)
+        .unwrap();
+    session.invoke("M", None).unwrap();
+    assert_eq!(session.snapshot("S").unwrap()["n"], json!(1));
+}
+
+#[test]
+fn mutation_called_from_a_task_is_one_transaction() {
+    let src = r#"
+state S { n: Int = 0, flag: Int = 0 }
+mutation Two on S {
+  apply { n: 1 }
+  apply { flag: 1 }
+}
+mutation Boom on S {
+  apply { flag: 1 }
+  apply { flag: 1 / 0 }
+}
+task Run on S {
+  apply { n: 7 }
+  call Two
+}
+task RunFail on S {
+  apply { n: 7 }
+  call Boom
+}
+"#;
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(src)
+        .unwrap();
+    let direct = session.invoke("Two", None).unwrap();
+    assert_eq!(direct.revision, 1);
+    assert_eq!(session.revisions().len(), 1);
+
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(src)
+        .unwrap();
+    let commit = session.invoke("Run", None).unwrap();
+    assert_eq!(
+        commit.revision, 2,
+        "task apply plus one mutation transaction"
+    );
+    assert_eq!(session.revisions().len(), 2);
+    assert_eq!(session.revisions()[0].cause, "Run");
+    assert_eq!(session.revisions()[1].cause, "Run");
+    assert!(session.revisions()[1].diff.contains_key("n"));
+    assert!(session.revisions()[1].diff.contains_key("flag"));
+    let snap = session.snapshot("S").unwrap();
+    assert_eq!(snap["n"], json!(1));
+    assert_eq!(snap["flag"], json!(1));
+
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(src)
+        .unwrap();
+    let err = session.invoke("RunFail", None).unwrap_err();
+    assert!(err.to_string().contains("division by zero"), "{err}");
+    assert_eq!(session.revision("S"), Some(1));
+    let snap = session.snapshot("S").unwrap();
+    assert_eq!(snap["n"], json!(7));
+    assert_eq!(
+        snap["flag"],
+        json!(0),
+        "failed mutation call committed an apply"
+    );
+}
+
+#[test]
+fn refused_capability_returns_a_failed_receipt_and_keeps_earlier_apply() {
+    let src = r#"
+state S { n: Int = 0 }
+task T on S {
+  apply { n: 1 }
+  sql.query(connection: "db", sql: "select 1")
+}
+view V on S {
+  Button(label: "Go") { on click: T }
+}
+"#;
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(src)
+        .unwrap();
+    let err = session.invoke("T", None).unwrap_err();
+    let effects = err.task_effects().expect("receipts on the failure path");
+    assert_eq!(effects.len(), 1, "{effects:?}");
+    assert_eq!(effects[0].op, "sql.query");
+    assert_eq!(effects[0].status, "failed");
+    assert!(
+        effects[0].error.as_deref().unwrap_or("").contains("sql"),
+        "{effects:?}"
+    );
+    assert_eq!(effects[0].cause.task, "T");
+    assert_eq!(effects[0].cause.action, None);
+    assert_eq!(effects[0].cause.generation, None);
+    assert_eq!(effects[0].revision, 1);
+    assert_eq!(session.revision("S"), Some(1));
+    assert_eq!(session.snapshot("S").unwrap()["n"], json!(1));
+
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(src)
+        .unwrap();
+    let rendered = session.render("V").unwrap();
+    let id = rendered.actions[0].id.clone();
+    let err = session.invoke_action(&id, None).unwrap_err();
+    let effects = err.task_effects().expect("action failure returns receipts");
+    assert_eq!(effects[0].cause.action.as_deref(), Some(id.as_str()));
+    assert_eq!(effects[0].cause.task, "T");
+    assert_eq!(effects[0].status, "failed");
+}
+
+#[test]
+fn store_field_named_error_does_not_abort_the_step() {
+    let src = r#"
+state S { error: String = "", n: Int = 0 }
+mutation M on S { apply { n: 1 } }
+task T on S { apply { n: $n + 1 } }
+"#;
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(src)
+        .unwrap();
+    session.invoke("M", None).unwrap();
+    assert_eq!(session.snapshot("S").unwrap()["n"], json!(1));
+    assert_eq!(session.snapshot("S").unwrap()["error"], json!(""));
+    session.invoke("T", None).unwrap();
+    assert_eq!(session.snapshot("S").unwrap()["n"], json!(2));
 }
