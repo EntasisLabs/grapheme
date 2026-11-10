@@ -3,7 +3,10 @@
 //! A store is a runtime object separate from the pipeline [`AgentState`](crate::AgentState).
 //! Each invoked mutation runs against the store's latest committed fields and
 //! commits as one transaction: one revision, with a complete runtime diff and a
-//! history diff that omits `transient` fields. A failed run commits nothing.
+//! history diff that omits `transient` fields. A failed mutation commits nothing.
+//! A task commits each of its own `apply` steps immediately and keeps those
+//! revisions if a later step fails. A mutation the task calls is still one
+//! transaction.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -12,6 +15,7 @@ use grapheme_artifact::{
     ArtifactEnvelope, ExecutionOutcome, MirFunctionKind, MirStore, MirStoreField,
     MirStoreFieldKind, MirUiGlyph, MirView, MirViewNode, VIEW_IR_VERSION,
 };
+use grapheme_signatures::{SignatureEffect, find_op_spec};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as JsonValue};
 
@@ -32,17 +36,39 @@ pub struct StoreRevision {
     pub history_diff: Map<String, JsonValue>,
 }
 
-/// One capability call made by a store task (RFC-0007 F.4, minimal).
+/// Why a task made a capability call (RFC-0007 F.4). `generation` is unset in
+/// this slice: concurrency fencing is not implemented yet.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EffectCause {
+    /// Action id when the task was started from a view or `expose` action.
+    pub action: Option<String>,
+    pub task: String,
+    pub generation: Option<u64>,
+}
+
+/// One capability call a store task made (RFC-0007 F.4).
+///
+/// Pure core helpers (`core.value`, `core.echo`, `core.set_fields`) are not
+/// receipts. A call refused before dispatch is `failed`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EffectReceipt {
     pub effect: u64,
     pub op: String,
     pub args: JsonValue,
+    pub cause: EffectCause,
     pub store: String,
     pub revision: u64,
     pub status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+/// Receipts carried by [`RuntimeError::TaskFailed`], if `err` is that failure.
+pub fn task_failure_effects(err: &RuntimeError) -> Option<Vec<EffectReceipt>> {
+    let RuntimeError::TaskFailed { effects, .. } = err else {
+        return None;
+    };
+    serde_json::from_value(effects.clone()).ok()
 }
 
 /// The result of invoking a store mutation or task.
@@ -54,7 +80,9 @@ pub struct StoreCommit {
     /// `None` when the run changed no field, so no revision was committed.
     /// For tasks, this is the *last* committed revision of the run.
     pub committed: Option<StoreRevision>,
-    /// Effect receipts from capability calls inside a task. Empty for mutations.
+    /// Capability-call receipts from a task (RFC-0007 F.4). Empty for mutations
+    /// and when the task only called pure core helpers. A failed task returns
+    /// the same list on [`RuntimeError::TaskFailed`] instead of here.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<EffectReceipt>,
 }
@@ -295,16 +323,17 @@ impl StoreSession {
             .mounted
             .clone()
             .ok_or_else(|| session_error("no UI glyph is mounted; call mount first"))?;
-        let glyph = self
-            .find_ui_glyph(&glyph_name)?
-            .clone();
+        let glyph = self.find_ui_glyph(&glyph_name)?.clone();
         let mut view = self.render(&glyph.root)?;
         let mut actions = view.actions;
         actions.extend(self.expose_actions(&glyph)?);
         // Keep `view.actions` aligned for callers that read the ViewSnapshot fields.
         view.actions = actions.clone();
         let revision = self.revision(&glyph.store).ok_or_else(|| {
-            session_error(format!("glyph '{}': no state named '{}'", glyph.name, glyph.store))
+            session_error(format!(
+                "glyph '{}': no state named '{}'",
+                glyph.name, glyph.store
+            ))
         })?;
         Ok(AppSnapshot {
             glyph: glyph.name,
@@ -378,7 +407,7 @@ impl StoreSession {
                     required.join(", ")
                 )));
             }
-            return self.invoke(name, None, options, host);
+            return self.invoke_calling(name, None, options, host, Some(id));
         }
         let Some(binding) = self
             .bindings
@@ -390,11 +419,12 @@ impl StoreSession {
                 "stale_action: '{id}' is not in the current action list"
             )));
         };
-        self.invoke(
+        self.invoke_calling(
             &binding.target,
             Some(JsonValue::Object(binding.args)),
             options,
             host,
+            Some(id),
         )
     }
 
@@ -685,12 +715,24 @@ impl StoreSession {
     /// Runs a mutation or task (declared `on` a store) against the store's
     /// latest fields. Mutations commit one revision for the whole run. Tasks
     /// commit one revision per `apply`/`transition` and may call capabilities.
+    /// A mutation called from a task commits once, when that call returns.
     pub fn invoke(
         &mut self,
         mutation: &str,
         args: Option<JsonValue>,
         options: RuntimeOptions,
         host: &mut dyn CapabilityHost,
+    ) -> Result<StoreCommit, RuntimeError> {
+        self.invoke_calling(mutation, args, options, host, None)
+    }
+
+    fn invoke_calling(
+        &mut self,
+        mutation: &str,
+        args: Option<JsonValue>,
+        options: RuntimeOptions,
+        host: &mut dyn CapabilityHost,
+        action: Option<&str>,
     ) -> Result<StoreCommit, RuntimeError> {
         let (store_name, kind) = self.bound_store(mutation)?;
         if matches!(kind, MirFunctionKind::Query) {
@@ -699,7 +741,7 @@ impl StoreSession {
             )));
         }
         if matches!(kind, MirFunctionKind::Task) {
-            return self.invoke_task(mutation, &store_name, args, options, host);
+            return self.invoke_task(mutation, &store_name, args, options, host, action);
         }
         let (state, writes) = self.run(mutation, &store_name, args, options, host)?;
         let next = state
@@ -719,6 +761,7 @@ impl StoreSession {
         args: Option<JsonValue>,
         mut options: RuntimeOptions,
         host: &mut dyn CapabilityHost,
+        action: Option<&str>,
     ) -> Result<StoreCommit, RuntimeError> {
         let (fields, mut sink) = {
             let instance = self
@@ -745,38 +788,47 @@ impl StoreSession {
 
         let mut effects = Vec::new();
         let mut effect_seq = 0u64;
-        let result = {
+        let executed = {
             let mut task_host = TaskHost {
                 sink: &mut sink,
                 cause: task.to_string(),
+                action: action.map(str::to_string),
                 inner: host,
                 effects: &mut effects,
                 effect_seq: &mut effect_seq,
-                writes: Vec::new(),
+                txns: Vec::new(),
             };
-            let (_state, result) =
-                RuntimeEngine::new(options).execute_artifact(&artifact, &mut task_host)?;
-            result
+            RuntimeEngine::new(options).execute_artifact(&artifact, &mut task_host)
         };
 
         // Task applies commit as they run; keep them even if a later step fails.
         let commits = sink.log.len();
         let last_committed = sink.last_committed.clone();
         let revision = sink.revision;
-        {
-            let instance = self.stores.get_mut(store_name).unwrap();
-            instance.fields = sink.fields;
-            instance.revision = sink.revision;
-        }
+        let Some(instance) = self.stores.get_mut(store_name) else {
+            return Err(session_error(format!("no state named '{store_name}'")));
+        };
+        instance.fields = sink.fields;
+        instance.revision = sink.revision;
         self.log.extend(sink.log);
 
-        if !matches!(result.outcome, ExecutionOutcome::Succeeded) {
-            return Err(session_error(format!(
+        let failure = match executed {
+            Ok((_, result)) if matches!(result.outcome, ExecutionOutcome::Succeeded) => None,
+            Ok((_, result)) => Some(format!(
                 "'{task}' failed after {commits} commit(s): outcome={:?} message={} trace={:?}",
                 result.outcome,
                 result.message.unwrap_or_default(),
                 result.trace_summary
-            )));
+            )),
+            Err(err) => Some(format!("'{task}' failed after {commits} commit(s): {err}")),
+        };
+        if let Some(message) = failure {
+            let effects_json =
+                serde_json::to_value(&effects).unwrap_or_else(|_| JsonValue::Array(Vec::new()));
+            return Err(RuntimeError::TaskFailed {
+                message,
+                effects: effects_json,
+            });
         }
         Ok(StoreCommit {
             store: store_name.to_string(),
@@ -840,7 +892,9 @@ impl StoreSession {
             diff.insert(field.name.clone(), change);
         }
 
-        let instance = self.stores.get_mut(store_name).unwrap();
+        let Some(instance) = self.stores.get_mut(store_name) else {
+            return Err(session_error(format!("no state named '{store_name}'")));
+        };
         if diff.is_empty() {
             return Ok(StoreCommit {
                 store: store_name.to_string(),
@@ -985,90 +1039,194 @@ impl TaskCommitSink {
     }
 }
 
-/// Host wrapper for store tasks: commits on each `set_fields` and records
-/// effect receipts for other capability calls.
+/// Writes buffered while a task is inside `call` of a mutation. Committed
+/// once, when the outermost mutation call returns (RFC-0007 F.3).
+struct TxnFrame {
+    name: String,
+    writes: Vec<FieldWrite>,
+    next: Option<Map<String, JsonValue>>,
+}
+
+/// Host wrapper for store tasks. The task's own `set_fields` commits
+/// immediately. Writes inside a called mutation stay in [`TxnFrame`] until
+/// that call returns. Capability ops (not pure core helpers) become receipts.
 struct TaskHost<'a> {
     sink: &'a mut TaskCommitSink,
     cause: String,
+    action: Option<String>,
     inner: &'a mut dyn CapabilityHost,
     effects: &'a mut Vec<EffectReceipt>,
     effect_seq: &'a mut u64,
-    writes: Vec<FieldWrite>,
+    txns: Vec<TxnFrame>,
 }
 
 impl CapabilityHost for TaskHost<'_> {
+    fn enter_call(&mut self, name: &str, kind: &MirFunctionKind) {
+        if matches!(kind, MirFunctionKind::Mutation) {
+            self.txns.push(TxnFrame {
+                name: name.to_string(),
+                writes: Vec::new(),
+                next: None,
+            });
+        }
+    }
+
+    fn leave_call(&mut self, name: &str, failed: bool) -> Result<(), HostCallError> {
+        let top_is_call = self.txns.last().is_some_and(|frame| frame.name == name);
+        if !top_is_call {
+            return Ok(());
+        }
+        let Some(frame) = self.txns.pop() else {
+            return Ok(());
+        };
+        if failed {
+            return Ok(());
+        }
+        if let Some(parent) = self.txns.last_mut() {
+            parent.writes.extend(frame.writes);
+            if frame.next.is_some() {
+                parent.next = frame.next;
+            }
+            return Ok(());
+        }
+        if let Some(next) = frame.next {
+            self.sink
+                .commit(&self.cause, &next, &frame.writes)
+                .map_err(HostCallError::Fatal)?;
+        }
+        Ok(())
+    }
+
+    fn refuse_call(&mut self, module: Option<&str>, op: &str, args: &JsonValue, message: &str) {
+        self.push_receipt(module, op, args, "failed", Some(message.to_string()));
+    }
+
     fn call(&mut self, call: &CapabilityCall) -> Result<JsonValue, HostCallError> {
         let is_apply = call.capability == "core.set_fields";
         if is_apply {
-            self.writes.clear();
-            let input = call
-                .args
-                .get("input")
-                .or_else(|| call.args.get("__input"))
-                .and_then(JsonValue::as_object);
-            if let Some(fields) = call.args.get("fields").and_then(JsonValue::as_object) {
-                for (name, to) in fields {
-                    let from = input
-                        .and_then(|i| i.get(name))
-                        .cloned()
-                        .unwrap_or(JsonValue::Null);
-                    self.writes.push((name.clone(), from, to.clone()));
-                }
-            }
-        }
-
-        let output = if is_apply {
-            self.inner.call(call)?
-        } else {
-            let revision = self.sink.revision;
-            *self.effect_seq += 1;
-            let effect = *self.effect_seq;
-            let op = match &call.module {
-                Some(module) => format!("{module}.{}", call.op),
-                None => call.op.clone(),
-            };
-            let mut args = call.args.clone();
-            if let Some(obj) = args.as_object_mut() {
-                obj.remove("__input");
-            }
-            match self.inner.call(call) {
-                Ok(output) => {
-                    self.effects.push(EffectReceipt {
-                        effect,
-                        op,
-                        args,
-                        store: self.sink.store.clone(),
-                        revision,
-                        status: "acknowledged".to_string(),
-                        error: None,
-                    });
-                    output
-                }
-                Err(err) => {
-                    let message = match &err {
-                        HostCallError::Retryable(m) | HostCallError::Fatal(m) => m.clone(),
-                    };
-                    self.effects.push(EffectReceipt {
-                        effect,
-                        op,
-                        args,
-                        store: self.sink.store.clone(),
-                        revision,
-                        status: "failed".to_string(),
-                        error: Some(message),
-                    });
-                    return Err(err);
-                }
-            }
-        };
-
-        if is_apply {
+            let writes = field_writes_of(call);
+            let output = self.inner.call(call)?;
             let next = output.as_object().cloned().unwrap_or_default();
-            self.sink
-                .commit(&self.cause, &next, &self.writes)
-                .map_err(HostCallError::Fatal)?;
+            if let Some(frame) = self.txns.last_mut() {
+                // Validate now so a bad transition fails this step. The
+                // revision is committed in `leave_call` if the mutation returns.
+                validate_writes(&self.sink.schema, &self.cause, &writes)
+                    .map_err(HostCallError::Fatal)?;
+                frame.writes.extend(writes);
+                frame.next = Some(next);
+            } else {
+                self.sink
+                    .commit(&self.cause, &next, &writes)
+                    .map_err(HostCallError::Fatal)?;
+            }
+            return Ok(output);
         }
-        Ok(output)
+
+        let module = call.module.as_deref();
+        match self.inner.call(call) {
+            Ok(output) => {
+                self.push_receipt(module, &call.op, &call.args, "acknowledged", None);
+                Ok(output)
+            }
+            Err(err) => {
+                let message = match &err {
+                    HostCallError::Retryable(m) | HostCallError::Fatal(m) => m.clone(),
+                };
+                self.push_receipt(module, &call.op, &call.args, "failed", Some(message));
+                Err(err)
+            }
+        }
+    }
+}
+
+impl TaskHost<'_> {
+    fn push_receipt(
+        &mut self,
+        module: Option<&str>,
+        op: &str,
+        args: &JsonValue,
+        status: &str,
+        error: Option<String>,
+    ) {
+        let module_name = module.unwrap_or("core");
+        if !is_capability_effect(module_name, op) {
+            return;
+        }
+        *self.effect_seq += 1;
+        let mut args = args.clone();
+        if let Some(obj) = args.as_object_mut() {
+            obj.remove("__input");
+        }
+        self.effects.push(EffectReceipt {
+            effect: *self.effect_seq,
+            op: format!("{module_name}.{op}"),
+            args,
+            cause: EffectCause {
+                action: self.action.clone(),
+                task: self.cause.clone(),
+                generation: None,
+            },
+            store: self.sink.store.clone(),
+            revision: self.sink.revision,
+            status: status.to_string(),
+            error,
+        });
+    }
+}
+
+fn field_writes_of(call: &CapabilityCall) -> Vec<FieldWrite> {
+    let mut writes = Vec::new();
+    let input = call
+        .args
+        .get("input")
+        .or_else(|| call.args.get("__input"))
+        .and_then(JsonValue::as_object);
+    if let Some(fields) = call.args.get("fields").and_then(JsonValue::as_object) {
+        for (name, to) in fields {
+            let from = input
+                .and_then(|i| i.get(name))
+                .cloned()
+                .unwrap_or(JsonValue::Null);
+            writes.push((name.clone(), from, to.clone()));
+        }
+    }
+    writes
+}
+
+/// Lifecycle and read-only checks shared with [`TaskCommitSink::commit`], so a
+/// bad write fails the step before the mutation's transaction commits.
+fn validate_writes(schema: &MirStore, cause: &str, writes: &[FieldWrite]) -> Result<(), String> {
+    for (name, from, to) in writes {
+        let Some(field) = schema.fields.iter().find(|f| &f.name == name) else {
+            continue;
+        };
+        match field.kind {
+            MirStoreFieldKind::Const | MirStoreFieldKind::Derive => {
+                return Err(format!(
+                    "'{cause}' wrote read-only field '{name}'; nothing committed"
+                ));
+            }
+            _ if field.lifecycle.is_some() => {
+                check_lifecycle(field, from, to).map_err(|e| e.to_string())?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Receipts are for capability ops (network, io, secrets, state modules).
+/// Pure helpers such as `core.value` and `core.echo` are not effects.
+fn is_capability_effect(module: &str, op: &str) -> bool {
+    match find_op_spec(module, op) {
+        Some(spec) => matches!(
+            spec.effect,
+            SignatureEffect::Network
+                | SignatureEffect::Io
+                | SignatureEffect::Secrets
+                | SignatureEffect::State
+        ),
+        None => !matches!(module, "core" | "call" | "flow" | "runtime"),
     }
 }
 

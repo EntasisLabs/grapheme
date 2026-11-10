@@ -322,13 +322,13 @@ pub(crate) fn lower_ui_glyphs(
                     )));
                 }
             } else if let Some(store_of) = view_stores.get(name.as_str()) {
-                if let Some(other) = *store_of {
-                    if other != store_name {
-                        return Err(type_error(format!(
-                            "glyph '{}' exposes view '{name}' on {other}, not on {store_name}",
-                            glyph.name
-                        )));
-                    }
+                if let Some(other) = *store_of
+                    && other != store_name
+                {
+                    return Err(type_error(format!(
+                        "glyph '{}' exposes view '{name}' on {other}, not on {store_name}",
+                        glyph.name
+                    )));
                 }
             } else {
                 return Err(type_error(format!(
