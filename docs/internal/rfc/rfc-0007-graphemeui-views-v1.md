@@ -111,6 +111,8 @@ With them:
 
 Dependency rule: GraphemeUI depends on Grapheme and on its renderer. Grapheme does not depend on GraphemeUI or any renderer. The primitive catalog (`Column`, `Text`, `Button`, `VirtualList`, …) is published to the compiler as signatures, like a module.
 
+**Integration model A (current):** [`grapheme-ui`](https://github.com/EntasisLabs/grapheme-ui) is a separate repository and the only bridge. Host applications that want Grapheme UI depend on `grapheme-ui` directly (full-app runner or an rndr component that mounts a `GraphemeSurface`). rndr does not depend on Grapheme. A later optional rndr facade re-export is model B and is deferred.
+
 ## Design principles
 
 1. **Two shapes, never mixed.** UI is `Name(props) { … }` and only appears in `view`. Code is `op(args) |> op(args)` and never appears in `view`.
