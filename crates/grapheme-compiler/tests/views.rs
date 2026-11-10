@@ -45,7 +45,7 @@ view CounterView on Counter {
     )
     .expect("compiles");
     let ir = grapheme_artifact::view_ir_document(&artifact.mir.views);
-    assert_eq!(ir["$ir"], "grapheme-ui/1");
+    assert_eq!(ir["$ir"], "grapheme-ui/2");
     let root = &ir["views"][0]["root"];
     assert_eq!(ir["views"][0]["store"], "Counter");
     assert_eq!(root["$prim"], "Column");
@@ -381,11 +381,11 @@ view ItemsView on Items {{
         .iter()
         .map(|c| c["key"].as_str().unwrap())
         .collect();
-    assert_eq!(keys, ["ItemsView/if", "ItemsView/for"]);
+    assert_eq!(keys, ["ItemsView/$if", "ItemsView/$for"]);
     let if_node = &root["children"][0];
     assert!(if_node.get("$prim").is_none());
     assert!(if_node.get("$if").is_some());
-    assert_eq!(if_node["children"][0]["key"], "ItemsView/if/0");
+    assert_eq!(if_node["children"][0]["key"], "ItemsView/$if/0");
     let for_node = &root["children"][1];
     assert!(for_node.get("$for").is_some());
     assert_eq!(for_node["$for"]["item"], "item");
@@ -397,7 +397,7 @@ view ItemsView on Items {{
         for_node["$for"]["key"],
         serde_json::json!({"$var": "item.id"})
     );
-    assert_eq!(for_node["children"][0]["key"], "ItemsView/for/0");
+    assert_eq!(for_node["children"][0]["key"], "ItemsView/$for/0");
 }
 
 #[test]
@@ -460,15 +460,111 @@ view V on Items {{
     .expect("compiles");
     let view = artifact.mir.views.iter().find(|v| v.name == "V").unwrap();
     let for_node = view.root.children.iter().find(|c| c.repeat.is_some()).unwrap();
-    assert_eq!(for_node.key, "V/for");
+    assert_eq!(for_node.key, "V/$for");
     let if_child = for_node
         .children
         .iter()
         .find(|c| c.when.is_some())
         .unwrap();
-    assert_eq!(if_child.key, "V/for/if");
+    assert_eq!(if_child.key, "V/$for/$if");
     assert_eq!(
         if_child.children[0].props.get("content"),
         Some(&serde_json::json!({"$var": "item.label"}))
     );
+}
+
+#[test]
+fn view_if_requires_bool() {
+    let err = error(
+        r#"
+state S { show: Int = 0 }
+view V on S {
+  Column { if $show { Text("x") } }
+}
+"#,
+    );
+    assert!(err.contains("if condition must be Bool, found Int"), "{err}");
+}
+
+#[test]
+fn nested_for_sees_the_outer_item_and_rejects_shadowing() {
+    compile(
+        r#"
+struct Post { id: String title: String }
+struct Group { name: String posts: [Post] }
+state Feed { groups: [Group] = [] }
+view V on Feed {
+  Column {
+    for $group in $groups key $group.name {
+      for $post in $group.posts key $post.id {
+        Text($group.name)
+      }
+    }
+  }
+}
+"#,
+    )
+    .expect("outer item stays in scope");
+    let err = error(
+        r#"
+struct Post { id: String }
+struct Group { name: String posts: [Post] }
+state Feed { groups: [Group] = [] }
+view V on Feed {
+  Column {
+    for $group in $groups key $group.name {
+      for $group in $group.posts key $group.id {
+        Text("x")
+      }
+    }
+  }
+}
+"#,
+    );
+    assert!(err.contains("shadows an outer for binding"), "{err}");
+}
+
+#[test]
+fn else_and_for_index_lower() {
+    let artifact = compile(
+        r#"
+state S { show: Bool = true, items: [Int] = [] }
+view V on S {
+  Column {
+    if $show { Text("yes") } else { Text("no") }
+    for $item, $index in $items key $index {
+      Text("{$index}")
+    }
+  }
+}
+"#,
+    )
+    .expect("else and index compile");
+    let view = artifact.mir.views.iter().find(|v| v.name == "V").unwrap();
+    let if_node = view.root.children.iter().find(|c| c.when.is_some()).unwrap();
+    assert_eq!(if_node.else_children.len(), 1);
+    let for_node = view.root.children.iter().find(|c| c.repeat.is_some()).unwrap();
+    assert_eq!(
+        for_node.repeat.as_ref().and_then(|r| r.index.as_deref()),
+        Some("index")
+    );
+}
+
+#[test]
+fn unnamed_if_does_not_use_a_child_name() {
+    let artifact = compile(
+        r#"
+state S { show: Bool = true }
+view V on S {
+  Column {
+    if: Text("named")
+    if $show { Text("branch") }
+  }
+}
+"#,
+    )
+    .expect("compiles");
+    let view = artifact.mir.views.iter().find(|v| v.name == "V").unwrap();
+    let keys: Vec<_> = view.root.children.iter().map(|c| c.key.as_str()).collect();
+    assert_eq!(keys, ["V/if", "V/$if"]);
 }

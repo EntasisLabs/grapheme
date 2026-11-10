@@ -385,6 +385,7 @@ fn empty_view_element() -> ViewElement {
         events: Vec::new(),
         children: Vec::new(),
         condition: None,
+        else_children: Vec::new(),
         repeat: None,
     }
 }
@@ -454,30 +455,14 @@ fn parse_view_prim(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
 fn parse_view_if(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
     let mut element = empty_view_element();
     element.kind = "if".to_string();
+    let mut bodies = Vec::new();
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::view_child_name => {
                 element.child_name = Some(p.into_inner().next().unwrap().as_str().to_string())
             }
             Rule::value => element.condition = Some(parse_value(p)?),
-            Rule::view_if | Rule::view_for | Rule::view_element => {
-                element.children.push(parse_view_element(p)?)
-            }
-            Rule::view_child => {
-                for inner in p.into_inner() {
-                    match inner.as_rule() {
-                        Rule::view_if | Rule::view_for | Rule::view_element => {
-                            element.children.push(parse_view_element(inner)?)
-                        }
-                        Rule::view_event | Rule::view_step => {
-                            return Err(GraphemeError::ParseError(
-                                "if { … } may only contain elements".to_string(),
-                            ));
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            Rule::view_body => bodies.push(p),
             _ => {}
         }
     }
@@ -486,13 +471,35 @@ fn parse_view_if(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
             "if requires a condition expression".to_string(),
         ));
     }
+    let mut bodies = bodies.into_iter();
+    let Some(then_body) = bodies.next() else {
+        return Err(GraphemeError::ParseError(
+            "if requires a body".to_string(),
+        ));
+    };
+    element.children = parse_if_body(then_body, "if")?;
+    if let Some(else_body) = bodies.next() {
+        element.else_children = parse_if_body(else_body, "else")?;
+    }
     Ok(element)
+}
+
+fn parse_if_body(body: Pair<Rule>, which: &str) -> Result<Vec<ViewElement>, GraphemeError> {
+    let mut events = Vec::new();
+    let mut children = Vec::new();
+    parse_view_body_children(body, &mut events, &mut children)?;
+    if !events.is_empty() {
+        return Err(GraphemeError::ParseError(format!(
+            "{which} {{ … }} may only contain elements"
+        )));
+    }
+    Ok(children)
 }
 
 fn parse_view_for(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
     let mut element = empty_view_element();
     element.kind = "for".to_string();
-    let mut item = None;
+    let mut names = Vec::new();
     let mut source = None;
     let mut key = None;
     for p in pair.into_inner() {
@@ -500,37 +507,33 @@ fn parse_view_for(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
             Rule::view_child_name => {
                 element.child_name = Some(p.into_inner().next().unwrap().as_str().to_string())
             }
-            Rule::ident if item.is_none() => item = Some(p.as_str().to_string()),
+            Rule::ident => names.push(p.as_str().to_string()),
             Rule::value if source.is_none() => source = Some(parse_value(p)?),
             Rule::value if key.is_none() => key = Some(parse_value(p)?),
-            Rule::view_if | Rule::view_for | Rule::view_element => {
-                element.children.push(parse_view_element(p)?)
-            }
-            Rule::view_child => {
-                for inner in p.into_inner() {
-                    match inner.as_rule() {
-                        Rule::view_if | Rule::view_for | Rule::view_element => {
-                            element.children.push(parse_view_element(inner)?)
-                        }
-                        Rule::view_event | Rule::view_step => {
-                            return Err(GraphemeError::ParseError(
-                                "for { … } may only contain elements".to_string(),
-                            ));
-                        }
-                        _ => {}
-                    }
-                }
+            Rule::view_body => {
+                element.children = parse_if_body(p, "for")?;
             }
             _ => {}
         }
     }
-    let (Some(item), Some(source), Some(key_expr)) = (item, source, key) else {
+    let Some(item) = names.first().cloned() else {
+        return Err(GraphemeError::ParseError(
+            "for requires `$item in <source> key <expr>`".to_string(),
+        ));
+    };
+    if names.len() > 2 {
+        return Err(GraphemeError::ParseError(
+            "for takes at most `$item, $index`".to_string(),
+        ));
+    }
+    let (Some(source), Some(key_expr)) = (source, key) else {
         return Err(GraphemeError::ParseError(
             "for requires `$item in <source> key <expr>`".to_string(),
         ));
     };
     element.repeat = Some(crate::ast::ViewFor {
         item,
+        index: names.get(1).cloned(),
         source,
         key: key_expr,
     });

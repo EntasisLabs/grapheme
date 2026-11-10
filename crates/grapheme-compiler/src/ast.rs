@@ -209,6 +209,9 @@ pub struct ViewElement {
     /// `if <cond> { … }` — condition expression when `kind == "if"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<Value>,
+    /// `else { … }` children of an `if`. Empty when there is no `else`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub else_children: Vec<ViewElement>,
     /// `for $item in <source> key <key> { … }` when `kind == "for"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repeat: Option<ViewFor>,
@@ -218,6 +221,8 @@ pub struct ViewElement {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ViewFor {
     pub item: String,
+    /// `for $item, $index in …` — optional index binding.
+    pub index: Option<String>,
     pub source: Value,
     pub key: Value,
 }

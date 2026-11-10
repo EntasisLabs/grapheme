@@ -1,5 +1,5 @@
 {
-  "$ir": "grapheme-ui/1",
+  "$ir": "grapheme-ui/2",
   "views": [
     {
       "name": "CounterView",

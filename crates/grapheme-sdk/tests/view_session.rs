@@ -215,3 +215,181 @@ fn feed_view_if_for_expands_after_load() {
     session.invoke_action(&like_id).unwrap();
     assert_eq!(session.snapshot("Feed").unwrap()["likes_total"], json!(1));
 }
+
+fn render(source: &str, view: &str) -> grapheme_sdk::GraphemeStoreSession {
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(source)
+        .unwrap();
+    session.render(view).unwrap();
+    session
+}
+
+#[test]
+fn duplicate_for_keys_fail_the_render() {
+    let src = r#"
+struct Post { id: String title: String }
+state Feed { posts: [Post] = [{ id: "1", title: "A" }, { id: "1", title: "B" }] }
+mutation Like($id: String) on Feed { apply { posts: $posts } }
+view V on Feed {
+  Column {
+    for $post in $posts key $post.id {
+      Button(label: $post.title) { on click: Like(id: $post.id) }
+    }
+  }
+}
+"#;
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(src)
+        .unwrap();
+    let err = session.render("V").unwrap_err().to_string();
+    assert!(err.contains("duplicate for key"), "{err}");
+}
+
+#[test]
+fn false_if_unmounts_its_action() {
+    let src = r#"
+state S { show: Bool = true }
+mutation Hide on S { apply { show: false } }
+view V on S {
+  Column {
+    if $show {
+      Button(label: "Go") { on click: Hide }
+    }
+  }
+}
+"#;
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(src)
+        .unwrap();
+    let first = session.render("V").unwrap();
+    assert_eq!(first.ir["$ir"], "grapheme-ui/1");
+    assert_eq!(first.actions.len(), 1, "{:?}", first.actions);
+    let id = first.actions[0].id.clone();
+    assert!(id.contains("/$if/"), "{id}");
+    session.invoke_action(&id).unwrap();
+    let second = session.render("V").unwrap();
+    assert!(second.actions.is_empty(), "{:?}", second.actions);
+    let err = session.invoke_action(&id).unwrap_err().to_string();
+    assert!(err.contains("stale_action"), "{err}");
+}
+
+#[test]
+fn empty_list_renders_no_rows_and_non_list_source_fails() {
+    let src = r#"
+state S { items: [Int] = [], n: Int = 1 }
+mutation Nop on S { apply { n: $n } }
+view V on S {
+  Column {
+    for $item in $items key $item { Text("{$item}") }
+  }
+}
+view Bad on S {
+  Column {
+    for $item in $n key $item { Text("x") }
+  }
+}
+"#;
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(src)
+        .unwrap();
+    let snap = session.render("V").unwrap();
+    let children = snap.ir["root"]["children"].as_array().map(|c| c.len()).unwrap_or(0);
+    assert_eq!(children, 0, "{:?}", snap.ir);
+    let err = session.render("Bad").unwrap_err().to_string();
+    assert!(err.contains("for source must be a list"), "{err}");
+}
+
+#[test]
+fn for_keys_stay_stable_when_the_list_is_reordered() {
+    let src = r#"
+struct Item { id: String }
+state S { items: [Item] = [{ id: "a" }, { id: "b" }] }
+mutation Swap on S { apply { items: [{ id: "b" }, { id: "a" }] } }
+view V on S {
+  Column {
+    for $item in $items key $item.id {
+      Button(label: $item.id) { on click: Swap }
+    }
+  }
+}
+"#;
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(src)
+        .unwrap();
+    let first = session.render("V").unwrap();
+    let mut ids: Vec<_> = first.actions.iter().map(|a| a.id.clone()).collect();
+    ids.sort();
+    assert_eq!(ids.len(), 2, "{ids:?}");
+    session.invoke("Swap", None).unwrap();
+    let second = session.render("V").unwrap();
+    let mut ids2: Vec<_> = second.actions.iter().map(|a| a.id.clone()).collect();
+    ids2.sort();
+    assert_eq!(ids, ids2, "reordering changed action ids");
+}
+
+#[test]
+fn slash_in_a_for_key_is_escaped_and_empty_keys_fail() {
+    let src = r#"
+struct Item { id: String }
+state S { items: [Item] = [{ id: "a/b#c" }] }
+mutation Go on S { apply { items: $items } }
+view V on S {
+  Column {
+    for $item in $items key $item.id {
+      Button(label: "x") { on click: Go }
+    }
+  }
+}
+"#;
+    let mut session = render(src, "V");
+    let id = session.render("V").unwrap().actions[0].id.clone();
+    assert!(id.contains("%2F") && id.contains("%23"), "{id}");
+    assert!(!id.contains("a/b"), "{id}");
+
+    let bad = r#"
+state S { items: [String] = [""] }
+mutation Nop on S { apply { items: $items } }
+view V on S {
+  Column { for $item in $items key $item { Text("x") } }
+}
+"#;
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(bad)
+        .unwrap();
+    let err = session.render("V").unwrap_err().to_string();
+    assert!(err.contains("non-empty string or number"), "{err}");
+}
+
+#[test]
+fn else_branch_and_for_index_render() {
+    let src = r#"
+state S { show: Bool = false, items: [String] = ["a", "b"] }
+mutation Nop on S { apply { show: $show } }
+view V on S {
+  Column {
+    if $show { Text("yes") } else { Text("no") }
+    for $item, $index in $items key $index {
+      Text("{$index}:{$item}")
+    }
+  }
+}
+"#;
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(src)
+        .unwrap();
+    let snap = session.render("V").unwrap();
+    let texts: Vec<_> = snap.ir["root"]["children"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|n| n.pointer("/props/content").and_then(|v| v.as_str()))
+        .collect();
+    assert_eq!(texts, ["no", "0:a", "1:b"], "{:?}", snap.ir);
+}

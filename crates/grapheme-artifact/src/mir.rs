@@ -12,7 +12,8 @@ pub struct MirProgram {
     /// `state` stores declared by the program (RFC-0007 Part A).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stores: Vec<MirStore>,
-    /// `view` declarations, already in `grapheme-ui/1` node form (RFC-0007 Parts C, I.1).
+    /// `view` declarations. Compiler documents use [`VIEW_IR_COMPILER_VERSION`]
+    /// (`$if` / `$for` nodes). Expanded session trees stay [`VIEW_IR_VERSION`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub views: Vec<MirView>,
     /// UI glyphs: `glyph Name on Store { … }` (RFC-0007 Part H).
@@ -32,12 +33,16 @@ pub struct MirUiGlyph {
     pub expose: Vec<String>,
 }
 
-/// The View IR format version (RFC-0007 I.1).
+/// Expanded runtime View IR (render / mount). `if` and `for` are already gone.
 pub const VIEW_IR_VERSION: &str = "grapheme-ui/1";
 
-/// A program's views as a versioned View IR document.
+/// Compiler `--emit view-ir` documents. Additive over v1: nodes may be `$if`
+/// or `$for` and have neither `$prim` nor `$view` (RFC-0007 C.7).
+pub const VIEW_IR_COMPILER_VERSION: &str = "grapheme-ui/2";
+
+/// A program's views as a versioned compiler View IR document.
 pub fn view_ir_document(views: &[MirView]) -> JsonValue {
-    serde_json::json!({ "$ir": VIEW_IR_VERSION, "views": views })
+    serde_json::json!({ "$ir": VIEW_IR_COMPILER_VERSION, "views": views })
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -56,9 +61,12 @@ pub struct MirViewNode {
     pub prim: Option<String>,
     #[serde(rename = "$view", default, skip_serializing_if = "Option::is_none")]
     pub view: Option<String>,
-    /// Conditional child: evaluate and keep children only when truthy (RFC-0007 C.7).
+    /// Conditional child. The condition must be `Bool` (RFC-0007 C.7).
     #[serde(rename = "$if", default, skip_serializing_if = "Option::is_none")]
     pub when: Option<JsonValue>,
+    /// `else` branch of `$if`. Empty when the `if` has no `else`.
+    #[serde(rename = "$else", default, skip_serializing_if = "Vec::is_empty")]
+    pub else_children: Vec<MirViewNode>,
     /// Repeated child template (RFC-0007 C.7).
     #[serde(rename = "$for", default, skip_serializing_if = "Option::is_none")]
     pub repeat: Option<MirViewFor>,
@@ -78,6 +86,9 @@ pub struct MirViewNode {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MirViewFor {
     pub item: String,
+    /// `for $item, $index` — the index binding, when the source writes one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<String>,
     pub source: JsonValue,
     pub key: JsonValue,
 }

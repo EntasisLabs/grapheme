@@ -65,7 +65,7 @@ Notes:
 - `--type-policy warn` is the default and preserves compatibility-mode lint behavior.
 - `--type-policy strict` enables strict mutation-boundary enforcement at compile time.
 - For `compile`, default emit target is `mir`.
-- `--emit view-ir` prints the program's views as `{"$ir": "grapheme-ui/1", "views": [...]}` (RFC-0007 I.1).
+- `--emit view-ir` prints the program's views as `{"$ir": "grapheme-ui/2", "views": [...]}` (RFC-0007 I.1). Nodes may be `$if` or `$for` as well as `$prim` or `$view`. A rendered session snapshot stays `grapheme-ui/1` because `if` / `for` are expanded before it is returned.
 - For `compile`, default output format is YAML.
 
 ### `build`

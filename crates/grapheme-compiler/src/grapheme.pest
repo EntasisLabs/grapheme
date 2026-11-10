@@ -156,10 +156,10 @@ view_step       = { ("|>" ~ ident ~ ("." ~ ident)* | ident ~ ("." ~ ident)+) ~ a
 kw_for = @{ "for" ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_in  = @{ "in" ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_key = @{ "key" ~ !(ASCII_ALPHANUMERIC | "_") }
-view_if  = { view_child_name? ~ kw_if ~ value ~ "{" ~ (view_child ~ ","?)* ~ "}" }
+view_if  = { view_child_name? ~ kw_if ~ value ~ view_body ~ (kw_else ~ view_body)? }
 view_for = {
-    view_child_name? ~ kw_for ~ "$" ~ ident ~ kw_in ~ value ~ kw_key ~ value
-    ~ "{" ~ (view_child ~ ","?)* ~ "}"
+    view_child_name? ~ kw_for ~ "$" ~ ident ~ ("," ~ "$" ~ ident)? ~ kw_in ~ value ~ kw_key ~ value
+    ~ view_body
 }
 view_child      = { view_if | view_for | view_event | view_step | view_element }
 view_body       = { "{" ~ (view_child ~ ","?)* ~ "}" }
