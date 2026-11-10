@@ -581,7 +581,7 @@ view_for   = "for" variable ("," variable)? "in" expr "key" expr "{" element* "}
 8. **Recursion** is allowed (layers panels, trees). Each level is a view reference that the renderer evaluates lazily, bounded by data and by the call-depth limit.
 9. `fragment` keeps its inline-macro contract unchanged.
 
-**Implementation status (rollout step 2):** the element grammar (named children, positional content, props, view references, rule 1's rejection of steps and module calls), rules 2–4 and 6 for `on Store` views, with a built-in catalog of `Column`, `Row`, `Text` and `Button`. Not yet: view params, `style`, slots, `if`/`for`, `transient state` on views, registry stores in scope, and recursion beyond eager inlining.
+**Implementation status (rollout step 2 + C.7):** the element grammar (named children, positional content, props, view references, rule 1's rejection of steps and module calls), rules 2–4, 6 and 7 (`if` / `for`) for `on Store` views, with a built-in catalog of `Column`, `Row`, `Text` and `Button`. Not yet: view params, `style`, slots, `VirtualList`, `transient state` on views, registry stores in scope, and recursion beyond eager inlining.
 
 ## Part D — Events and delegates
 

@@ -152,7 +152,17 @@ view_child_name = { ident ~ ":" }
 view_event      = { kw_on ~ ident ~ ":" ~ ident ~ arg_list? }
 // Recognised only to reject it: a view holds elements, never steps or module calls.
 view_step       = { ("|>" ~ ident ~ ("." ~ ident)* | ident ~ ("." ~ ident)+) ~ arg_list? }
-view_body       = { "{" ~ ((view_event | view_step | view_element) ~ ","?)* ~ "}" }
+// RFC-0007 C.7: conditional and repeated children (reuses kw_if from value exprs).
+kw_for = @{ "for" ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_in  = @{ "in" ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_key = @{ "key" ~ !(ASCII_ALPHANUMERIC | "_") }
+view_if  = { view_child_name? ~ kw_if ~ value ~ "{" ~ (view_child ~ ","?)* ~ "}" }
+view_for = {
+    view_child_name? ~ kw_for ~ "$" ~ ident ~ kw_in ~ value ~ kw_key ~ value
+    ~ "{" ~ (view_child ~ ","?)* ~ "}"
+}
+view_child      = { view_if | view_for | view_event | view_step | view_element }
+view_body       = { "{" ~ (view_child ~ ","?)* ~ "}" }
 view_element    = { view_child_name? ~ ident ~ (arg_list | view_content)? ~ view_body? }
 
 view_def = {

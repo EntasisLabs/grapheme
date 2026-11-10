@@ -194,17 +194,32 @@ pub struct ViewDef {
     pub root: ViewElement,
 }
 
-/// One element: a catalog primitive or a reference to another view.
+/// One element: a catalog primitive, a view reference, or `if` / `for` (C.7).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ViewElement {
     /// `name: Element` names the child; its node key uses the name.
     pub child_name: Option<String>,
+    /// `"if"` / `"for"` for control-flow nodes; otherwise a prim or view name.
     pub kind: String,
     /// Positional content: `Text("{$count}")`.
     pub content: Option<Value>,
     pub props: Vec<(String, Value)>,
     pub events: Vec<ViewEvent>,
     pub children: Vec<ViewElement>,
+    /// `if <cond> { … }` — condition expression when `kind == "if"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<Value>,
+    /// `for $item in <source> key <key> { … }` when `kind == "for"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat: Option<ViewFor>,
+}
+
+/// Bindings for a `for` view element (RFC-0007 C.7).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViewFor {
+    pub item: String,
+    pub source: Value,
+    pub key: Value,
 }
 
 /// `on click: Select(index: 3)`.
