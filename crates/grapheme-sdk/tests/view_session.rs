@@ -172,3 +172,46 @@ fn views_without_a_store_render_without_a_revision() {
         "footer"
     );
 }
+
+#[test]
+fn feed_view_if_for_expands_after_load() {
+    let source = include_str!("../../../examples/feed-view.gr");
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(source)
+        .unwrap();
+    let idle = session.mount(Some("FeedApp")).unwrap();
+    assert!(
+        idle.actions.iter().any(|a| a.target == "LoadFeed"),
+        "{:?}",
+        idle.actions
+    );
+    assert!(
+        !idle.actions.iter().any(|a| a.target == "Like" && a.id.starts_with("FeedView/")),
+        "like buttons should not render while idle: {:?}",
+        idle.actions
+    );
+
+    session.invoke_action("expose:LoadFeed").unwrap();
+    let ready = session.app_snapshot().unwrap();
+    assert_eq!(ready.revision, 2);
+    let likes: Vec<_> = ready
+        .actions
+        .iter()
+        .filter(|a| a.target == "Like" && a.id.starts_with("FeedView/"))
+        .map(|a| (a.id.clone(), a.bound_args.clone()))
+        .collect();
+    assert_eq!(likes.len(), 2, "{likes:?}");
+    assert!(
+        likes.iter().any(|(id, args)| id.contains("/1/") && args.get("id") == Some(&json!("1"))),
+        "{likes:?}"
+    );
+    assert!(
+        likes.iter().any(|(id, args)| id.contains("/2/") && args.get("id") == Some(&json!("2"))),
+        "{likes:?}"
+    );
+
+    let like_id = likes[0].0.clone();
+    session.invoke_action(&like_id).unwrap();
+    assert_eq!(session.snapshot("Feed").unwrap()["likes_total"], json!(1));
+}

@@ -499,6 +499,65 @@ impl StoreSession {
             .ok_or_else(|| session_error(format!("no view named '{name}'")))
     }
 
+    /// Expands `if` / `for` children into realized nodes (RFC-0007 C.7).
+    fn evaluate_children(
+        &self,
+        view: &MirView,
+        node: &MirViewNode,
+        key: &str,
+        scope: &JsonValue,
+        depth: usize,
+        events: &mut Vec<BoundEvent>,
+        out: &mut Vec<JsonValue>,
+    ) -> Result<(), RuntimeError> {
+        let fail = |message: String| {
+            session_error(format!("view '{}', element '{key}': {message}", view.name))
+        };
+        for child in &node.children {
+            let suffix = child.key.strip_prefix(&node.key).unwrap_or(&child.key);
+            let child_key = format!("{key}{suffix}");
+            if let Some(cond) = &child.when {
+                let value = eval_view_value(cond, scope)
+                    .map_err(|e| fail(format!("if condition: {e}")))?;
+                if grapheme_artifact::expr::truthy(&value) {
+                    self.evaluate_children(view, child, &child_key, scope, depth, events, out)?;
+                }
+                continue;
+            }
+            if let Some(repeat) = &child.repeat {
+                let source = eval_view_value(&repeat.source, scope)
+                    .map_err(|e| fail(format!("for source: {e}")))?;
+                let items = source.as_array().ok_or_else(|| {
+                    fail(format!(
+                        "for source must be a list, found {}",
+                        type_name(&source)
+                    ))
+                })?;
+                for (index, item_value) in items.iter().enumerate() {
+                    let mut item_scope = scope.as_object().cloned().unwrap_or_default();
+                    item_scope.insert(repeat.item.clone(), item_value.clone());
+                    let item_scope = JsonValue::Object(item_scope);
+                    let item_key = eval_view_value(&repeat.key, &item_scope)
+                        .map_err(|e| fail(format!("for key: {e}")))?;
+                    let item_key = display_key(&item_key, index);
+                    let row_key = format!("{child_key}/{item_key}");
+                    self.evaluate_children(
+                        view,
+                        child,
+                        &row_key,
+                        &item_scope,
+                        depth,
+                        events,
+                        out,
+                    )?;
+                }
+                continue;
+            }
+            out.push(self.evaluate_node(view, child, &child_key, scope, depth, events)?);
+        }
+        Ok(())
+    }
+
     /// Evaluates `node` with its key rebased from the view's root key onto `key`,
     /// expanding view references in place.
     fn evaluate_node(
@@ -541,17 +600,7 @@ impl StoreSession {
             props.insert(name.clone(), value);
         }
         let mut children = Vec::new();
-        for child in &node.children {
-            let suffix = child.key.strip_prefix(&node.key).unwrap_or(&child.key);
-            children.push(self.evaluate_node(
-                view,
-                child,
-                &format!("{key}{suffix}"),
-                scope,
-                depth,
-                events,
-            )?);
-        }
+        self.evaluate_children(view, node, key, scope, depth, events, &mut children)?;
         let label = props
             .get("label")
             .and_then(JsonValue::as_str)
@@ -1244,5 +1293,25 @@ fn resolve(value: &JsonValue, root: &JsonValue) -> JsonValue {
             JsonValue::Array(items.iter().map(|v| resolve(v, root)).collect())
         }
         other => other.clone(),
+    }
+}
+
+fn type_name(value: &JsonValue) -> &'static str {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(_) => "Bool",
+        JsonValue::Number(_) => "Number",
+        JsonValue::String(_) => "String",
+        JsonValue::Array(_) => "List",
+        JsonValue::Object(_) => "Object",
+    }
+}
+
+fn display_key(value: &JsonValue, index: usize) -> String {
+    match value {
+        JsonValue::String(s) if !s.is_empty() => s.clone(),
+        JsonValue::Number(n) => n.to_string(),
+        JsonValue::Bool(b) => b.to_string(),
+        _ => index.to_string(),
     }
 }

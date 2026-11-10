@@ -56,6 +56,12 @@ pub struct MirViewNode {
     pub prim: Option<String>,
     #[serde(rename = "$view", default, skip_serializing_if = "Option::is_none")]
     pub view: Option<String>,
+    /// Conditional child: evaluate and keep children only when truthy (RFC-0007 C.7).
+    #[serde(rename = "$if", default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<JsonValue>,
+    /// Repeated child template (RFC-0007 C.7).
+    #[serde(rename = "$for", default, skip_serializing_if = "Option::is_none")]
+    pub repeat: Option<MirViewFor>,
     /// Stable identity within the rendered tree; derived from the view name and child names.
     pub key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -66,6 +72,14 @@ pub struct MirViewNode {
     pub events: BTreeMap<String, MirViewBinding>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<MirViewNode>,
+}
+
+/// `for $item in source key key_expr { … }` lowered into View IR.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MirViewFor {
+    pub item: String,
+    pub source: JsonValue,
+    pub key: JsonValue,
 }
 
 /// `on event: Target(args)`: the mutation an event invokes, with its bound arguments.

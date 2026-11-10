@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Store tasks (RFC-0007 Part F, headless slice).** `task LoadFeed on Feed { apply { status: "pending" }; core.value(…); apply { status: "ready", posts: $current } }` declares a store-bound effect workflow. Tasks may call capabilities; each `apply`/`transition` commits its own revision. `$state` is kept on a separate lane so a capability call that replaces `$current` does not erase store fields. `StoreCommit.effects` lists effect receipts for those calls. Views may bind events to tasks; UI glyphs may `expose` them. Mutations stay pure (no module ops). Concurrency policies, `@if_unchanged`, `time.sleep`, registries and subscriptions are not in this slice. New example `examples/feed-headless.gr`.
+- **View `if` / `for` (RFC-0007 Part C.7).** `if $status == "ready" { … }` and `for $post in $posts key $post.id { … }` are view children. Compile-time IR uses `$if` / `$for`; the headless session expands them when rendering (false branches omitted; list rows keyed by the `key` expression). Item scope `$post` / `$post.field` works in props and bindings. Example `examples/feed-view.gr`. `VirtualList` is not in this slice.
 
 ## [0.8.0] - 2026-11-10
 
