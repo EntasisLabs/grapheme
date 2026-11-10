@@ -1,6 +1,6 @@
 # Grapheme VS Code Extension
 
-VS Code language support for Grapheme Lang (`.gr`) powered by `grapheme-lsp` **0.8.0**.
+VS Code language support for Grapheme Lang (`.gr`) powered by `grapheme-lsp` **0.9.0**.
 
 ## Runtime Model
 
@@ -12,7 +12,7 @@ Binary resolution order:
 2. bundled binary at `server/grapheme-lsp` (or `.exe` on Windows)
 3. auto-download from GitHub Releases into VS Code global storage
 
-Set `grapheme.lsp.releaseTag` to `v0.8.0` (or `latest`) when using auto-download.
+Set `grapheme.lsp.releaseTag` to `v0.9.0` (or `latest`) when using auto-download.
 
 ## Supported Features
 
@@ -38,7 +38,7 @@ Notes:
 
 - `grapheme.lsp.binaryPath`
 - `grapheme.lsp.releaseRepo`
-- `grapheme.lsp.releaseTag` — use `v0.8.0` for this release train
+- `grapheme.lsp.releaseTag` — use `v0.9.0` for this release train
 - `grapheme.lsp.autoDownload`
 
 ## Expected Release Asset Names
