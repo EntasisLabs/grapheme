@@ -7,20 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-10
+
+**GraphemeUI language surface (RFC-0007 rollout steps 0–2 + Part H).** State stores, value expressions, views / View IR, and headless UI glyph mount — enough for a counter driven by `grapheme session` or an external renderer bridge. See `docs/internal/rfc/rfc-0007-graphemeui-views-v1.md`.
+
 ### Added
 
 - **UI glyphs and headless app session (RFC-0007 Part H / I.2).** `glyph CounterApp on Counter { expose Increment; CounterView }` mounts a store-backed UI app. The body is one root element (a view reference or an inline tree); `expose` lists mutations, queries and views reachable outside the tree. `StoreSession::mount` / `GraphemeStoreSession::mount` (CLI: `grapheme session --mount [Glyph]`) returns `{glyph, store, revision, ir, actions}` including `expose:<Name>` actions for exposed mutations. `invoke_action("expose:Increment")` runs an exposed no-arg mutation. Workflow glyphs are unchanged. Example `examples/view-counter.gr` now includes `CounterApp`.
-- **Views and View IR (RFC-0007 Parts C, D, I; rollout step 2).** `view CounterView on Counter { Column { value: Text("{$count}") increment: Button(label: "Increment") { on click: Increment } } }` declares an element tree over a store, using a new built-in catalog of `Column`, `Row`, `Text` and `Button`, named children, positional content, expression props and view references. Unknown elements, props and events, steps or module calls inside a view, and bindings whose target is not a mutation on the view's store or whose arguments don't match its parameters exactly are compile errors; an interactive element with no label or text gets a `view-accessibility` lint. `grapheme compile --emit view-ir` prints `{"$ir": "grapheme-ui/1", "views": [...]}` with stable node keys. `StoreSession::render(view)` / `GraphemeStoreSession::render` evaluate a view at the latest revision and return its action list; `invoke_action(id)` runs an action as one transaction and rejects ids whose binding epoch changed with `stale_action`. `grapheme session` gains `--render View` and `--action <id>`. New example `examples/view-counter.gr`. Styles, view params, slots, `if`/`for`, `VirtualList`, glyphs and rendering are not in this release. Programs without views compile to the same MIR as before.
+- **Views and View IR (RFC-0007 Parts C, D, I; rollout step 2).** `view CounterView on Counter { Column { value: Text("{$count}") increment: Button(label: "Increment") { on click: Increment } } }` declares an element tree over a store, using a new built-in catalog of `Column`, `Row`, `Text` and `Button`, named children, positional content, expression props and view references. Unknown elements, props and events, steps or module calls inside a view, and bindings whose target is not a mutation on the view's store or whose arguments don't match its parameters exactly are compile errors; an interactive element with no label or text gets a `view-accessibility` lint. `grapheme compile --emit view-ir` prints `{"$ir": "grapheme-ui/1", "views": [...]}` with stable node keys. `StoreSession::render(view)` / `GraphemeStoreSession::render` evaluate a view at the latest revision and return its action list; `invoke_action(id)` runs an action as one transaction and rejects ids whose binding epoch changed with `stale_action`. `grapheme session` gains `--render View` and `--action <id>`. New example `examples/view-counter.gr`. Styles, view params, slots, `if`/`for`, and `VirtualList` are not in this release. Programs without views compile to the same MIR as before.
 - **Expression query bodies (RFC-0007 Part B.5).** A query body may be a single expression whose value is the result: `query ReadSelected on Panel -> Int { $selected }`. It lowers to a new pure `core.value(value: …)` op, so the run returns the value (a scalar, for example) rather than the input object; `StoreSession::query` and `grapheme session --query` return it directly. Under `--type-policy strict` the expression must fit the declared `-> T`; under `warn` a mismatch is an `expression-type` lint. Mutation bodies stay pipelines. Existing programs parse unchanged.
 - **State stores (RFC-0007 Part A).** `state Counter { count: Int = 0, const step: Int = 2, transient pulse: Int = 0, derive double: Int = $count * 2 }` declares a store. `mutation Increment on Counter { apply { count: $count + $step } }` reads fields by bare name and writes them with lane-less `apply`; enum fields governed by a `state_machine` are written only by `transition`. Writing const, derive, lifecycle or unknown fields, derive cycles, defaults that read fields, and cross-store calls are compile errors. Store queries are read-only. Each mutation commits one revision with a runtime diff (transient fields included) and a history diff (transient fields removed); failures and illegal transitions commit nothing. New `grapheme session <file.gr> --invoke Name[:<json>] --query Name[:<json>]` command, `GraphemeEngine::store_session` and `grapheme_runtime::StoreSession`. `singleton`/`transient state`, registries, history/undo and hot reload are not in this release. Programs without stores compile to the same MIR as before.
 - **Expression type checking and `.count` (RFC-0007 Part B).** Under `--type-policy strict`, ill-typed expressions are compile errors: `"a" - 1`, non-`Bool` `&&`/`||`/`!`/`if` operands, `if` branches of different types, a `set` field whose expression doesn't match its declared type, and enum comparisons against non-members (`$state.density == fast`). Under `warn` they are `expression-type` lints. Operands without a declared type are not checked. `$list.count` and `$text.count` read the length of a list or string.
-- **Value expressions (RFC-0007 Part B).** Any value position now accepts `+ - * / %`, comparisons (`== != < <= > >=`), `&& || !`, parentheses and `if … then … else`: `set { count: $state.count + 1, mode: if $busy then pulsing else idle }`. `Int op Int` stays `Int` (`/` truncates); overflow, division by zero and type mismatches fail the step with `EXPRESSION_ERROR`. Stage A and Stage B evaluate the same `{"$expr": …}` MIR form. Static operand typing under `--type-policy strict` is not in this release yet. No new commands, flags or environment variables. Existing programs parse unchanged; parse errors after a value now say "expected operator" where they used to list literal rules.
+- **Value expressions (RFC-0007 Part B).** Any value position now accepts `+ - * / %`, comparisons (`== != < <= > >=`), `&& || !`, parentheses and `if … then … else`: `set { count: $state.count + 1, mode: if $busy then pulsing else idle }`. `Int op Int` stays `Int` (`/` truncates); overflow, division by zero and type mismatches fail the step with `EXPRESSION_ERROR`. Stage A and Stage B evaluate the same `{"$expr": …}` MIR form. No new commands, flags or environment variables. Existing programs parse unchanged; parse errors after a value now say "expected operator" where they used to list literal rules.
 
 ### Fixed
 
 - **`transition $state.<field>` writes the root field.** The step lowered to `core.set_fields` with a literal `state.status` key, so the field kept its old value and a typed output (`-> T`) rejected it with "field 'state.status' is not declared". It now writes `status`. `examples/mutation-state-machine-apply.gr` (tutorial 02) compiles again under both type policies and ends with `status: approved`; `examples/core-validate-schema.gr` now updates `status` instead of adding a `state.status` key. (RFC-0007 Part J.3)
 - **Partial literal patches under `-> T`.** `set`, `core.set_fields` and `core.merge` patches in a query or mutation `on S -> T` no longer have to restate required fields of `T` that the input type `S` declares; the runtime already carried them over. (RFC-0007 Part J.1)
 - **`inc_field` / `dec_field` keep integers.** An integer field stays an integer (`5` → `6`, previously `6.0`). Float fields and the missing-field default (`1.0`) are unchanged. (RFC-0007 Part J.2)
+
+### Changed
+
+- **`grapheme-artifact` 0.4.0** — publishes the shared `expr` evaluator and View IR / UI glyph MIR types that RFC-0007 added after 0.3.0. Downstream crates that depended on path `0.3.0` must take `0.4.0` for crates.io builds.
+
+### Crate versions (this release)
+
+Language crates ship at **0.8.0**. `grapheme-artifact` moves to **0.4.0** (expr + View IR MIR surface). The VS Code extension is **0.8.0** (LSP binary ships with the new language surface). The release tag is **v0.8.0**.
+
+| Crate | Version |
+| --- | --- |
+| `grapheme-signatures` | 0.8.0 |
+| `grapheme-stdlib` | 0.8.0 |
+| `grapheme-aot-container` | 0.8.0 |
+| `grapheme-runtime` | 0.8.0 |
+| `grapheme-compiler` | 0.8.0 |
+| `grapheme-sdk` | 0.8.0 |
+| `grapheme-cli` | 0.8.0 |
+| `grapheme-lsp` | 0.8.0 |
+| `grapheme-wasm` | 0.8.0 |
+| VS Code extension | 0.8.0 |
+| `grapheme-artifact` | 0.4.0 |
 
 ## [0.7.2] - 2026-10-23
 

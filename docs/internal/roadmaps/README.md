@@ -4,12 +4,13 @@ This section tracks forward-looking language, runtime, and platform plans.
 
 ## Priority Roadmaps
 
-1. docs/internal/release/release-0.7.0.md
-2. docs/internal/roadmaps/release-0.6.0-extensible-platform.md
-3. docs/internal/roadmaps/runtime-platform-evolution-v1.md
-4. docs/internal/roadmaps/language-ergonomics-v2-draft.md
-5. docs/internal/roadmaps/executable-kinds-v1-draft.md
-6. docs/internal/roadmaps/splus-readiness-matrix.md
+1. docs/internal/release/release-0.8.0.md
+2. docs/internal/release/release-0.7.0.md
+3. docs/internal/roadmaps/release-0.6.0-extensible-platform.md
+4. docs/internal/roadmaps/runtime-platform-evolution-v1.md
+5. docs/internal/roadmaps/language-ergonomics-v2-draft.md
+6. docs/internal/roadmaps/executable-kinds-v1-draft.md
+7. docs/internal/roadmaps/splus-readiness-matrix.md
 
 ## Sprint and Feedback Tracks
 
