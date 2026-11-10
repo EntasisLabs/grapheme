@@ -353,24 +353,24 @@ assert_eq!(session.snapshot("Counter")?["double"], json!(6));
 
 `query(name, args)` (args are `Option<JsonValue>`, as for `invoke`) runs a store query read-only; `revisions()`, `revision(store)` and `store_names()` inspect the session. `grapheme_runtime::StoreSession` is the same session without the SDK's module bindings.
 
-Programs that declare `view`s can render them headlessly. `render(view)` returns a `ViewSnapshot` (`revision`, the evaluated View IR in `ir`, and `actions`); `invoke_action(id)` runs the action's mutation as one transaction and fails with `stale_action` if the id's binding epoch is no longer current:
+Programs that declare `view`s can render them headlessly. `render(view)` returns a `ViewSnapshot` (`revision`, the evaluated View IR in `ir`, and `actions`); `invoke_action(id, payload)` runs the action's mutation as one transaction (merging `payload` over `payload_params`, e.g. TextField `change` → `{ "value": "…" }`) and fails with `stale_action` if the id's binding epoch is no longer current:
 
 ```rust
 let mut snapshot = session.render("CounterView")?;
 let add = snapshot.actions.iter().find(|a| a.key == "CounterView/actions/add_five").unwrap();
-let commit = session.invoke_action(&add.id.clone())?;
+let commit = session.invoke_action(&add.id.clone(), None)?;
 assert_eq!(commit.revision, 1);
 snapshot = session.render("CounterView")?;
 assert_eq!(snapshot.revision, Some(1));
 ```
 
-A UI glyph (`glyph CounterApp on Counter { expose Increment; CounterView }`) mounts as an app session: `mount(None)` (or `mount(Some("CounterApp"))`) returns an `AppSnapshot` with the same IR and tree actions, plus `expose:<Name>` actions for exposed mutations. `app_snapshot()` re-evaluates the mounted glyph; `invoke_action("expose:Increment")` runs an exposed no-arg mutation.
+A UI glyph (`glyph CounterApp on Counter { expose Increment; CounterView }`) mounts as an app session: `mount(None)` (or `mount(Some("CounterApp"))`) returns an `AppSnapshot` with the same IR and tree actions, plus `expose:<Name>` actions for exposed mutations. `app_snapshot()` re-evaluates the mounted glyph; `invoke_action("expose:Increment", None)` runs an exposed no-arg mutation.
 
 ```rust
 let app = session.mount(None)?;
 assert_eq!(app.glyph, "CounterApp");
 let id = app.actions.iter().find(|a| a.id == "expose:Increment").unwrap().id.clone();
-session.invoke_action(&id)?;
+session.invoke_action(&id, None)?;
 assert_eq!(session.app_snapshot()?.revision, 1);
 ```
 

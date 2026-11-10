@@ -396,7 +396,7 @@ fn exposed_task_invokes_through_mount() {
         "{:?}",
         snap.actions
     );
-    session.invoke_action("expose:LoadFeed").unwrap();
+    session.invoke_action("expose:LoadFeed", None).unwrap();
     assert_eq!(session.snapshot("Feed").unwrap()["status"], json!("ready"));
 }
 
@@ -411,7 +411,7 @@ fn view_can_bind_click_to_a_task() {
         .unwrap();
     let rendered = session.render("FeedView").unwrap();
     let id = rendered.actions[0].id.clone();
-    session.invoke_action(&id).unwrap();
+    session.invoke_action(&id, None).unwrap();
     assert_eq!(session.snapshot("Feed").unwrap()["status"], json!("ready"));
 }
 

@@ -27,6 +27,13 @@ enum PropType {
     Bool,
 }
 
+/// Catalog event: name plus payload params the host/widget supplies at invoke.
+struct CatalogEvent {
+    name: &'static str,
+    /// e.g. TextField `change` supplies `value`.
+    payload: &'static [&'static str],
+}
+
 /// A built-in primitive of the GraphemeUI catalog.
 struct Primitive {
     name: &'static str,
@@ -34,13 +41,17 @@ struct Primitive {
     /// Accepts positional content, stored as the `content` prop.
     content: bool,
     props: &'static [(&'static str, PropType)],
-    events: &'static [&'static str],
+    events: &'static [CatalogEvent],
     children: bool,
 }
 
 impl Primitive {
     fn interactive(&self) -> bool {
         !self.events.is_empty()
+    }
+
+    fn event(&self, name: &str) -> Option<&'static CatalogEvent> {
+        self.events.iter().find(|e| e.name == name)
     }
 }
 
@@ -74,8 +85,26 @@ const CATALOG: &[Primitive] = &[
         role: "button",
         content: false,
         props: &[("label", PropType::String), ("enabled", PropType::Bool)],
-        events: &["click"],
+        events: &[CatalogEvent {
+            name: "click",
+            payload: &[],
+        }],
         children: true,
+    },
+    Primitive {
+        name: "TextField",
+        role: "textbox",
+        content: false,
+        props: &[
+            ("value", PropType::Text),
+            ("placeholder", PropType::String),
+            ("label", PropType::String),
+        ],
+        events: &[CatalogEvent {
+            name: "change",
+            payload: &["value"],
+        }],
+        children: false,
     },
 ];
 
@@ -433,19 +462,25 @@ impl Ctx<'_> {
 
         let mut events = BTreeMap::new();
         for event in &element.events {
-            if !prim.events.contains(&event.event.as_str()) {
+            let Some(catalog_event) = prim.event(&event.event) else {
                 return Err(self.error(
                     &key,
                     format!("'{}' has no event '{}'", prim.name, event.event),
                 ));
-            }
+            };
             if events.contains_key(&event.event) {
                 return Err(self.error(
                     &key,
                     format!("event '{}' is bound more than once", event.event),
                 ));
             }
-            let binding = self.lower_binding(&key, &event.target, &event.args, item)?;
+            let binding = self.lower_binding(
+                &key,
+                &event.target,
+                &event.args,
+                catalog_event.payload,
+                item,
+            )?;
             events.insert(event.event.clone(), binding);
         }
 
@@ -670,6 +705,7 @@ impl Ctx<'_> {
         key: &str,
         target: &str,
         args: &[(String, Value)],
+        event_payload: &[&str],
         item: Option<&str>,
     ) -> Result<MirViewBinding, GraphemeError> {
         let Some(exec) = self.executables.iter().find(|e| e.name == target) else {
@@ -728,22 +764,28 @@ impl Ctx<'_> {
             }
             bound.insert(name.clone(), lowered);
         }
-        if let Some(missing) = exec
-            .params
-            .iter()
-            .find(|p| p.required && p.default.is_none() && !bound.contains_key(&p.name))
-        {
+
+        let mut payload_params = Vec::new();
+        for param in &exec.params {
+            if !param.required || param.default.is_some() || bound.contains_key(&param.name) {
+                continue;
+            }
+            if event_payload.contains(&param.name.as_str()) {
+                payload_params.push(param.name.clone());
+                continue;
+            }
             return Err(self.error(
                 key,
                 format!(
                     "'{target}' needs argument '{}', which the binding does not supply",
-                    missing.name
+                    param.name
                 ),
             ));
         }
         Ok(MirViewBinding {
             target: target.to_string(),
             args: bound,
+            payload_params,
         })
     }
 

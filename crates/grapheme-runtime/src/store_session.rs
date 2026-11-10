@@ -113,6 +113,7 @@ struct Binding {
     view: String,
     target: String,
     args: Map<String, JsonValue>,
+    payload_params: Vec<String>,
     epoch: u64,
     mounted: bool,
 }
@@ -123,6 +124,7 @@ struct BoundEvent {
     event: String,
     target: String,
     args: Map<String, JsonValue>,
+    payload_params: Vec<String>,
     role: Option<String>,
     label: Option<String>,
 }
@@ -319,9 +321,14 @@ impl StoreSession {
     /// an `expose:<Name>` action from a mounted UI glyph. The rendered views
     /// (and the mounted glyph, if any) are re-evaluated first, so an id whose
     /// binding changed since it was handed out is rejected with `stale_action`.
+    ///
+    /// `payload` supplies arguments listed in the action's `payload_params`
+    /// (e.g. TextField `change` → `value`). Bound args from the view win only
+    /// for names not in the payload object; payload keys overlay when present.
     pub fn invoke_action(
         &mut self,
         id: &str,
+        payload: Option<JsonValue>,
         options: RuntimeOptions,
         host: &mut dyn CapabilityHost,
     ) -> Result<StoreCommit, RuntimeError> {
@@ -372,13 +379,8 @@ impl StoreSession {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
-            if !required.is_empty() {
-                return Err(session_error(format!(
-                    "expose action '{id}' requires payload params {}; pass them via invoke('{name}', args)",
-                    required.join(", ")
-                )));
-            }
-            return self.invoke(name, None, options, host);
+            let args = merge_action_args(Map::new(), &required, payload.as_ref(), id)?;
+            return self.invoke(name, args, options, host);
         }
         let Some(binding) = self
             .bindings
@@ -390,12 +392,13 @@ impl StoreSession {
                 "stale_action: '{id}' is not in the current action list"
             )));
         };
-        self.invoke(
-            &binding.target,
-            Some(JsonValue::Object(binding.args)),
-            options,
-            host,
-        )
+        let args = merge_action_args(
+            binding.args.clone(),
+            &binding.payload_params,
+            payload.as_ref(),
+            id,
+        )?;
+        self.invoke(&binding.target, args, options, host)
     }
 
     fn resolve_ui_glyph(&self, glyph: Option<&str>) -> Result<&MirUiGlyph, RuntimeError> {
@@ -614,15 +617,22 @@ impl StoreSession {
                     .map_err(|e| fail(format!("argument '{name}' of '{}': {e}", binding.target)))?;
                 args.insert(name.clone(), value);
             }
-            bound.insert(
-                event.clone(),
-                serde_json::json!({ "$action": binding.target, "args": args }),
-            );
+            let mut event_ir = serde_json::Map::new();
+            event_ir.insert("$action".to_string(), JsonValue::from(binding.target.clone()));
+            event_ir.insert("args".to_string(), JsonValue::Object(args.clone()));
+            if !binding.payload_params.is_empty() {
+                event_ir.insert(
+                    "payload_params".to_string(),
+                    JsonValue::from(binding.payload_params.clone()),
+                );
+            }
+            bound.insert(event.clone(), JsonValue::Object(event_ir));
             events.push(BoundEvent {
                 key: key.to_string(),
                 event: event.clone(),
                 target: binding.target.clone(),
                 args,
+                payload_params: binding.payload_params.clone(),
                 role: node.role.clone(),
                 label: label.clone(),
             });
@@ -640,7 +650,8 @@ impl StoreSession {
     }
 
     /// Assigns epochs: a binding keeps its epoch while its node stays mounted
-    /// with the same target and arguments; otherwise the epoch advances.
+    /// with the same target, arguments and payload params; otherwise the epoch
+    /// advances.
     fn bind(&mut self, view: &str, events: Vec<BoundEvent>) -> Vec<ViewAction> {
         let mut seen = BTreeSet::new();
         let mut actions = Vec::new();
@@ -653,6 +664,7 @@ impl StoreSession {
                     view: view.to_string(),
                     target: event.target.clone(),
                     args: event.args.clone(),
+                    payload_params: event.payload_params.clone(),
                     epoch: 0,
                     mounted: false,
                 });
@@ -660,12 +672,14 @@ impl StoreSession {
                 || binding.view != view
                 || binding.target != event.target
                 || binding.args != event.args
+                || binding.payload_params != event.payload_params
             {
                 binding.epoch += 1;
             }
             binding.view = view.to_string();
             binding.target = event.target.clone();
             binding.args = event.args.clone();
+            binding.payload_params = event.payload_params.clone();
             binding.mounted = true;
             actions.push(ViewAction {
                 id: action_id(&event.key, &event.event, binding.epoch),
@@ -673,7 +687,7 @@ impl StoreSession {
                 event: event.event,
                 target: event.target,
                 bound_args: event.args,
-                payload_params: Vec::new(),
+                payload_params: event.payload_params,
                 role: event.role,
                 label: event.label,
             });
@@ -1182,6 +1196,49 @@ fn attach_action_ids(node: &mut JsonValue, actions: &[ViewAction]) {
 
 fn action_id(key: &str, event: &str, epoch: u64) -> String {
     format!("{key}#{event}@{epoch}")
+}
+
+/// Merges view-bound args with an invoke-time payload. Every name in
+/// `payload_params` must appear in `payload`; unknown payload keys are rejected.
+fn merge_action_args(
+    mut args: Map<String, JsonValue>,
+    payload_params: &[String],
+    payload: Option<&JsonValue>,
+    action_id: &str,
+) -> Result<Option<JsonValue>, RuntimeError> {
+    let payload_map = match payload {
+        None => None,
+        Some(JsonValue::Object(map)) => Some(map),
+        Some(_) => {
+            return Err(session_error(format!(
+                "action '{action_id}': payload must be a JSON object"
+            )));
+        }
+    };
+    if let Some(map) = payload_map {
+        for key in map.keys() {
+            if !payload_params.iter().any(|p| p == key) {
+                return Err(session_error(format!(
+                    "action '{action_id}': unknown payload param '{key}'"
+                )));
+            }
+        }
+        for (key, value) in map {
+            args.insert(key.clone(), value.clone());
+        }
+    }
+    for name in payload_params {
+        if !args.contains_key(name) {
+            return Err(session_error(format!(
+                "action '{action_id}' requires payload param '{name}'"
+            )));
+        }
+    }
+    if args.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(JsonValue::Object(args)))
+    }
 }
 
 /// The content of the first `Text` in `nodes`, depth first: a node's accessible name

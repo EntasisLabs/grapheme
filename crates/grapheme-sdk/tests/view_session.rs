@@ -95,7 +95,7 @@ fn invoking_an_action_commits_one_revision_like_invoke() {
     let mut session = session();
     let snapshot = session.render("CounterView").unwrap();
     let id = action(&snapshot, "CounterView/increment").id.clone();
-    let commit = session.invoke_action(&id).unwrap();
+    let commit = session.invoke_action(&id, None).unwrap();
     assert_eq!(commit.revision, 1);
     let revision = commit.committed.expect("a revision");
     assert_eq!(revision.cause, "Increment");
@@ -117,7 +117,7 @@ fn headless_actions_and_direct_invokes_agree() {
     for _ in 0..3 {
         let snapshot = by_action.render("CounterView").unwrap();
         let id = action(&snapshot, "CounterView/increment").id.clone();
-        by_action.invoke_action(&id).unwrap();
+        by_action.invoke_action(&id, None).unwrap();
         by_invoke.invoke("Increment", None).unwrap();
     }
     assert_eq!(
@@ -134,9 +134,9 @@ fn rebinding_an_action_makes_its_old_id_stale() {
     let old_add = action(&first, "CounterView/add").id.clone();
     let increment = action(&first, "CounterView/increment").id.clone();
 
-    session.invoke_action(&increment).unwrap();
+    session.invoke_action(&increment, None).unwrap();
     // `Add(by: $count + 1)` is now bound to a different argument.
-    let err = session.invoke_action(&old_add).unwrap_err().to_string();
+    let err = session.invoke_action(&old_add, None).unwrap_err().to_string();
     assert!(err.contains("stale_action"), "{err}");
     assert_eq!(session.revision("Counter"), Some(1));
 
@@ -144,7 +144,7 @@ fn rebinding_an_action_makes_its_old_id_stale() {
     let new_add = action(&second, "CounterView/add");
     assert_ne!(new_add.id, old_add);
     assert_eq!(new_add.bound_args["by"], 2);
-    let commit = session.invoke_action(&new_add.id.clone()).unwrap();
+    let commit = session.invoke_action(&new_add.id.clone(), None).unwrap();
     assert_eq!(commit.committed.unwrap().diff["count"], json!([1, 3]));
 }
 
@@ -152,7 +152,7 @@ fn rebinding_an_action_makes_its_old_id_stale() {
 fn unknown_action_ids_and_unrendered_views_are_rejected() {
     let mut session = session();
     let err = session
-        .invoke_action("CounterView/increment#click@1")
+        .invoke_action("CounterView/increment#click@1", None)
         .unwrap_err()
         .to_string();
     assert!(err.contains("stale_action"), "{err}");
@@ -192,7 +192,7 @@ fn feed_view_if_for_expands_after_load() {
         idle.actions
     );
 
-    session.invoke_action("expose:LoadFeed").unwrap();
+    session.invoke_action("expose:LoadFeed", None).unwrap();
     let ready = session.app_snapshot().unwrap();
     assert_eq!(ready.revision, 2);
     let likes: Vec<_> = ready
@@ -212,6 +212,48 @@ fn feed_view_if_for_expands_after_load() {
     );
 
     let like_id = likes[0].0.clone();
-    session.invoke_action(&like_id).unwrap();
+    session.invoke_action(&like_id, None).unwrap();
     assert_eq!(session.snapshot("Feed").unwrap()["likes_total"], json!(1));
+}
+
+#[test]
+fn textfield_change_merges_payload_into_search() {
+    let source = include_str!("../../../examples/feed-view.gr");
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(source)
+        .unwrap();
+    let snap = session.mount(Some("FeedApp")).unwrap();
+    let search = snap
+        .actions
+        .iter()
+        .find(|a| a.target == "Search" && a.event == "change")
+        .expect("TextField change action");
+    assert_eq!(search.payload_params, vec!["value".to_string()]);
+    assert!(search.bound_args.is_empty());
+
+    let missing = session
+        .invoke_action(&search.id, None)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        missing.contains("requires payload param 'value'"),
+        "{missing}"
+    );
+
+    session
+        .invoke_action(&search.id, Some(json!({"value": "Store"})))
+        .unwrap();
+    assert_eq!(session.snapshot("Feed").unwrap()["query"], json!("Store"));
+
+    session
+        .invoke_action("expose:Search", Some(json!({"value": "Hello"})))
+        .unwrap();
+    assert_eq!(session.snapshot("Feed").unwrap()["query"], json!("Hello"));
+
+    let unknown = session
+        .invoke_action(&search.id, Some(json!({"value": "x", "extra": 1})))
+        .unwrap_err()
+        .to_string();
+    assert!(unknown.contains("unknown payload param 'extra'"), "{unknown}");
 }

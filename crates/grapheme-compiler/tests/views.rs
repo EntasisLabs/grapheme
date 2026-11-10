@@ -224,6 +224,48 @@ fn checks_binding_targets_and_arguments() {
 }
 
 #[test]
+fn textfield_change_supplies_value_as_payload_param() {
+    let source = |body: &str| {
+        format!(
+            r#"
+state Form {{ query: String = "" }}
+mutation SetQuery($value: String) on Form {{ apply {{ query: $value }} }}
+mutation NeedsTwo($value: String, $extra: String) on Form {{
+  apply {{ query: $value }}
+}}
+view V on Form {{ {body} }}
+"#
+        )
+    };
+    let artifact = grapheme_compiler::compile(&source(
+        r#"TextField(value: $query, label: "Q") { on change: SetQuery }"#,
+    ))
+    .unwrap();
+    let view = artifact.mir.views.iter().find(|v| v.name == "V").unwrap();
+    let binding = view.root.events.get("change").expect("change binding");
+    assert_eq!(binding.target, "SetQuery");
+    assert!(binding.args.is_empty());
+    assert_eq!(binding.payload_params, vec!["value".to_string()]);
+
+    let err = grapheme_compiler::compile(&source(
+        r#"TextField(label: "Q") { on change: NeedsTwo }"#,
+    ))
+    .unwrap_err()
+    .to_string();
+    assert!(
+        err.contains("'NeedsTwo' needs argument 'extra'"),
+        "{err}"
+    );
+
+    let err = grapheme_compiler::compile(&source(
+        r#"TextField(label: "Q") { on click: SetQuery }"#,
+    ))
+    .unwrap_err()
+    .to_string();
+    assert!(err.contains("'TextField' has no event 'click'"), "{err}");
+}
+
+#[test]
 fn warns_when_an_interactive_element_has_no_accessible_name() {
     let artifact =
         compile(r#"view V on Counter { Column { Button { on click: Increment } } }"#).unwrap();
