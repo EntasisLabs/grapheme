@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Planned as **0.9.0**. `grapheme-artifact` is **0.5.0**. Not published.
+## [0.9.0] - 2026-11-10
+
+**GraphemeUI tasks, view control flow and TextField (RFC-0007 Parts F (headless), C.7 and D).** `grapheme-artifact` is **0.5.0**.
 
 ### Added
 
@@ -25,9 +27,9 @@ Planned as **0.9.0**. `grapheme-artifact` is **0.5.0**. Not published.
 
 ### Changed
 
-- **Crate versions.** Language crates are **0.9.0**. `grapheme-artifact` is **0.5.0** because `MirFunctionKind::Task` is a new public enum variant; 0.4.0 deserializers reject `"Task"`. Not published.
+- **Crate versions.** Language crates and the VS Code extension are **0.9.0**. `grapheme-artifact` is **0.5.0** because `MirFunctionKind::Task` is a new public enum variant; 0.4.0 deserializers reject `"Task"`.
 
-### Crate versions (this slice)
+### Crate versions
 
 | Crate | Version |
 | --- | --- |

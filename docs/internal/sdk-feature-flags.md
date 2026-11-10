@@ -9,17 +9,17 @@ As of RFC-0005, `grapheme-stdlib` also layers **host** vs **wasm** profiles so S
 
 ## Quick reference
 
-| Crate | Version (0.8.0 train) | Default features | Full stack |
+| Crate | Version (0.9.0 train) | Default features | Full stack |
 | --- | --- | --- | --- |
-| `grapheme-cli` | 0.8.0 | `full` | All capabilities + WASIX runtime |
-| `grapheme-lsp` | 0.8.0 | `full` | Editor gets full signatures |
-| `grapheme-sdk` | 0.8.0 | `host` + `stage-b` | `slim`, `full`, or selected modules |
-| `grapheme-stdlib` | 0.8.0 | `host` | `host` + `data`, `pdf`, `image`, `plot`, `media` |
-| `grapheme-signatures` | 0.8.0 | *(none)* | Capability op metadata |
-| `grapheme-runtime` | 0.8.0 | `stage-b` | Execution engine + AOT support |
-| `grapheme-compiler` | 0.8.0 | `stage-b` | Compiler pipeline + AOT support |
-| `grapheme-aot-container` | 0.8.0 | Wasm-safe walker | Stage B WASI binary |
-| `grapheme-wasm` | 0.8.0 | compiler + runtime (no Wasix) | Runtime-in-Wasm WASI binary |
+| `grapheme-cli` | 0.9.0 | `full` | All capabilities + WASIX runtime |
+| `grapheme-lsp` | 0.9.0 | `full` | Editor gets full signatures |
+| `grapheme-sdk` | 0.9.0 | `host` + `stage-b` | `slim`, `full`, or selected modules |
+| `grapheme-stdlib` | 0.9.0 | `host` | `host` + `data`, `pdf`, `image`, `plot`, `media` |
+| `grapheme-signatures` | 0.9.0 | *(none)* | Capability op metadata |
+| `grapheme-runtime` | 0.9.0 | `stage-b` | Execution engine + AOT support |
+| `grapheme-compiler` | 0.9.0 | `stage-b` | Compiler pipeline + AOT support |
+| `grapheme-aot-container` | 0.9.0 | Wasm-safe walker | Stage B WASI binary |
+| `grapheme-wasm` | 0.9.0 | compiler + runtime (no Wasix) | Runtime-in-Wasm WASI binary |
 | `grapheme-artifact` | 0.4.0 | — | MIR envelope (independent semver) |
 
 ## Stdlib host vs Wasm profiles
@@ -48,7 +48,7 @@ only needs core/json compilation and execution:
 
 ```toml
 [dependencies]
-grapheme-sdk = { version = "0.8.0", default-features = false, features = ["slim"] }
+grapheme-sdk = { version = "0.9.0", default-features = false, features = ["slim"] }
 ```
 
 The slim graph excludes the host capability stack, transforms, AOT container,
@@ -80,13 +80,13 @@ See `docs/internal/rfc/rfc-0006-runtime-in-wasm-v1.md` and `crates/grapheme-wasm
 
 ```toml
 [dependencies]
-grapheme-sdk = { version = "0.8.0", default-features = false, features = ["full"] }
+grapheme-sdk = { version = "0.9.0", default-features = false, features = ["full"] }
 ```
 
 Per-module opt-in:
 
 ```toml
-grapheme-sdk = { version = "0.8.0", default-features = false, features = ["data", "pdf"] }
+grapheme-sdk = { version = "0.9.0", default-features = false, features = ["data", "pdf"] }
 ```
 
 Available flags on `grapheme-sdk`:

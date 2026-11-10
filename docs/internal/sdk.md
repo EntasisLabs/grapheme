@@ -13,7 +13,7 @@ This path is for Rust embedders building Grapheme into services, agents, or inte
 
 Crate:
 
-- `crates/grapheme-sdk` (version **0.8.0**)
+- `crates/grapheme-sdk` (version **0.9.0**)
 
 ## Feature flags (0.8.0+)
 
@@ -22,7 +22,7 @@ and other embedded targets, use the explicit slim profile:
 
 ```toml
 [dependencies]
-grapheme-sdk = { version = "0.8.0", default-features = false, features = ["slim"] }
+grapheme-sdk = { version = "0.9.0", default-features = false, features = ["slim"] }
 ```
 
 The slim profile contains the core/json compiler and runtime only. It excludes
@@ -32,13 +32,13 @@ For a full host build, enable capabilities explicitly:
 
 ```toml
 [dependencies]
-grapheme-sdk = { version = "0.8.0", default-features = false, features = ["full"] }
+grapheme-sdk = { version = "0.9.0", default-features = false, features = ["full"] }
 ```
 
 Per-module opt-in:
 
 ```toml
-grapheme-sdk = { version = "0.8.0", default-features = false, features = ["data", "pdf"] }
+grapheme-sdk = { version = "0.9.0", default-features = false, features = ["data", "pdf"] }
 ```
 
 Available flags: `slim`, `host`, `stage-b`, `data`, `pdf`, `image`, `plot`, `media`, `wasix-runtime`, `full`.
