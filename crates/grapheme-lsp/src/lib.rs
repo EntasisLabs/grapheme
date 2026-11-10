@@ -2028,7 +2028,15 @@ fn add_line_semantic_tokens(line: &str, line_num: u32, out: &mut SemanticTokenBu
 }
 
 fn add_declaration_tokens(line: &str, line_num: u32, out: &mut SemanticTokenBuilder) {
-    for head in ["glyph", "query", "mutation", "iterator", "subscription"] {
+    for head in [
+        "glyph",
+        "query",
+        "mutation",
+        "task",
+        "view",
+        "iterator",
+        "subscription",
+    ] {
         if let Some((name_start, name_len)) = declaration_name_span(line, head) {
             let kw_pos = line.find(head).unwrap_or(0) as u32;
             out.push(line_num, kw_pos, head.len() as u32, TOKEN_KEYWORD);
@@ -2037,10 +2045,19 @@ fn add_declaration_tokens(line: &str, line_num: u32, out: &mut SemanticTokenBuil
         }
     }
 
-    if let Some((name_start, name_len)) = declaration_name_span(line, "struct") {
-        let kw_pos = line.find("struct").unwrap_or(0) as u32;
-        out.push(line_num, kw_pos, 6, TOKEN_KEYWORD);
-        out.push(line_num, name_start as u32, name_len as u32, TOKEN_TYPE);
+    for head in ["struct", "state"] {
+        if let Some((name_start, name_len)) = declaration_name_span(line, head) {
+            // `state` is a prefix of `state_machine`.
+            let trimmed = line.trim_start();
+            let boundary = trimmed.as_bytes().get(head.len()).copied();
+            if boundary.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_') {
+                continue;
+            }
+            let kw_pos = line.find(head).unwrap_or(0) as u32;
+            out.push(line_num, kw_pos, head.len() as u32, TOKEN_KEYWORD);
+            out.push(line_num, name_start as u32, name_len as u32, TOKEN_TYPE);
+            return;
+        }
     }
 }
 
@@ -2177,6 +2194,9 @@ fn is_keyword(value: &str) -> bool {
             | "glyph"
             | "query"
             | "mutation"
+            | "task"
+            | "view"
+            | "state"
             | "iterator"
             | "subscription"
             | "fragment"

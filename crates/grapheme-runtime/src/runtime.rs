@@ -1051,6 +1051,7 @@ impl RuntimeEngine {
                                     "capability '{}' denied by runtime policy",
                                     capability.0
                                 );
+                                host.refuse_call(module.as_deref(), op, args, &message);
                                 return Ok(Some(fail_execution(
                                     state,
                                     *step_index,
@@ -1113,15 +1114,11 @@ impl RuntimeEngine {
                             // Store applies (`core.set_fields`) patch the `$state`
                             // lane, not the last capability result in `current`.
                             let pipeline_input = if is_store_apply(module, op) {
-                                state
-                                    .state_lane
-                                    .as_ref()
-                                    .unwrap_or(&state.current)
+                                state.state_lane.as_ref().unwrap_or(&state.current)
                             } else {
                                 &state.current
                             };
-                            let call_args =
-                                args_with_pipeline_input(args, pipeline_input, &scope);
+                            let call_args = args_with_pipeline_input(args, pipeline_input, &scope);
 
                             if let Some(message) = grapheme_artifact::expr::first_error(&call_args)
                             {
@@ -1138,18 +1135,29 @@ impl RuntimeEngine {
 
                             if let Err(err) = self.options.policy_guard.check(&resolved, &call_args)
                             {
+                                let message = err.to_string();
+                                host.refuse_call(module.as_deref(), op, &call_args, &message);
                                 return Ok(Some(fail_execution(
                                     state,
                                     *step_index,
                                     capability,
                                     "POLICY_DENIED",
-                                    err.to_string(),
+                                    message,
                                     ExecutionOutcome::FatalFailure,
                                     base_context.clone(),
                                 )));
                             }
 
-                            if let Some(input) = call_args.get("__input")
+                            // `__input.error` is a step-failure signal from the previous
+                            // op. A store field named `error` is data: store applies
+                            // (and the steps that follow them) pass the store object
+                            // as the pipeline input.
+                            let input_is_store = state
+                                .state_lane
+                                .as_ref()
+                                .is_some_and(|lane| lane == pipeline_input);
+                            if !input_is_store
+                                && let Some(input) = call_args.get("__input")
                                 && let Some(error) = input.get("error")
                             {
                                 return Ok(Some(fail_execution(
@@ -1429,25 +1437,48 @@ impl RuntimeEngine {
             ))
         })?;
 
-        let callee_locals = build_locals(
-            &functions[target_index].params,
-            call_args,
-            &functions[target_index].name,
-        )?;
-
-        if let Some(result) = self.execute_function(
-            functions,
-            function_index,
-            module_registry,
-            target_index,
-            host,
-            state,
-            step_index,
-            remaining_steps,
-            call_depth + 1,
-            max_call_depth,
-            callee_locals,
-        )? {
+        let callee_name = functions[target_index].name.clone();
+        let callee_kind = functions[target_index].kind.clone();
+        host.enter_call(&callee_name, &callee_kind);
+        let executed = (|| {
+            let callee_locals = build_locals(
+                &functions[target_index].params,
+                call_args,
+                &functions[target_index].name,
+            )?;
+            self.execute_function(
+                functions,
+                function_index,
+                module_registry,
+                target_index,
+                host,
+                state,
+                step_index,
+                remaining_steps,
+                call_depth + 1,
+                max_call_depth,
+                callee_locals,
+            )
+        })();
+        let failed = !matches!(executed, Ok(None));
+        if let Err(leave_err) = host.leave_call(&callee_name, failed)
+            && matches!(executed, Ok(None))
+        {
+            let (message, outcome) = match leave_err {
+                HostCallError::Retryable(message) => (message, ExecutionOutcome::RetryableFailure),
+                HostCallError::Fatal(message) => (message, ExecutionOutcome::FatalFailure),
+            };
+            return Ok(Some(fail_execution(
+                state,
+                *step_index,
+                &Capability::from_module_op("runtime", "call"),
+                "STORE_COMMIT",
+                message,
+                outcome,
+                base_context,
+            )));
+        }
+        if let Some(result) = executed? {
             return Ok(Some(result));
         }
 
