@@ -252,7 +252,7 @@ view Footer {
 }
 ```
 
-- **Shape.** `view Name [on Store] { Element }` has exactly one root element. An element is `[name:] Kind [(props) | (content)] [{ body }]`; the body holds child elements and `on event: Mutation[(args)]` bindings, separated by newlines or commas. A `|>` step or a module call in a view is a compile error.
+- **Shape.** `view Name [on Store] { Element }` has exactly one root element. An element is `[name:] Kind [(props) | (content)] [{ body }]`; the body holds child elements, `if <expr> { … }` and `for $item in <expr> key <expr> { … }`, and `on event: Mutation[(args)]` bindings, separated by newlines or commas. A `|>` step or a module call in a view is a compile error.
 - **Catalog.** `Column` and `Row` (props `gap: Int`, `label: String`; children allowed), `Text` (positional content of any type; `{$field}` interpolation in strings) and `Button` (props `label: String`, `enabled: Bool`; event `click`; children allowed). Unknown elements, props, events, duplicate props, positional content on a primitive without it, and children of `Text` are compile errors. Any other element name must be a declared view, used without props or a body; a view `on` a store can only be used from a view on the same store.
 - **Scope.** Inside `on Counter`, `$count` and derives are readable; reading an unknown field, or any field in a view without `on`, is a compile error.
 - **Bindings.** The target must be a mutation or task on the view's store. Its arguments must match the target's parameters exactly (no missing, unknown or repeated arguments; literal and field types must fit). An event can be bound once per element.

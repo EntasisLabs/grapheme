@@ -1,6 +1,6 @@
 # RFC-0007: GraphemeUI — State Stores, Views and Tasks v1
 
-Status: Accepted — Implementation in progress (revision 4; rollout steps 0–2, Part H headless mount, Part F tasks headless slice)
+Status: Accepted — Implementation in progress (revision 4; rollout steps 0–2, Part H headless mount, Part F tasks headless slice, Part C.7 view `if` / `for`)
 Authors: language + runtime
 Created: 2026-11-07
 Revised: 2026-11-09

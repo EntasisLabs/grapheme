@@ -1,7 +1,9 @@
 // RFC-0007 C.7 + Part F: feed UI with if/for over task-loaded posts.
 //
-//   grapheme session examples/feed-view.gr --mount --action 'expose:LoadFeed'
 //   grapheme compile examples/feed-view.gr --emit view-ir --json
+//   grapheme session examples/feed-view.gr --mount
+//   grapheme session examples/feed-view.gr --mount --action 'expose:LoadFeed'
+//   grapheme session examples/feed-view.gr --mount --action 'expose:LoadFeed' --render FeedView
 
 struct Post {
   id: String

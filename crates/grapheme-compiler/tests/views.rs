@@ -346,3 +346,129 @@ glyph CounterApp on Counter {
     assert_eq!(view.root.prim.as_deref(), Some("Column"));
     assert_eq!(view.root.key, "CounterApp");
 }
+
+const LIST_STATE: &str = r#"
+struct Item { id: String label: String }
+state Items {
+  active: Bool = true
+  items: [Item] = []
+}
+"#;
+
+#[test]
+fn lowers_view_if_and_for_with_stable_keys() {
+    let artifact = compile(&format!(
+        r#"{LIST_STATE}
+view ItemsView on Items {{
+  Column {{
+  if $active {{
+    Text("on")
+  }}
+  for $item in $items key $item.id {{
+    Text($item.label)
+  }}
+  }}
+}}
+"#
+    ))
+    .expect("compiles");
+    let ir = grapheme_artifact::view_ir_document(&artifact.mir.views);
+    let root = &ir["views"][0]["root"];
+    assert_eq!(root["$prim"], "Column");
+    let keys: Vec<_> = root["children"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["key"].as_str().unwrap())
+        .collect();
+    assert_eq!(keys, ["ItemsView/if", "ItemsView/for"]);
+    let if_node = &root["children"][0];
+    assert!(if_node.get("$prim").is_none());
+    assert!(if_node.get("$if").is_some());
+    assert_eq!(if_node["children"][0]["key"], "ItemsView/if/0");
+    let for_node = &root["children"][1];
+    assert!(for_node.get("$for").is_some());
+    assert_eq!(for_node["$for"]["item"], "item");
+    assert_eq!(
+        for_node["$for"]["source"],
+        serde_json::json!({"$var": "state.items"})
+    );
+    assert_eq!(
+        for_node["$for"]["key"],
+        serde_json::json!({"$var": "item.id"})
+    );
+    assert_eq!(for_node["children"][0]["key"], "ItemsView/for/0");
+}
+
+#[test]
+fn rejects_for_item_shadowing_store_field() {
+    let err = error(&format!(
+        r#"{LIST_STATE}
+view V on Items {{
+  Column {{
+    for $active in $items key $active.id {{ Text("x") }}
+  }}
+}}
+"#
+    ));
+    assert!(
+        err.contains("for item '$active' has the same name as a field of the store"),
+        "{err}"
+    );
+}
+
+#[test]
+fn rejects_unknown_item_field_outside_for_allows_inside_for() {
+    let err = error(&format!(
+        r#"{LIST_STATE}
+view V on Items {{ Text($item.label) }}
+"#
+    ));
+    assert!(
+        err.contains("'$item.label' is not a field of state 'Items'"),
+        "{err}"
+    );
+    compile(&format!(
+        r#"{LIST_STATE}
+view V on Items {{
+  Column {{
+    for $item in $items key $item.id {{
+      Text($item.label)
+    }}
+  }}
+}}
+"#
+    ))
+    .expect("item fields resolve inside for");
+}
+
+#[test]
+fn nested_if_inside_for_compiles() {
+    let artifact = compile(&format!(
+        r#"{LIST_STATE}
+view V on Items {{
+  Column {{
+    for $item in $items key $item.id {{
+      if $active {{
+        Text($item.label)
+      }}
+    }}
+  }}
+}}
+"#
+    ))
+    .expect("compiles");
+    let view = artifact.mir.views.iter().find(|v| v.name == "V").unwrap();
+    let for_node = view.root.children.iter().find(|c| c.repeat.is_some()).unwrap();
+    assert_eq!(for_node.key, "V/for");
+    let if_child = for_node
+        .children
+        .iter()
+        .find(|c| c.when.is_some())
+        .unwrap();
+    assert_eq!(if_child.key, "V/for/if");
+    assert_eq!(
+        if_child.children[0].props.get("content"),
+        Some(&serde_json::json!({"$var": "item.label"}))
+    );
+}
