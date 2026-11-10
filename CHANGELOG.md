@@ -26,9 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Partial literal patches under `-> T`.** `set`, `core.set_fields` and `core.merge` patches in a query or mutation `on S -> T` no longer have to restate required fields of `T` that the input type `S` declares; the runtime already carried them over. (RFC-0007 Part J.1)
 - **`inc_field` / `dec_field` keep integers.** An integer field stays an integer (`5` → `6`, previously `6.0`). Float fields and the missing-field default (`1.0`) are unchanged. (RFC-0007 Part J.2)
 
+### Changed
+
+- **`grapheme-artifact` 0.4.0** — publishes the shared `expr` evaluator and View IR / UI glyph MIR types that RFC-0007 added after 0.3.0. Downstream crates that depended on path `0.3.0` must take `0.4.0` for crates.io builds.
+
 ### Crate versions (this release)
 
-Language crates ship at **0.8.0**. `grapheme-artifact` stays **0.3.0**. The VS Code extension is **0.8.0** (LSP binary ships with the new language surface). The release tag is **v0.8.0**.
+Language crates ship at **0.8.0**. `grapheme-artifact` moves to **0.4.0** (expr + View IR MIR surface). The VS Code extension is **0.8.0** (LSP binary ships with the new language surface). The release tag is **v0.8.0**.
 
 | Crate | Version |
 | --- | --- |
@@ -42,7 +46,7 @@ Language crates ship at **0.8.0**. `grapheme-artifact` stays **0.3.0**. The VS C
 | `grapheme-lsp` | 0.8.0 |
 | `grapheme-wasm` | 0.8.0 |
 | VS Code extension | 0.8.0 |
-| `grapheme-artifact` | 0.3.0 |
+| `grapheme-artifact` | 0.4.0 |
 
 ## [0.7.2] - 2026-10-23
 

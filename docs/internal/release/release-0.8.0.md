@@ -20,7 +20,7 @@ Use with `docs/internal/release/release-gates-and-doc-versioning.md`.
 
 ### Versions
 
-- [x] Workspace language crates bumped to **0.8.0** (`grapheme-artifact` remains **0.3.0**)
+- [x] Workspace language crates bumped to **0.8.0** (`grapheme-artifact` **0.4.0**)
 - [x] VS Code extension `package.json` / lock → **0.8.0**
 - [x] `CHANGELOG.md` `[0.8.0]` entry
 
