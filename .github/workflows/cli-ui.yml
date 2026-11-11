@@ -1,0 +1,49 @@
+name: CLI UI
+
+# grapheme-cli's optional `ui` feature links grapheme-ui and its rndr /
+# winit / wgpu window stack. The other workflows build the default (headless)
+# CLI only. grapheme-ui needs Rust 1.95+, so this job uses stable.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  cli-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Window system dependencies
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libfontconfig1-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cargo Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: cli-ui
+
+      - name: One grapheme runtime in the ui build
+        run: |
+          dupes="$(cargo tree --locked -p grapheme-cli --features ui -d | grep -E '^grapheme' || true)"
+          if [ -n "$dupes" ]; then
+            echo "duplicate grapheme crates in the ui build:"
+            echo "$dupes"
+            exit 1
+          fi
+
+      - name: Build grapheme-cli --features ui
+        run: cargo build --locked -p grapheme-cli --features ui
+
+      - name: Clippy grapheme-cli --features ui
+        run: cargo clippy --locked -p grapheme-cli --features ui --all-targets -- -D warnings
+
+      - name: Test grapheme-cli --features ui
+        run: cargo test --locked -p grapheme-cli --features ui
