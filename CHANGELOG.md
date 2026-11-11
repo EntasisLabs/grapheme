@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`grapheme run` opens UI files in-process (`grapheme-cli` feature `ui`).** A file with a UI glyph and no workflow entry is opened in a window by the CLI itself through `grapheme-ui`, instead of execing a separate `grapheme-ui` binary from PATH. The feature is off by default, so the default install stays headless; without it, `grapheme run` on a UI file says to reinstall with `cargo install grapheme-cli --features ui`. The workspace `[patch.crates-io]` maps grapheme-ui's grapheme-* dependencies to the workspace crates so the binary links one runtime. grapheme-sdk and the other library crates do not depend on grapheme-ui. A run that ends in `fatal_failure` still exits non-zero.
+
 ## [0.9.0] - 2026-11-10
 
 **GraphemeUI tasks, view control flow and TextField (RFC-0007 Parts F (headless), C.7 and D).** `grapheme-artifact` is **0.5.0**.
