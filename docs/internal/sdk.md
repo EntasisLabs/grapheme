@@ -366,7 +366,9 @@ assert!(!revision.history_diff.contains_key("pulse"));
 assert_eq!(session.snapshot("Counter")?["double"], json!(6));
 ```
 
-`query(name, args)` (args are `Option<JsonValue>`, as for `invoke`) runs a store query read-only; `revisions()`, `revision(store)` and `store_names()` inspect the session. `grapheme_runtime::StoreSession` is the same session without the SDK's module bindings.
+`query(name, args)` (args are `Option<JsonValue>`, as for `invoke`) runs a store query read-only; `revisions()` (a `Vec` of every committed revision), `revision(store)` and `store_names()` inspect the session. `grapheme_runtime::StoreSession` is the same session without the SDK's module bindings.
+
+`set_commit_observer` installs a callback for task commits. It runs on the invoking thread after each `apply` (and each mutation the task commits), once `snapshot` and `app_snapshot` see that revision, and before the task continues. The callback may read the session and must not invoke, query, or mount. A top-level mutation does not notify: `invoke` still returns its single revision.
 
 Programs that declare `view`s can render them headlessly. `render(view)` returns a `ViewSnapshot` (`revision`, the evaluated View IR in `ir`, and `actions`); `invoke_action(id, payload)` runs the action's mutation as one transaction (merging `payload` over `payload_params`, e.g. TextField `change` → `{ "value": "…" }`) and fails with `stale_action` if the id's binding epoch is no longer current:
 

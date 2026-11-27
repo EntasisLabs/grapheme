@@ -613,13 +613,23 @@ impl GraphemeStoreSession {
         Ok(commit)
     }
 
+    /// Install a callback for each task commit. See
+    /// [`grapheme_runtime::CommitObserver`].
+    ///
+    /// The callback runs on the thread that called [`Self::invoke`] or
+    /// [`Self::invoke_action`], after that step is visible to `snapshot` and
+    /// `app_snapshot`, and before the task continues. Pass `None` to clear it.
+    pub fn set_commit_observer(&mut self, observer: Option<grapheme_runtime::CommitObserver>) {
+        self.session.set_commit_observer(observer);
+    }
+
     /// Stored fields plus derives of `store` at its latest revision.
     pub fn snapshot(&self, store: &str) -> Result<JsonValue, GraphemeSdkError> {
         Ok(self.session.snapshot(store)?)
     }
 
     /// Every committed revision, oldest first.
-    pub fn revisions(&self) -> &[grapheme_runtime::StoreRevision] {
+    pub fn revisions(&self) -> Vec<grapheme_runtime::StoreRevision> {
         self.session.revisions()
     }
 
@@ -629,7 +639,7 @@ impl GraphemeStoreSession {
     }
 
     pub fn store_names(&self) -> Vec<String> {
-        self.session.store_names().map(str::to_string).collect()
+        self.session.store_names()
     }
 }
 
