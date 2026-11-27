@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-27
+
+Language crates, `grapheme-lsp` and `grapheme-cli` are **0.10.0**. `grapheme-artifact` stays **0.5.0** (no format change). `grapheme-cli`'s `ui` feature uses grapheme-ui **0.2.0**, which depends on grapheme 0.10.
+
 ### Added
 
+- **`StoreSession::set_commit_observer`.** A host can register a callback that sees each store commit as it lands, including every `apply` / `transition` inside a running task, before the task's next step runs. It is renderer-free: grapheme-ui uses it to paint task progress while the task is still running. `grapheme_sdk::GraphemeStoreSession::set_commit_observer` exposes the same hook.
 - **Data-only element catalog.** View elements are checked against a catalog of names, props, prop types, events and payload params. The default catalog is still `Column`, `Row`, `Text`, `Button` and `TextField` (`grapheme/builtins`), so existing programs compile unchanged. `GraphemeEngine::builder().element_catalog(json)` and `grapheme compile` / `build` / `session --catalog file.json` load another document. The compiler does not render. Unknown elements and props name the catalog (`$catalog`) and include `--> line:column`.
 - **`grapheme --version` and `-V` print the grapheme-cli version and exit 0.** They were read as a source file name. `--help` and `-h` print usage and exit 0 on the same path.
 - **`grapheme run --glyph <name>` chooses which UI view to open.** A file may declare several UI glyphs (`glyph Name on Store`). One UI glyph still opens with no flag. Several, and no `--glyph`, exit with an error that lists those names. The name is passed to grapheme-ui `desktop::run_file`. A file still has at most one workflow glyph.
@@ -20,6 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **The 0.9.1 note no longer says `grapheme run` replaced an exec of a separate `grapheme-ui` binary.** That hand-off was on main between releases and never shipped. 0.9.1 is the first release that opens a UI file, and it does so in-process.
+
+### Crate versions
+
+| Crate | Version |
+| --- | --- |
+| `grapheme-signatures` | 0.10.0 |
+| `grapheme-stdlib` | 0.10.0 |
+| `grapheme-aot-container` | 0.10.0 |
+| `grapheme-runtime` | 0.10.0 |
+| `grapheme-compiler` | 0.10.0 |
+| `grapheme-sdk` | 0.10.0 |
+| `grapheme-cli` | 0.10.0 |
+| `grapheme-lsp` | 0.10.0 |
+| `grapheme-wasm` | 0.10.0 |
+| `grapheme-artifact` | 0.5.0 |
 
 ## [0.9.1] - 2026-11-11
 
