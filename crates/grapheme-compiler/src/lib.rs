@@ -4,6 +4,7 @@
 //! then emits verified artifact and AOT envelopes.
 
 pub mod ast;
+mod catalog;
 pub mod compiler_api;
 pub mod error;
 mod expr_types;
@@ -22,6 +23,7 @@ use grapheme_artifact::{
     AotEnvelope, ArtifactEnvelope, build_aot_from_artifact, build_artifact_from_mir,
 };
 
+pub use catalog::ElementCatalog;
 pub use compiler_api::{CompiledAotScript, CompiledScript, Compiler, CompilerOptions};
 pub use error::CompilerError;
 pub use parser::parse;
@@ -324,8 +326,8 @@ struct Counter {
         compile_program(
             ast,
             CompileOptions {
-                capability_policy: grapheme_artifact::CapabilityPolicy::default(),
                 executable_kind_policy_mode: mode,
+                ..CompileOptions::default()
             },
         )
     }
@@ -504,8 +506,8 @@ query Q {
 
         let ast = parse(source).expect("parse should succeed");
         let options = CompileOptions {
-            capability_policy: grapheme_artifact::CapabilityPolicy::default(),
             executable_kind_policy_mode: ExecutableKindPolicyMode::StrictMutationOnly,
+            ..CompileOptions::default()
         };
 
         let err = compile_program(ast, options)
@@ -528,8 +530,8 @@ query Q {
 
         let ast = parse(source).expect("parse should succeed");
         let options = CompileOptions {
-            capability_policy: grapheme_artifact::CapabilityPolicy::default(),
             executable_kind_policy_mode: ExecutableKindPolicyMode::Compatibility,
+            ..CompileOptions::default()
         };
 
         let artifact = compile_program(ast, options).expect("compat mode should compile");
@@ -584,8 +586,8 @@ query Q {
 
         let ast = parse(source).expect("parse should succeed");
         let options = CompileOptions {
-            capability_policy: grapheme_artifact::CapabilityPolicy::default(),
             executable_kind_policy_mode: ExecutableKindPolicyMode::StrictMutationOnly,
+            ..CompileOptions::default()
         };
 
         let err =
@@ -1803,8 +1805,8 @@ mutation Bump on FibState -> FibState {
 "#;
 
         let options = CompileOptions {
-            capability_policy: grapheme_artifact::CapabilityPolicy::default(),
             executable_kind_policy_mode: ExecutableKindPolicyMode::StrictMutationOnly,
+            ..CompileOptions::default()
         };
         compile_program(parse(source).expect("parse"), options)
             .expect("unpatched fields of the input type should carry over");
@@ -1831,8 +1833,8 @@ mutation Approve on Request -> Request {
 "#;
 
         let options = CompileOptions {
-            capability_policy: grapheme_artifact::CapabilityPolicy::default(),
             executable_kind_policy_mode: ExecutableKindPolicyMode::StrictMutationOnly,
+            ..CompileOptions::default()
         };
         let compilation = compile_program(parse(source).expect("parse"), options)
             .expect("transition on $state.<field> should type-check against the input type");

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Data-only element catalog.** View elements are checked against a catalog of names, props, prop types, events and payload params. The default catalog is still `Column`, `Row`, `Text`, `Button` and `TextField` (`grapheme/builtins`), so existing programs compile unchanged. `GraphemeEngine::builder().element_catalog(json)` and `grapheme compile` / `build` / `session --catalog file.json` load another document. The compiler does not render. Unknown elements and props name the catalog (`$catalog`) and include `--> line:column`.
 - **`grapheme --version` and `-V` print the grapheme-cli version and exit 0.** They were read as a source file name. `--help` and `-h` print usage and exit 0 on the same path.
 - **`grapheme run --glyph <name>` chooses which UI view to open.** A file may declare several UI glyphs (`glyph Name on Store`). One UI glyph still opens with no flag. Several, and no `--glyph`, exit with an error that lists those names. The name is passed to grapheme-ui `desktop::run_file`. A file still has at most one workflow glyph.
 

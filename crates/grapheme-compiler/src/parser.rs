@@ -380,12 +380,22 @@ fn parse_view_element(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
     }
 }
 
+fn source_pos(pair: &Pair<Rule>) -> SourcePos {
+    let (line, column) = pair.as_span().start_pos().line_col();
+    SourcePos {
+        line: line as u32,
+        column: column as u32,
+    }
+}
+
 fn empty_view_element() -> ViewElement {
     ViewElement {
         child_name: None,
         kind: String::new(),
+        span: None,
         content: None,
         props: Vec::new(),
+        prop_spans: Vec::new(),
         events: Vec::new(),
         children: Vec::new(),
         condition: None,
@@ -442,8 +452,15 @@ fn parse_view_prim(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
             Rule::view_child_name => {
                 element.child_name = Some(p.into_inner().next().unwrap().as_str().to_string())
             }
-            Rule::ident => element.kind = p.as_str().to_string(),
-            Rule::arg_list => element.props = parse_view_args(p)?,
+            Rule::ident => {
+                element.span = Some(source_pos(&p));
+                element.kind = p.as_str().to_string();
+            }
+            Rule::arg_list => {
+                let parsed = parse_view_args(p)?;
+                element.props = parsed.props;
+                element.prop_spans = parsed.spans;
+            }
             Rule::view_content => {
                 element.content = Some(parse_value(p.into_inner().next().unwrap())?)
             }
@@ -548,7 +565,7 @@ fn parse_view_event(pair: Pair<Rule>) -> Result<ViewEvent, GraphemeError> {
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::ident => idents.push(p.as_str().to_string()),
-            Rule::arg_list => args = parse_view_args(p)?,
+            Rule::arg_list => args = parse_view_args(p)?.props,
             _ => {}
         }
     }
@@ -560,9 +577,25 @@ fn parse_view_event(pair: Pair<Rule>) -> Result<ViewEvent, GraphemeError> {
     })
 }
 
-/// Keeps duplicates so the compiler can report them.
-fn parse_view_args(pair: Pair<Rule>) -> Result<Vec<(String, Value)>, GraphemeError> {
-    pair.into_inner().map(parse_named_arg).collect()
+/// Keeps duplicates so the compiler can report them. Spans point at each prop name.
+struct ParsedViewArgs {
+    props: Vec<(String, Value)>,
+    spans: Vec<SourcePos>,
+}
+
+/// Keeps duplicates so the compiler can report them. Spans point at each prop name.
+fn parse_view_args(pair: Pair<Rule>) -> Result<ParsedViewArgs, GraphemeError> {
+    let mut props = Vec::new();
+    let mut spans = Vec::new();
+    for arg in pair.into_inner() {
+        let mut inner = arg.into_inner();
+        let key_pair = inner.next().unwrap();
+        spans.push(source_pos(&key_pair));
+        let key = key_pair.as_str().to_string();
+        let val = parse_value(inner.next().unwrap())?;
+        props.push((key, val));
+    }
+    Ok(ParsedViewArgs { props, spans })
 }
 
 fn parse_store_def(pair: Pair<Rule>) -> Result<StoreDef, GraphemeError> {

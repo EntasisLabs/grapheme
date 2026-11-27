@@ -10,7 +10,7 @@ use grapheme_artifact::{AotEnvelope, ArtifactEnvelope, CapabilityPolicy, Executi
 use grapheme_compiler::ast::{ScalarKind, TypeRef};
 use grapheme_compiler::hir::HirExecutableKind;
 use grapheme_compiler::verifier::LintWarning;
-use grapheme_compiler::{CompiledScript, Compiler, CompilerError, CompilerOptions};
+use grapheme_compiler::{CompiledScript, Compiler, CompilerError, CompilerOptions, ElementCatalog};
 use grapheme_runtime::{
     ActivationResult, CapabilityCall, CapabilityHost, HostCallError, HotloadError,
     LoadModuleRequest, ModuleLifecycleEvent, ModuleLoadError, PolicyGuard, RuntimeEngine,
@@ -152,6 +152,20 @@ impl GraphemeEngineBuilder {
     pub fn with_compiler_options(mut self, options: CompilerOptions) -> Self {
         self.compiler_options = options;
         self
+    }
+
+    /// Check view elements against a data-only catalog document.
+    ///
+    /// `json` is `{ "$catalog": "<name>", "elements": [ ... ] }`. The compiler
+    /// validates element names, props, prop types, events and payload params.
+    /// It does not render. Omit this to keep the five built-in elements
+    /// (`Column`, `Row`, `Text`, `Button`, `TextField`). An invalid document
+    /// fails here, before a source compile. Unknown elements and props in a
+    /// later compile name `$catalog` and carry `--> line:column`.
+    pub fn element_catalog(mut self, json: impl AsRef<str>) -> Result<Self, GraphemeSdkError> {
+        self.compiler_options.compile_options.element_catalog =
+            ElementCatalog::parse(json.as_ref())?;
+        Ok(self)
     }
 
     /// Set capability policy used by runtime activation/dispatch checks.
