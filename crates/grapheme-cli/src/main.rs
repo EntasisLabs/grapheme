@@ -2180,7 +2180,7 @@ fn resolve_run_glyph(
     match requested {
         Some(name) if names.contains(&name) => Ok(Some(name.to_string())),
         Some(name) => Err(CompilerError::RuntimeError(format!(
-            "no UI view named '{name}'. Available views: {available}. Pass --glyph <name> to choose one."
+            "no UI glyph named '{name}'. Available views: {available}. Pass --glyph <name> to choose one."
         ))),
         None if names.len() <= 1 => Ok(None),
         None => Err(CompilerError::RuntimeError(format!(
@@ -3456,6 +3456,7 @@ glyph App on S { V }
             &path,
             r#"
 state S { n: Int = 0 }
+mutation Inc on S { apply { n: $n + 1 } }
 view Only on S { Text("{$n}") }
 glyph OnlyApp on S { Only }
 "#,
@@ -3474,8 +3475,9 @@ glyph OnlyApp on S { Only }
 
     const TWO_UI_VIEWS: &str = r#"
 state S { n: Int = 0 }
-view AlphaView on S { Text("a") }
-view BetaView on S { Text("b") }
+mutation Inc on S { apply { n: $n + 1 } }
+view AlphaView on S { Text("{$n}") }
+view BetaView on S { Text("{$n}") }
 glyph Alpha on S { AlphaView }
 glyph Beta on S { BetaView }
 "#;
@@ -3490,8 +3492,9 @@ glyph Beta on S { BetaView }
     fn one_ui_view_without_glyph_keeps_the_default() {
         let source = r#"
 state S { n: Int = 0 }
-view One on S { Text("a") }
-view Two on S { Text("b") }
+mutation Inc on S { apply { n: $n + 1 } }
+view One on S { Text("{$n}") }
+view Two on S { Text("{$n}") }
 glyph App on S { One }
 "#;
         let artifact = compile_ui(source);
@@ -3600,8 +3603,9 @@ glyph App on S { One }
 
     #[test]
     fn parse_run_args_rejects_a_missing_glyph_name() {
-        let err = parse_run_args(&["app.gr".to_string(), "--glyph".to_string()])
-            .expect_err("missing name");
+        let Err(err) = parse_run_args(&["app.gr".to_string(), "--glyph".to_string()]) else {
+            panic!("--glyph without a name should fail");
+        };
         assert!(err.to_string().contains("--glyph requires a view name"));
     }
 

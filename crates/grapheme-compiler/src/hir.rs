@@ -436,8 +436,7 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
         &mut executable_defs,
     )?;
     let mut views = crate::views::lower_views(program, &stores, &executable_defs)?;
-    let ui_glyphs =
-        crate::views::lower_ui_glyphs(program, &stores, &executable_defs, &mut views)?;
+    let ui_glyphs = crate::views::lower_ui_glyphs(program, &stores, &executable_defs, &mut views)?;
 
     let mut capabilities = executable_defs
         .iter()

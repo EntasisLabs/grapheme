@@ -6,8 +6,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const TWO_UI_VIEWS: &str = r#"
 state S { n: Int = 0 }
-view AlphaView on S { Text("a") }
-view BetaView on S { Text("b") }
+mutation Inc on S { apply { n: $n + 1 } }
+view AlphaView on S { Text("{$n}") }
+view BetaView on S { Text("{$n}") }
 glyph Alpha on S { AlphaView }
 glyph Beta on S { BetaView }
 "#;

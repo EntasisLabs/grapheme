@@ -247,21 +247,16 @@ view V on Form {{ {body} }}
     assert!(binding.args.is_empty());
     assert_eq!(binding.payload_params, vec!["value".to_string()]);
 
-    let err = grapheme_compiler::compile(&source(
-        r#"TextField(label: "Q") { on change: NeedsTwo }"#,
-    ))
-    .unwrap_err()
-    .to_string();
-    assert!(
-        err.contains("'NeedsTwo' needs argument 'extra'"),
-        "{err}"
-    );
+    let err =
+        grapheme_compiler::compile(&source(r#"TextField(label: "Q") { on change: NeedsTwo }"#))
+            .unwrap_err()
+            .to_string();
+    assert!(err.contains("'NeedsTwo' needs argument 'extra'"), "{err}");
 
-    let err = grapheme_compiler::compile(&source(
-        r#"TextField(label: "Q") { on click: SetQuery }"#,
-    ))
-    .unwrap_err()
-    .to_string();
+    let err =
+        grapheme_compiler::compile(&source(r#"TextField(label: "Q") { on click: SetQuery }"#))
+            .unwrap_err()
+            .to_string();
     assert!(err.contains("'TextField' has no event 'click'"), "{err}");
 }
 
@@ -501,13 +496,14 @@ view V on Items {{
     ))
     .expect("compiles");
     let view = artifact.mir.views.iter().find(|v| v.name == "V").unwrap();
-    let for_node = view.root.children.iter().find(|c| c.repeat.is_some()).unwrap();
-    assert_eq!(for_node.key, "V/$for");
-    let if_child = for_node
+    let for_node = view
+        .root
         .children
         .iter()
-        .find(|c| c.when.is_some())
+        .find(|c| c.repeat.is_some())
         .unwrap();
+    assert_eq!(for_node.key, "V/$for");
+    let if_child = for_node.children.iter().find(|c| c.when.is_some()).unwrap();
     assert_eq!(if_child.key, "V/$for/$if");
     assert_eq!(
         if_child.children[0].props.get("content"),
@@ -525,7 +521,10 @@ view V on S {
 }
 "#,
     );
-    assert!(err.contains("if condition must be Bool, found Int"), "{err}");
+    assert!(
+        err.contains("if condition must be Bool, found Int"),
+        "{err}"
+    );
 }
 
 #[test]
@@ -583,9 +582,19 @@ view V on S {
     )
     .expect("else and index compile");
     let view = artifact.mir.views.iter().find(|v| v.name == "V").unwrap();
-    let if_node = view.root.children.iter().find(|c| c.when.is_some()).unwrap();
+    let if_node = view
+        .root
+        .children
+        .iter()
+        .find(|c| c.when.is_some())
+        .unwrap();
     assert_eq!(if_node.else_children.len(), 1);
-    let for_node = view.root.children.iter().find(|c| c.repeat.is_some()).unwrap();
+    let for_node = view
+        .root
+        .children
+        .iter()
+        .find(|c| c.repeat.is_some())
+        .unwrap();
     assert_eq!(
         for_node.repeat.as_ref().and_then(|r| r.index.as_deref()),
         Some("index")

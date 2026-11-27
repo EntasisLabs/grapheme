@@ -97,7 +97,7 @@ A file with a UI glyph (`glyph App on Store { … }`) and no workflow entry open
 
 `grapheme --version` and `-V` print `grapheme-cli <version>` and exit 0. `grapheme --help` and `-h` print usage and exit 0.
 
-A file with exactly one UI glyph opens that glyph. A file with several exits unless you pass `--glyph <name>` (`grapheme run app.gr --glyph FeedApp`, or `--glyph FeedApp app.gr`). The error names the glyphs you can pass. The name is forwarded to grapheme-ui's `desktop::run_file`. The default CLI build's `rust-version` stays **1.94**. The `ui` feature needs Rust **1.95** (grapheme-ui's rust-version).
+A file with exactly one UI glyph opens that glyph. Several UI glyphs (`glyph Name on Store`) in one file are allowed; `grapheme run` exits unless you pass `--glyph <name>` (`grapheme run app.gr --glyph FeedApp`, or `--glyph FeedApp app.gr`). The error names the glyphs you can pass. The name is forwarded to grapheme-ui's `desktop::run_file`. A workflow glyph (`glyph Name { … }`) is still limited to one per file. The default CLI build's `rust-version` stays **1.94**. The `ui` feature needs Rust **1.95** (grapheme-ui's rust-version).
 
 Plain text output (best-effort extraction from final state):
 

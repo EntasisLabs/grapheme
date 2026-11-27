@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`grapheme --version` and `-V` print the grapheme-cli version and exit 0.** They were read as a source file name. `--help` and `-h` print usage and exit 0 on the same path.
-- **`grapheme run --glyph <name>` chooses which UI view to open.** A file with one UI glyph still opens that glyph. A file with several, and no `--glyph`, exits with an error that lists those names. The name is passed to grapheme-ui `desktop::run_file`.
+- **`grapheme run --glyph <name>` chooses which UI view to open.** A file may declare several UI glyphs (`glyph Name on Store`). One UI glyph still opens with no flag. Several, and no `--glyph`, exit with an error that lists those names. The name is passed to grapheme-ui `desktop::run_file`. A file still has at most one workflow glyph.
 
 ### Changed
 
