@@ -18,7 +18,7 @@ resolver = "2"
 # grapheme-cli's optional `ui` feature depends on grapheme-ui, which depends on
 # grapheme-* from crates.io. Point those back at the workspace crates so the
 # CLI links a single copy of the runtime. Only applies while the workspace
-# versions satisfy grapheme-ui's requirement (^0.9.0 today); bump grapheme-ui
+# versions satisfy grapheme-ui's requirement (^0.10.0 today); bump grapheme-ui
 # in lockstep with a grapheme minor release.
 [patch.crates-io]
 grapheme-artifact = { path = "crates/grapheme-artifact" }

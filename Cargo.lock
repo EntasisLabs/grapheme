@@ -2918,10 +2918,10 @@ dependencies = [
 
 [[package]]
 name = "grapheme-aot-container"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "grapheme-artifact",
- "grapheme-stdlib",
+ "grapheme-stdlib 0.10.0",
  "serde",
  "serde_json",
 ]
@@ -2939,14 +2939,14 @@ dependencies = [
 
 [[package]]
 name = "grapheme-cli"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "grapheme-aot-container",
  "grapheme-artifact",
- "grapheme-compiler",
- "grapheme-runtime",
- "grapheme-sdk",
- "grapheme-stdlib",
+ "grapheme-compiler 0.10.0",
+ "grapheme-runtime 0.10.0",
+ "grapheme-sdk 0.10.0",
+ "grapheme-stdlib 0.10.0",
  "grapheme-ui",
  "serde",
  "serde_json",
@@ -2957,10 +2957,25 @@ dependencies = [
 [[package]]
 name = "grapheme-compiler"
 version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f411efb982cc4f3275b9a10fcd5f3e1a86ba0385fcd1a6bc2813fa2a7d9f9ef"
+dependencies = [
+ "grapheme-artifact",
+ "grapheme-signatures 0.9.0",
+ "pest",
+ "pest_derive",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "grapheme-compiler"
+version = "0.10.0"
 dependencies = [
  "grapheme-aot-container",
  "grapheme-artifact",
- "grapheme-signatures",
+ "grapheme-signatures 0.10.0",
  "pest",
  "pest_derive",
  "serde",
@@ -2970,10 +2985,10 @@ dependencies = [
 
 [[package]]
 name = "grapheme-lsp"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
- "grapheme-compiler",
- "grapheme-signatures",
+ "grapheme-compiler 0.10.0",
+ "grapheme-signatures 0.10.0",
  "tokio",
  "tower-lsp",
 ]
@@ -2981,11 +2996,26 @@ dependencies = [
 [[package]]
 name = "grapheme-runtime"
 version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f60e70b5624ba1c095b70a9fbae86b61b5e520e643d14eff7c71809e2ef04b87"
+dependencies = [
+ "grapheme-artifact",
+ "grapheme-signatures 0.9.0",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "grapheme-runtime"
+version = "0.10.0"
 dependencies = [
  "grapheme-aot-container",
  "grapheme-artifact",
- "grapheme-signatures",
- "grapheme-stdlib",
+ "grapheme-signatures 0.10.0",
+ "grapheme-stdlib 0.10.0",
  "hex",
  "rustls",
  "rustls-webpki",
@@ -3004,13 +3034,30 @@ dependencies = [
 [[package]]
 name = "grapheme-sdk"
 version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d16e813ccf6cf175b9eae9b7ea695098db68ad3fe7f5b2869d30406cccf8076"
+dependencies = [
+ "grapheme-artifact",
+ "grapheme-compiler 0.9.0",
+ "grapheme-runtime 0.9.0",
+ "grapheme-signatures 0.9.0",
+ "grapheme-stdlib 0.9.0",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "grapheme-sdk"
+version = "0.10.0"
 dependencies = [
  "grapheme-aot-container",
  "grapheme-artifact",
- "grapheme-compiler",
- "grapheme-runtime",
- "grapheme-signatures",
- "grapheme-stdlib",
+ "grapheme-compiler 0.10.0",
+ "grapheme-runtime 0.10.0",
+ "grapheme-signatures 0.10.0",
+ "grapheme-stdlib 0.10.0",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -3020,14 +3067,29 @@ dependencies = [
 [[package]]
 name = "grapheme-signatures"
 version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "488e0700e4b2f5985e8b36f0bdc0577c69784fb93b95249577edd4cdba586e9a"
+
+[[package]]
+name = "grapheme-signatures"
+version = "0.10.0"
 
 [[package]]
 name = "grapheme-stdlib"
 version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7c40d6bb03f92512b0fbe4761c6f3f111c382ff75aac53402204c7cee3e62f0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "grapheme-stdlib"
+version = "0.10.0"
 dependencies = [
  "csv",
  "ehttp",
- "grapheme-signatures",
+ "grapheme-signatures 0.10.0",
  "html-to-markdown-rs",
  "lettre",
  "polars",
@@ -3052,8 +3114,8 @@ version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "608949646a02a1e125faacf064a12695a74f15ff8608e62409091d4e0299b6a2"
 dependencies = [
- "grapheme-runtime",
- "grapheme-sdk",
+ "grapheme-runtime 0.9.0",
+ "grapheme-sdk 0.9.0",
  "rndr",
  "rndr_core",
  "rndr_render",
@@ -3065,12 +3127,12 @@ dependencies = [
 
 [[package]]
 name = "grapheme-wasm"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "grapheme-artifact",
- "grapheme-compiler",
- "grapheme-runtime",
- "grapheme-stdlib",
+ "grapheme-compiler 0.10.0",
+ "grapheme-runtime 0.10.0",
+ "grapheme-stdlib 0.10.0",
  "serde",
  "serde_json",
 ]
