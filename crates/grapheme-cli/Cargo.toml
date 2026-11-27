@@ -28,7 +28,7 @@ full = [
 # Pulls grapheme-ui (rust-version 1.95) and its rndr/winit/wgpu window stack.
 # Off by default so a plain install stays headless and on Rust 1.94.
 # `cargo install grapheme-cli --features ui` needs Rust 1.95+.
-ui = ["dep:grapheme-ui", "grapheme-ui/desktop", "dep:notify", "dep:rndr_core"]
+ui = ["dep:grapheme-ui", "grapheme-ui/desktop"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -44,6 +44,4 @@ grapheme-sdk = { path = "../grapheme-sdk", version = "0.11.0", default-features 
 # Optional: only the `ui` feature links it. grapheme-ui depends on the
 # grapheme-* crates from crates.io; the workspace `[patch.crates-io]` maps
 # them back to these paths so the binary carries one runtime.
-grapheme-ui = { version = "0.2.0", optional = true }
-notify = { version = "6.1.1", optional = true }
-rndr_core = { version = "0.6.0", optional = true }
+grapheme-ui = { version = "0.3.0", optional = true }
