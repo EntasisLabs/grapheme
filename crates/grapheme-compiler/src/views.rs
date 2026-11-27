@@ -9,7 +9,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde_json::{Map, Value as JsonValue};
 
-use crate::ast::{Definition, GlyphDef, Program, ScalarKind, TypeRef, Value, ViewDef, ViewElement};
+use crate::ast::{
+    Definition, GlyphDef, Program, ScalarKind, TypeRef, Value, ViewDef, ViewElement,
+};
 use crate::error::GraphemeError;
 use crate::hir::{HirExecutable, HirExecutableKind, HirStore, value_to_json};
 use crate::stores::{find_field, rewrite_strings, rewrite_vars, split_path};
@@ -248,15 +250,12 @@ pub(crate) fn lower_ui_glyphs(
     let mut out = Vec::new();
     for glyph in glyphs {
         let store_name = glyph.store.as_deref().expect("UI glyph has store");
-        let store = stores
-            .iter()
-            .find(|s| s.name == store_name)
-            .ok_or_else(|| {
-                type_error(format!(
-                    "glyph '{}' is on '{store_name}', which is not a declared state",
-                    glyph.name
-                ))
-            })?;
+        let store = stores.iter().find(|s| s.name == store_name).ok_or_else(|| {
+            type_error(format!(
+                "glyph '{}' is on '{store_name}', which is not a declared state",
+                glyph.name
+            ))
+        })?;
 
         let view_stores: HashMap<&str, Option<&str>> = views
             .iter()
@@ -264,10 +263,7 @@ pub(crate) fn lower_ui_glyphs(
             .collect();
 
         let root_el = glyph.root.as_ref().ok_or_else(|| {
-            type_error(format!(
-                "glyph '{}' is missing its root element",
-                glyph.name
-            ))
+            type_error(format!("glyph '{}' is missing its root element", glyph.name))
         })?;
 
         let root_view = if is_bare_view_ref(root_el, &view_stores) {
@@ -530,7 +526,10 @@ impl Ctx<'_> {
         if let Some(actual) = self.condition_type(&when)
             && actual != "Bool"
         {
-            return Err(self.error(&key, format!("if condition must be Bool, found {actual}")));
+            return Err(self.error(
+                &key,
+                format!("if condition must be Bool, found {actual}"),
+            ));
         }
         let children = self.lower_children(&element.children, &key, items)?;
         let else_children = self.lower_children(&element.else_children, &key, items)?;
@@ -801,10 +800,7 @@ impl Ctx<'_> {
             if bound.contains_key(name) {
                 return Err(self.error(key, format!("argument '{name}' is given more than once")));
             }
-            if event_payload
-                .iter()
-                .any(|(payload_name, _)| payload_name == name)
-            {
+            if event_payload.iter().any(|(payload_name, _)| payload_name == name) {
                 return Err(self.error(
                     key,
                     format!(
@@ -938,9 +934,7 @@ impl Ctx<'_> {
         if let Some(ty) = self.static_type(value) {
             return Some(ty);
         }
-        let (op, _) = value
-            .as_object()
-            .and_then(grapheme_artifact::expr::expr_parts)?;
+        let (op, _) = value.as_object().and_then(grapheme_artifact::expr::expr_parts)?;
         match op {
             "==" | "!=" | "<" | "<=" | ">" | ">=" | "&&" | "||" | "!" => Some("Bool"),
             _ => None,
