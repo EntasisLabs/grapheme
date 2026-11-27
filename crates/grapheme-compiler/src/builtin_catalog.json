@@ -1,0 +1,63 @@
+{
+  "$catalog": "grapheme/builtins",
+  "elements": [
+    {
+      "name": "Column",
+      "role": "group",
+      "content": false,
+      "children": true,
+      "props": [
+        { "name": "gap", "type": "Int" },
+        { "name": "label", "type": "String" }
+      ],
+      "events": []
+    },
+    {
+      "name": "Row",
+      "role": "group",
+      "content": false,
+      "children": true,
+      "props": [
+        { "name": "gap", "type": "Int" },
+        { "name": "label", "type": "String" }
+      ],
+      "events": []
+    },
+    {
+      "name": "Text",
+      "role": "text",
+      "content": true,
+      "children": false,
+      "props": [{ "name": "content", "type": "Text" }],
+      "events": []
+    },
+    {
+      "name": "Button",
+      "role": "button",
+      "content": false,
+      "children": true,
+      "props": [
+        { "name": "label", "type": "String" },
+        { "name": "enabled", "type": "Bool" }
+      ],
+      "events": [{ "name": "click", "payload": [] }]
+    },
+    {
+      "name": "TextField",
+      "role": "textbox",
+      "content": false,
+      "children": false,
+      "props": [
+        { "name": "value", "type": "Text" },
+        { "name": "placeholder", "type": "String" },
+        { "name": "label", "type": "String" }
+      ],
+      "events": [
+        {
+          "name": "change",
+          "payload": [{ "name": "value", "type": "String" }]
+        }
+      ]
+    }
+  ]
+}

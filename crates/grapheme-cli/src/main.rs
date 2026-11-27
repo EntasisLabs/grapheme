@@ -8,7 +8,7 @@
 ///  Usage:
 ///    grapheme <file.gr>
 ///    grapheme parse <file.gr>
-///    grapheme compile <file.gr> --emit ast|hir|mir|view-ir|artifact|aot
+///    grapheme compile <file.gr> --emit ast|hir|mir|view-ir|artifact|aot [--catalog file.json]
 ///    grapheme build <file.gr> [--aot-stage stage_a|stage_b] [--out path]
 ///    grapheme plugins build [all|core|io ...]")
 ///    grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules]
@@ -18,7 +18,7 @@
 use grapheme_artifact::{ExecutionOutcome, ExecutionResult, MirFunctionKind, MirInst};
 use grapheme_compiler::ast::Definition;
 use grapheme_compiler::verifier::{ExecutableKindPolicyMode, LintWarning};
-use grapheme_compiler::{Compiler, CompilerError, CompilerOptions};
+use grapheme_compiler::{Compiler, CompilerError, CompilerOptions, ElementCatalog};
 use grapheme_runtime::ModuleLoadError;
 use grapheme_runtime::{
     HotloadError, ModuleLifecycleEvent, ModuleLifecycleEventKind, PolicyGuard, RuntimeEngine,
@@ -2760,6 +2760,7 @@ fn emit_parse(file_path: &str, output_mode: DiscoveryOutputMode) -> Result<(), C
 fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
     let (file_path, consumed) = resolve_file_path_arg_or_project_main(args, "session")?;
     let mut invokes = Vec::new();
+    let mut element_catalog = None;
     let mut i = consumed;
     while i < args.len() {
         match args[i].as_str() {
@@ -2833,6 +2834,10 @@ fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
                 invokes.push(("mount", name.unwrap_or_default(), None));
             }
             "--json" => i += 1,
+            "--catalog" => {
+                element_catalog = Some(load_element_catalog(catalog_path(args, i)?)?);
+                i += 2;
+            }
             other => {
                 return Err(CompilerError::RuntimeError(format!(
                     "unknown session option '{other}'"
@@ -2842,7 +2847,17 @@ fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
     }
 
     let source = read_source(&file_path)?;
-    let engine = GraphemeEngine::builder().build();
+    let mut engine_builder = GraphemeEngine::builder();
+    if let Some(catalog) = element_catalog {
+        engine_builder = engine_builder.with_compiler_options(CompilerOptions {
+            compile_options: grapheme_compiler::CompileOptions {
+                element_catalog: catalog,
+                ..grapheme_compiler::CompileOptions::default()
+            },
+            ..CompilerOptions::default()
+        });
+    }
+    let engine = engine_builder.build();
     let sdk_error = |e: grapheme_sdk::GraphemeSdkError| CompilerError::RuntimeError(e.to_string());
     let mut session = engine.store_session(&source).map_err(sdk_error)?;
     let mut queries = Vec::new();
@@ -2897,12 +2912,27 @@ fn emit_session_cmd(args: &[String]) -> Result<(), CompilerError> {
     Ok(())
 }
 
+fn catalog_path(args: &[String], index: usize) -> Result<&str, CompilerError> {
+    args.get(index + 1).map(String::as_str).ok_or_else(|| {
+        CompilerError::RuntimeError("--catalog requires a path to a JSON catalog".to_string())
+    })
+}
+
+fn load_element_catalog(path: &str) -> Result<ElementCatalog, CompilerError> {
+    let raw = fs::read_to_string(path).map_err(|err| {
+        CompilerError::RuntimeError(format!("--catalog could not read {path}: {err}"))
+    })?;
+    ElementCatalog::parse(&raw)
+        .map_err(|err| CompilerError::RuntimeError(format!("--catalog {path}: {err}")))
+}
+
 fn emit_compile_cmd(args: &[String]) -> Result<(), CompilerError> {
     let (file_path, consumed) = resolve_file_path_arg_or_project_main(args, "compile")?;
     let mut emit_target = "mir".to_string();
     let mut aot_stage = AotStageSelection::StageA;
     let mut output_mode = DiscoveryOutputMode::Yaml;
     let mut executable_kind_policy_mode = ExecutableKindPolicyMode::Compatibility;
+    let mut element_catalog = None;
     let mut i = consumed;
     while i < args.len() {
         if let Some(mode) = parse_structured_output_flag(&args[i]) {
@@ -2942,6 +2972,10 @@ fn emit_compile_cmd(args: &[String]) -> Result<(), CompilerError> {
                     parse_executable_kind_policy_mode("--type-policy", &args[i + 1])?;
                 i += 2;
             }
+            "--catalog" => {
+                element_catalog = Some(load_element_catalog(catalog_path(args, i)?)?);
+                i += 2;
+            }
             flag => {
                 return Err(CompilerError::RuntimeError(format!(
                     "unknown compile flag '{}'",
@@ -2952,8 +2986,14 @@ fn emit_compile_cmd(args: &[String]) -> Result<(), CompilerError> {
     }
 
     let source = read_source(&file_path)?;
-    let mut compiler_options = CompilerOptions::default();
-    compiler_options.compile_options.executable_kind_policy_mode = executable_kind_policy_mode;
+    let compiler_options = CompilerOptions {
+        compile_options: grapheme_compiler::CompileOptions {
+            executable_kind_policy_mode,
+            element_catalog: element_catalog.unwrap_or_else(ElementCatalog::builtin),
+            ..grapheme_compiler::CompileOptions::default()
+        },
+        ..CompilerOptions::default()
+    };
     let compilation = Compiler::compile_source(&source, compiler_options)?.compilation;
 
     if emit_target != "aot" && aot_stage != AotStageSelection::StageA {
@@ -3010,6 +3050,7 @@ fn emit_build_cmd(args: &[String]) -> Result<(), CompilerError> {
     let mut aot_stage = AotStageSelection::StageB;
     let mut output_mode = DiscoveryOutputMode::Json;
     let mut output_path: Option<PathBuf> = None;
+    let mut element_catalog = None;
     let mut i = consumed;
     while i < args.len() {
         if let Some(mode) = parse_structured_output_flag(&args[i]) {
@@ -3037,6 +3078,10 @@ fn emit_build_cmd(args: &[String]) -> Result<(), CompilerError> {
                 output_path = Some(PathBuf::from(&args[i + 1]));
                 i += 2;
             }
+            "--catalog" => {
+                element_catalog = Some(load_element_catalog(catalog_path(args, i)?)?);
+                i += 2;
+            }
             other => {
                 return Err(CompilerError::RuntimeError(format!(
                     "unknown build flag '{}'",
@@ -3047,7 +3092,12 @@ fn emit_build_cmd(args: &[String]) -> Result<(), CompilerError> {
     }
 
     let source = read_source(&file_path)?;
-    let compilation = grapheme_compiler::compile(&source)?;
+    let ast = grapheme_compiler::parse(&source)?;
+    let compile_options = grapheme_compiler::CompileOptions {
+        element_catalog: element_catalog.unwrap_or_else(ElementCatalog::builtin),
+        ..grapheme_compiler::CompileOptions::default()
+    };
+    let compilation = grapheme_compiler::compile_program(ast, compile_options)?;
     let artifact = grapheme_artifact::build_artifact_from_mir(&compilation.mir, None)
         .map_err(|e| CompilerError::ArtifactEmitError(e.to_string()))?;
     let stage_a = grapheme_artifact::build_aot_from_artifact(&artifact)
@@ -3166,10 +3216,10 @@ fn print_usage() {
     eprintln!("  grapheme <file.gr>");
     eprintln!("  grapheme parse [<file.gr>] [--yaml|--json]");
     eprintln!(
-        "  grapheme compile [<file.gr>] [--emit ast|hir|mir|view-ir|artifact|aot] [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--yaml|--json]"
+        "  grapheme compile [<file.gr>] [--emit ast|hir|mir|view-ir|artifact|aot] [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--catalog file.json] [--yaml|--json]"
     );
     eprintln!(
-        "  grapheme build [<file.gr>] [--aot-stage stage_a|stage_b] [--out path] [--yaml|--json]"
+        "  grapheme build [<file.gr>] [--aot-stage stage_a|stage_b] [--out path] [--catalog file.json] [--yaml|--json]"
     );
     eprintln!("  grapheme plugins build [all|core|io ...]");
     eprintln!(
@@ -3178,7 +3228,7 @@ fn print_usage() {
     eprintln!("  grapheme examples show <name> [--summary] [--raw] [--yaml|--json]");
     eprintln!("  grapheme examples init [--out dir]");
     eprintln!(
-        "  grapheme session [<file.gr>] [--invoke|--query Name[:<json-object>] | --render View | --mount [Glyph] | --action <id|id:<json-object>> ...]"
+        "  grapheme session [<file.gr>] [--catalog file.json] [--invoke|--query Name[:<json-object>] | --render View | --mount [Glyph] | --action <id|id:<json-object>> ...]"
     );
     eprintln!(
         "  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules]"
@@ -4238,5 +4288,55 @@ query HelloWorld {
             .expect("json format should succeed");
         let expected = include_str!("../tests/golden/compile-view-ir-counter.json");
         assert_eq!(normalized(&actual), normalized(expected));
+    }
+
+    #[test]
+    fn compile_catalog_flag_accepts_an_element_that_is_not_built_in() {
+        let dir = std::env::temp_dir().join(format!(
+            "grapheme-catalog-{}-{}",
+            std::process::id(),
+            now_unix_ms()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("view.gr");
+        let catalog = dir.join("catalog.json");
+        fs::write(
+            &source,
+            r#"
+state S { n: Int = 0 }
+mutation Nop on S { apply { n: $n } }
+view V on S { Divider }
+"#,
+        )
+        .unwrap();
+        fs::write(
+            &catalog,
+            r#"{"$catalog":"test/divider","elements":[{"name":"Divider","role":"separator","children":false,"content":false,"props":[],"events":[]}]}"#,
+        )
+        .unwrap();
+        let missing = emit_compile_cmd(&[
+            source.display().to_string(),
+            "--emit".into(),
+            "view-ir".into(),
+            "--json".into(),
+        ])
+        .unwrap_err()
+        .to_string();
+        assert!(
+            missing.contains("unknown element 'Divider'")
+                && missing.contains("catalog 'grapheme/builtins'")
+                && missing.contains("-->"),
+            "{missing}"
+        );
+        emit_compile_cmd(&[
+            source.display().to_string(),
+            "--emit".into(),
+            "view-ir".into(),
+            "--json".into(),
+            "--catalog".into(),
+            catalog.display().to_string(),
+        ])
+        .expect("Divider compiles against the loaded catalog");
+        let _ = fs::remove_dir_all(&dir);
     }
 }

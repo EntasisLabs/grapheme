@@ -143,6 +143,13 @@ pub struct HirStep {
 }
 
 pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
+    lower_from_ast_with_catalog(program, &crate::ElementCatalog::builtin())
+}
+
+pub(crate) fn lower_from_ast_with_catalog(
+    program: &Program,
+    catalog: &crate::ElementCatalog,
+) -> Result<HirProgram, GraphemeError> {
     let fragment_defs = program
         .definitions
         .iter()
@@ -435,9 +442,9 @@ pub fn lower_from_ast(program: &Program) -> Result<HirProgram, GraphemeError> {
         &state_machines,
         &mut executable_defs,
     )?;
-    let mut views = crate::views::lower_views(program, &stores, &executable_defs)?;
+    let mut views = crate::views::lower_views(program, &stores, &executable_defs, catalog)?;
     let ui_glyphs =
-        crate::views::lower_ui_glyphs(program, &stores, &executable_defs, &mut views)?;
+        crate::views::lower_ui_glyphs(program, &stores, &executable_defs, &mut views, catalog)?;
 
     let mut capabilities = executable_defs
         .iter()
