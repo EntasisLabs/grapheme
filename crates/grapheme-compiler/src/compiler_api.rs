@@ -121,23 +121,24 @@ fn glyph_entrypoint(ast: &Program) -> Result<Option<String>, CompilerError> {
         })
         .collect::<Vec<_>>();
 
-    if all_glyphs.len() > 1 {
+    // Only workflow glyphs (`glyph Name { … }`) are artifact entrypoints.
+    // Several UI glyphs (`glyph Name on Store { … }`) may share a file; the
+    // CLI picks one with `--glyph`.
+    let workflow_glyphs = all_glyphs
+        .iter()
+        .filter(|g| g.store.is_none())
+        .collect::<Vec<_>>();
+    if workflow_glyphs.len() > 1 {
         return Err(CompilerError::TypeError(format!(
-            "only one glyph is allowed per file, found: {}",
-            all_glyphs
+            "only one workflow glyph is allowed per file, found: {}",
+            workflow_glyphs
                 .iter()
                 .map(|g| g.name.as_str())
                 .collect::<Vec<_>>()
                 .join(", ")
         )));
     }
-
-    // Only workflow glyphs (`glyph Name { … }`) are artifact entrypoints.
-    // UI glyphs (`glyph Name on Store { … }`) mount through a store session.
-    let workflow = all_glyphs
-        .iter()
-        .find(|g| g.store.is_none())
-        .map(|g| g.name.clone());
+    let workflow = workflow_glyphs.first().map(|g| g.name.clone());
 
     if workflow.is_none() {
         let executable_roots = ast

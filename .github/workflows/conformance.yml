@@ -7,6 +7,31 @@ on:
       - main
 
 jobs:
+  # Default grapheme-cli rust-version is 1.94. Do not pass `--features ui`
+  # here: that feature's floor is Rust 1.95, covered by the CLI UI workflow.
+  # RUSTUP_TOOLCHAIN overrides rust-toolchain.toml, which pins stable.
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: 1.94.0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust 1.94
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.94.0
+
+      - name: Cargo Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv-1.94
+
+      - name: Default grapheme-cli builds on 1.94
+        run: cargo check --locked -p grapheme-cli --bins --tests
+
   conformance:
     runs-on: ubuntu-latest
     steps:

@@ -120,7 +120,7 @@ fn is_executable_definition_line(trimmed: &str) -> bool {
 fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, GraphemeError> {
     let mut imports = vec![];
     let mut definitions = vec![];
-    let mut glyph_names = Vec::new();
+    let mut workflow_glyphs = Vec::new();
 
     for inner in pair.into_inner() {
         match inner.as_rule() {
@@ -131,7 +131,13 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
                 match def.as_rule() {
                     Rule::glyph_def => {
                         let glyph = parse_glyph(def, state)?;
-                        glyph_names.push(glyph.name.clone());
+                        // UI glyphs (`glyph Name on Store`) may share a file so
+                        // `grapheme run --glyph` can choose one. A workflow
+                        // glyph is the file's entrypoint, so there is still
+                        // only one of those.
+                        if glyph.store.is_none() {
+                            workflow_glyphs.push(glyph.name.clone());
+                        }
                         definitions.push(Definition::Glyph(glyph));
                     }
                     Rule::query_def => {
@@ -176,10 +182,10 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
         }
     }
 
-    if glyph_names.len() > 1 {
+    if workflow_glyphs.len() > 1 {
         return Err(GraphemeError::ParseError(format!(
-            "only one glyph is allowed per file, found: {}",
-            glyph_names.join(", ")
+            "only one workflow glyph is allowed per file, found: {}",
+            workflow_glyphs.join(", ")
         )));
     }
 
