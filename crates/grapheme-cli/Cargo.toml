@@ -1,6 +1,6 @@
 [package]
 name = "grapheme-cli"
-version = "0.10.0"
+version = "0.11.0"
 edition = "2024"
 # Headless default stays on the workspace MSRV. Cargo has no per-feature
 # rust-version: `--features ui` needs Rust 1.95 because grapheme-ui does.
@@ -35,12 +35,12 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
 toml = "0.8"
-grapheme-compiler = { path = "../grapheme-compiler", version = "0.10.0", default-features = false, features = ["full"] }
-grapheme-runtime = { path = "../grapheme-runtime", version = "0.10.0", default-features = false, features = ["wasix-runtime", "full"] }
+grapheme-compiler = { path = "../grapheme-compiler", version = "0.11.0", default-features = false, features = ["full"] }
+grapheme-runtime = { path = "../grapheme-runtime", version = "0.11.0", default-features = false, features = ["wasix-runtime", "full"] }
 grapheme-artifact = { path = "../grapheme-artifact", version = "0.5.0" }
-grapheme-aot-container = { path = "../grapheme-aot-container", version = "0.10.0" }
-grapheme-stdlib = { path = "../grapheme-stdlib", version = "0.10.0", features = ["full"] }
-grapheme-sdk = { path = "../grapheme-sdk", version = "0.10.0", default-features = false, features = ["full"] }
+grapheme-aot-container = { path = "../grapheme-aot-container", version = "0.11.0" }
+grapheme-stdlib = { path = "../grapheme-stdlib", version = "0.11.0", features = ["full"] }
+grapheme-sdk = { path = "../grapheme-sdk", version = "0.11.0", default-features = false, features = ["full"] }
 # Optional: only the `ui` feature links it. grapheme-ui depends on the
 # grapheme-* crates from crates.io; the workspace `[patch.crates-io]` maps
 # them back to these paths so the binary carries one runtime.
