@@ -25,17 +25,77 @@ use crate::error::RuntimeError;
 use crate::host::{CapabilityCall, CapabilityHost, HostCallError};
 use crate::runtime::{RuntimeEngine, RuntimeOptions};
 
+/// Why a store revision was committed (RFC-0007 A.8 / A.9).
+///
+/// `kind` is `mutation`, `task`, or `reload`. `name` is the mutation or task.
+/// A reload has no name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RevisionCause {
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+impl RevisionCause {
+    /// A mutation transaction.
+    pub fn mutation(name: impl Into<String>) -> Self {
+        Self {
+            kind: "mutation".to_string(),
+            name: Some(name.into()),
+        }
+    }
+
+    /// One `apply` or `transition` inside a task.
+    pub fn task(name: impl Into<String>) -> Self {
+        Self {
+            kind: "task".to_string(),
+            name: Some(name.into()),
+        }
+    }
+
+    /// Hot-reload migration (RFC-0007 A.9).
+    pub fn reload() -> Self {
+        Self {
+            kind: "reload".to_string(),
+            name: None,
+        }
+    }
+
+    fn label(&self) -> String {
+        self.name.clone().unwrap_or_else(|| self.kind.clone())
+    }
+}
+
 /// One committed transaction on one store instance.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StoreRevision {
     pub store: String,
     pub revision: u64,
-    /// The mutation whose run produced this revision.
-    pub cause: String,
+    /// What produced this revision. `kind` is `mutation`, `task`, or `reload`.
+    pub cause: RevisionCause,
     /// Every changed field as `[old, new]`, transient fields included.
     pub diff: Map<String, JsonValue>,
     /// `diff` filtered by history policy: transient fields removed.
     pub history_diff: Map<String, JsonValue>,
+}
+
+/// A field the reload reset because its type changed (RFC-0007 A.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReloadDiagnostic {
+    pub store: String,
+    pub field: String,
+    pub message: String,
+}
+
+/// Result of [`StoreSession::reload`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReloadOutcome {
+    /// One revision per store whose stored fields changed. `cause.kind` is `reload`.
+    pub revisions: Vec<StoreRevision>,
+    /// Fields reset because their type changed.
+    pub diagnostics: Vec<ReloadDiagnostic>,
+    /// Tasks that were in flight when the reload fenced them.
+    pub cancelled: Vec<String>,
 }
 
 /// Why a task made a capability call (RFC-0007 F.4). `generation` is unset in
@@ -87,6 +147,10 @@ pub struct StoreCommit {
     /// the same list on [`RuntimeError::TaskFailed`] instead of here.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<EffectReceipt>,
+    /// `Some("cancelled")` when a reload fenced this task (RFC-0007 A.9 / F.2).
+    /// The task's later writes are dropped. Earlier commits stay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -179,7 +243,7 @@ pub type CommitObserver = Arc<dyn Fn(&StoreSession, &StoreRevision) + Send + Syn
 /// Owns one instance of every store declared by an artifact.
 #[derive(Debug, Clone)]
 pub struct StoreSession {
-    artifact: ArtifactEnvelope,
+    artifact: RefCell<ArtifactEnvelope>,
     stores: RefCell<BTreeMap<String, StoreInstance>>,
     log: RefCell<Vec<StoreRevision>>,
     bindings: RefCell<BTreeMap<(String, String), Binding>>,
@@ -190,6 +254,11 @@ pub struct StoreSession {
     /// Set while the commit observer is running, so a callback that invokes
     /// the session fails instead of re-entering the task.
     notifying: Cell<bool>,
+    /// Bumped by [`StoreSession::reload`]. A task captures it at start and
+    /// stops committing once it no longer matches (RFC-0007 F.2).
+    generation: Cell<u64>,
+    /// Name of the task inside [`StoreSession::invoke`], if any.
+    inflight: RefCell<Option<String>>,
 }
 
 #[derive(Clone)]
@@ -261,7 +330,7 @@ impl StoreSession {
             return Err(session_error(format!("no state named '{unknown}'")));
         }
         Ok(Self {
-            artifact,
+            artifact: RefCell::new(artifact),
             stores: RefCell::new(stores),
             log: RefCell::new(Vec::new()),
             bindings: RefCell::new(BTreeMap::new()),
@@ -269,7 +338,157 @@ impl StoreSession {
             mounted: None,
             commit_observer: CommitObserverSlot(None),
             notifying: Cell::new(false),
+            generation: Cell::new(0),
+            inflight: RefCell::new(None),
         })
+    }
+
+    /// Migrate this session onto `artifact` (RFC-0007 A.9).
+    ///
+    /// Plain and non-transient lifecycle fields are kept. `transient` fields,
+    /// including transient lifecycle fields, reset to their defaults. `const`
+    /// fields are kept unless their default changed. Added fields take their
+    /// default, removed fields are dropped, and a field whose type changed is
+    /// reset with a diagnostic. Derives are not stored; the next snapshot
+    /// evaluates the new expressions. The migration of each changed store is
+    /// one revision with `cause.kind` `"reload"`, and the revision counter
+    /// continues.
+    ///
+    /// A task that is inside [`StoreSession::invoke`] is fenced: its generation
+    /// is no longer current, further commits are dropped, and the invoke
+    /// returns with `status: "cancelled"`. Calling this from the commit
+    /// observer is supported. It does not re-enter the observer.
+    pub fn reload(&self, artifact: ArtifactEnvelope) -> Result<ReloadOutcome, RuntimeError> {
+        let cancelled = self
+            .inflight
+            .borrow()
+            .clone()
+            .into_iter()
+            .collect::<Vec<_>>();
+        self.generation.set(self.generation.get().saturating_add(1));
+        let (revisions, diagnostics) = self.migrate(&artifact)?;
+        *self.artifact.borrow_mut() = artifact;
+        Ok(ReloadOutcome {
+            revisions,
+            diagnostics,
+            cancelled,
+        })
+    }
+
+    /// Apply A.9 field rules and commit one reload revision per changed store.
+    fn migrate(
+        &self,
+        artifact: &ArtifactEnvelope,
+    ) -> Result<(Vec<StoreRevision>, Vec<ReloadDiagnostic>), RuntimeError> {
+        let mut diagnostics = Vec::new();
+        let mut revisions = Vec::new();
+        let mut stores = self.stores.borrow_mut();
+        let new_schemas = &artifact.payload.mir.stores;
+        let stale: Vec<String> = stores
+            .keys()
+            .filter(|name| !new_schemas.iter().any(|schema| &schema.name == *name))
+            .cloned()
+            .collect();
+        for name in stale {
+            stores.remove(&name);
+        }
+
+        for schema in new_schemas {
+            if !stores.contains_key(&schema.name) {
+                let mut fields = Map::new();
+                for field in stored_fields(schema) {
+                    let value = eval_store_value(&field.value, &Map::new()).map_err(|e| {
+                        session_error(format!(
+                            "state '{}': default of '{}': {e}",
+                            schema.name, field.name
+                        ))
+                    })?;
+                    fields.insert(field.name.clone(), value);
+                }
+                stores.insert(
+                    schema.name.clone(),
+                    StoreInstance {
+                        schema: schema.clone(),
+                        fields,
+                        revision: 0,
+                    },
+                );
+                continue;
+            }
+
+            let instance = stores.get_mut(&schema.name).expect("store just checked");
+            let old_schema = instance.schema.clone();
+            let old_fields = instance.fields.clone();
+            let mut next = Map::new();
+            let mut diff = Map::new();
+            let mut history_diff = Map::new();
+            for field in stored_fields(schema) {
+                let previous = old_schema.fields.iter().find(|old| old.name == field.name);
+                let default_value = eval_store_value(&field.value, &Map::new()).map_err(|e| {
+                    session_error(format!(
+                        "state '{}': default of '{}': {e}",
+                        schema.name, field.name
+                    ))
+                })?;
+                let old_value = old_fields.get(&field.name).cloned();
+                let new_value = match previous {
+                    None => default_value.clone(),
+                    Some(prev) if prev.type_name != field.type_name => {
+                        diagnostics.push(ReloadDiagnostic {
+                            store: schema.name.clone(),
+                            field: field.name.clone(),
+                            message: format!(
+                                "field '{}' type changed from {} to {}; reset to its default",
+                                field.name, prev.type_name, field.type_name
+                            ),
+                        });
+                        default_value.clone()
+                    }
+                    Some(_) if field.kind == MirStoreFieldKind::Transient => default_value.clone(),
+                    Some(_) if field.kind == MirStoreFieldKind::Const => {
+                        let kept = old_value.clone().unwrap_or_else(|| default_value.clone());
+                        if kept != default_value {
+                            default_value.clone()
+                        } else {
+                            kept
+                        }
+                    }
+                    Some(_) => old_value.clone().unwrap_or(default_value.clone()),
+                };
+                if let Some(old_value) = old_value.as_ref() {
+                    if old_value != &new_value {
+                        let change = JsonValue::Array(vec![old_value.clone(), new_value.clone()]);
+                        if field.kind != MirStoreFieldKind::Transient {
+                            history_diff.insert(field.name.clone(), change.clone());
+                        }
+                        diff.insert(field.name.clone(), change);
+                    }
+                } else {
+                    let change = JsonValue::Array(vec![JsonValue::Null, new_value.clone()]);
+                    if field.kind != MirStoreFieldKind::Transient {
+                        history_diff.insert(field.name.clone(), change.clone());
+                    }
+                    diff.insert(field.name.clone(), change);
+                }
+                next.insert(field.name.clone(), new_value);
+            }
+            instance.fields = next;
+            instance.schema = schema.clone();
+            if diff.is_empty() {
+                continue;
+            }
+            instance.revision += 1;
+            revisions.push(StoreRevision {
+                store: schema.name.clone(),
+                revision: instance.revision,
+                cause: RevisionCause::reload(),
+                diff,
+                history_diff,
+            });
+        }
+        drop(stores);
+        self.log.borrow_mut().extend(revisions.clone());
+        Ok((revisions, diagnostics))
     }
 
     /// Install `observer` for later task commits, or clear it.
@@ -320,8 +539,8 @@ impl StoreSession {
     }
 
     /// UI glyphs declared by the program (`glyph Name on Store { … }`).
-    pub fn ui_glyphs(&self) -> &[MirUiGlyph] {
-        &self.artifact.payload.mir.ui_glyphs
+    pub fn ui_glyphs(&self) -> Vec<MirUiGlyph> {
+        self.artifact.borrow().payload.mir.ui_glyphs.clone()
     }
 
     /// Currently mounted UI glyph, if any.
@@ -476,8 +695,8 @@ impl StoreSession {
                     "'{name}' is a query; use query() to read exposed queries"
                 )));
             }
-            let required = self
-                .artifact
+            let artifact = self.artifact.borrow().clone();
+            let required = artifact
                 .payload
                 .mir
                 .functions
@@ -491,14 +710,8 @@ impl StoreSession {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
-            let args = merge_action_args(
-                &self.artifact,
-                name,
-                Map::new(),
-                &required,
-                payload.as_ref(),
-                id,
-            )?;
+            let args =
+                merge_action_args(&artifact, name, Map::new(), &required, payload.as_ref(), id)?;
             return self.invoke_calling(name, args, options, host, Some(id));
         }
         let Some(binding) = self
@@ -512,8 +725,9 @@ impl StoreSession {
                 "stale_action: '{id}' is not in the current action list"
             )));
         };
+        let artifact = self.artifact.borrow().clone();
         let args = merge_action_args(
-            &self.artifact,
+            &artifact,
             &binding.target,
             binding.args.clone(),
             &binding.payload_params,
@@ -523,16 +737,16 @@ impl StoreSession {
         self.invoke_calling(&binding.target, args, options, host, Some(id))
     }
 
-    fn resolve_ui_glyph(&self, glyph: Option<&str>) -> Result<&MirUiGlyph, RuntimeError> {
+    fn resolve_ui_glyph(&self, glyph: Option<&str>) -> Result<MirUiGlyph, RuntimeError> {
         match glyph {
             Some(name) => self.find_ui_glyph(name),
             None => {
-                let glyphs = &self.artifact.payload.mir.ui_glyphs;
+                let glyphs = self.artifact.borrow().payload.mir.ui_glyphs.clone();
                 match glyphs.len() {
                     0 => Err(session_error(
                         "program has no UI glyph (`glyph Name on Store {{ … }}`)",
                     )),
-                    1 => Ok(&glyphs[0]),
+                    1 => Ok(glyphs.into_iter().next().expect("one glyph")),
                     _ => Err(session_error(format!(
                         "program has multiple UI glyphs ({}); pass a name to mount",
                         glyphs
@@ -546,27 +760,23 @@ impl StoreSession {
         }
     }
 
-    fn find_ui_glyph(&self, name: &str) -> Result<&MirUiGlyph, RuntimeError> {
+    fn find_ui_glyph(&self, name: &str) -> Result<MirUiGlyph, RuntimeError> {
         self.artifact
+            .borrow()
             .payload
             .mir
             .ui_glyphs
             .iter()
             .find(|g| g.name == name)
+            .cloned()
             .ok_or_else(|| session_error(format!("no UI glyph named '{name}'")))
     }
 
     fn expose_actions(&self, glyph: &MirUiGlyph) -> Result<Vec<ViewAction>, RuntimeError> {
+        let functions = self.artifact.borrow().payload.mir.functions.clone();
         let mut actions = Vec::new();
         for name in &glyph.expose {
-            if let Some(func) = self
-                .artifact
-                .payload
-                .mir
-                .functions
-                .iter()
-                .find(|f| &f.name == name)
-            {
+            if let Some(func) = functions.iter().find(|f| &f.name == name) {
                 if matches!(func.kind, MirFunctionKind::Query) {
                     // Exposed queries are readable via query(); they are not actions.
                     continue;
@@ -601,7 +811,7 @@ impl StoreSession {
         };
         let mut events = Vec::new();
         let root = self.evaluate_node(
-            view,
+            &view,
             &view.root,
             &Place {
                 key: &view.root.key,
@@ -623,13 +833,15 @@ impl StoreSession {
         ))
     }
 
-    fn find_view(&self, name: &str) -> Result<&MirView, RuntimeError> {
+    fn find_view(&self, name: &str) -> Result<MirView, RuntimeError> {
         self.artifact
+            .borrow()
             .payload
             .mir
             .views
             .iter()
             .find(|v| v.name == name)
+            .cloned()
             .ok_or_else(|| session_error(format!("no view named '{name}'")))
     }
 
@@ -794,7 +1006,7 @@ impl StoreSession {
                 scope: place.scope,
                 depth: place.depth + 1,
             };
-            let mut out = self.evaluate_node(referenced, &referenced.root, &nested, events)?;
+            let mut out = self.evaluate_node(&referenced, &referenced.root, &nested, events)?;
             out["view"] = JsonValue::from(name.clone());
             return Ok(out);
         }
@@ -915,6 +1127,7 @@ impl StoreSession {
 
     fn bound_store(&self, name: &str) -> Result<(String, MirFunctionKind), RuntimeError> {
         self.artifact
+            .borrow()
             .payload
             .mir
             .functions
@@ -938,7 +1151,7 @@ impl StoreSession {
             .get(store)
             .cloned()
             .ok_or_else(|| session_error(format!("no state named '{store}'")))?;
-        let mut artifact = self.artifact.clone();
+        let mut artifact = self.artifact.borrow().clone();
         artifact.entrypoint = name.to_string();
         let fields = JsonValue::Object(instance.fields.clone());
         options.initial_state_current = Some(fields.clone());
@@ -999,7 +1212,12 @@ impl StoreSession {
             .and_then(JsonValue::as_object)
             .cloned()
             .unwrap_or_default();
-        self.commit_fields(&store_name, mutation, &next, &writes)
+        self.commit_fields(
+            &store_name,
+            &RevisionCause::mutation(mutation),
+            &next,
+            &writes,
+        )
     }
 
     fn invoke_task(
@@ -1030,18 +1248,21 @@ impl StoreSession {
                 },
             )
         };
-        let mut artifact = self.artifact.clone();
+        let mut artifact = self.artifact.borrow().clone();
         artifact.entrypoint = task.to_string();
         options.initial_state_current = Some(fields.clone());
         options.initial_state_lane = Some(fields);
         options.entrypoint_args = args;
 
+        let generation = self.generation.get();
+        *self.inflight.borrow_mut() = Some(task.to_string());
         let mut effects = Vec::new();
         let mut effect_seq = 0u64;
         let store_for_hook = store_name.to_string();
         let mut on_commit = |revision: &StoreRevision, fields: Map<String, JsonValue>| {
             self.publish_task_commit(&store_for_hook, &fields, revision);
         };
+        let is_fenced = || self.generation.get() != generation;
         let executed = {
             let mut task_host = TaskHost {
                 sink: &mut sink,
@@ -1052,23 +1273,38 @@ impl StoreSession {
                 effect_seq: &mut effect_seq,
                 txns: Vec::new(),
                 on_commit: &mut on_commit,
+                fenced: &is_fenced,
             };
             RuntimeEngine::new(options).execute_artifact(&artifact, &mut task_host)
         };
 
+        let fenced = self.generation.get() != generation;
+        *self.inflight.borrow_mut() = None;
+
         // Each task commit was published as it happened, including when a
         // later step fails. Copy the final fields again so a commit that
-        // changed nothing still leaves the sink's copy in place.
+        // changed nothing still leaves the sink's copy in place. A fenced
+        // task must not copy back: reload already migrated the session.
         let commits = sink.log.len();
         let last_committed = sink.last_committed.clone();
         let revision = sink.revision;
-        {
+        if !fenced {
             let mut stores = self.stores.borrow_mut();
             let Some(instance) = stores.get_mut(store_name) else {
                 return Err(session_error(format!("no state named '{store_name}'")));
             };
             instance.fields = sink.fields;
             instance.revision = sink.revision;
+        }
+
+        if fenced {
+            return Ok(StoreCommit {
+                store: store_name.to_string(),
+                revision: self.revision(store_name).unwrap_or(revision),
+                committed: None,
+                effects,
+                status: Some("cancelled".to_string()),
+            });
         }
 
         let failure = match executed {
@@ -1094,13 +1330,14 @@ impl StoreSession {
             revision,
             committed: last_committed,
             effects,
+            status: None,
         })
     }
 
     fn commit_fields(
         &mut self,
         store_name: &str,
-        cause: &str,
+        cause: &RevisionCause,
         next: &Map<String, JsonValue>,
         writes: &[FieldWrite],
     ) -> Result<StoreCommit, RuntimeError> {
@@ -1116,7 +1353,8 @@ impl StoreSession {
             match field.kind {
                 MirStoreFieldKind::Const | MirStoreFieldKind::Derive => {
                     return Err(session_error(format!(
-                        "'{cause}' wrote read-only field '{name}'; nothing committed"
+                        "'{}' wrote read-only field '{name}'; nothing committed",
+                        cause.label()
                     )));
                 }
                 _ if field.lifecycle.is_some() => {
@@ -1143,7 +1381,8 @@ impl StoreSession {
             }
             if field.kind == MirStoreFieldKind::Const {
                 return Err(session_error(format!(
-                    "'{cause}' wrote read-only field '{}'; nothing committed",
+                    "'{}' wrote read-only field '{}'; nothing committed",
+                    cause.label(),
                     field.name
                 )));
             }
@@ -1160,6 +1399,7 @@ impl StoreSession {
                 revision: instance.revision,
                 committed: None,
                 effects: Vec::new(),
+                status: None,
             });
         }
         for (name, change) in &diff {
@@ -1169,7 +1409,7 @@ impl StoreSession {
         let revision = StoreRevision {
             store: store_name.to_string(),
             revision: instance.revision,
-            cause: cause.to_string(),
+            cause: cause.clone(),
             diff,
             history_diff,
         };
@@ -1179,6 +1419,7 @@ impl StoreSession {
             revision: instance.revision,
             committed: Some(revision),
             effects: Vec::new(),
+            status: None,
         })
     }
 }
@@ -1288,7 +1529,7 @@ impl TaskCommitSink {
         let revision = StoreRevision {
             store: self.store.clone(),
             revision: self.revision,
-            cause: cause.to_string(),
+            cause: RevisionCause::task(cause),
             diff,
             history_diff,
         };
@@ -1318,6 +1559,8 @@ struct TaskHost<'a> {
     effect_seq: &'a mut u64,
     txns: Vec<TxnFrame>,
     on_commit: &'a mut dyn FnMut(&StoreRevision, Map<String, JsonValue>),
+    /// True once [`StoreSession::reload`] has bumped the task's generation.
+    fenced: &'a dyn Fn() -> bool,
 }
 
 impl CapabilityHost for TaskHost<'_> {
@@ -1332,6 +1575,9 @@ impl CapabilityHost for TaskHost<'_> {
     }
 
     fn leave_call(&mut self, name: &str, failed: bool) -> Result<(), HostCallError> {
+        if (self.fenced)() {
+            return Err(HostCallError::Fatal("cancelled".into()));
+        }
         let top_is_call = self.txns.last().is_some_and(|frame| frame.name == name);
         if !top_is_call {
             return Ok(());
@@ -1364,6 +1610,9 @@ impl CapabilityHost for TaskHost<'_> {
     }
 
     fn call(&mut self, call: &CapabilityCall) -> Result<JsonValue, HostCallError> {
+        if (self.fenced)() {
+            return Err(HostCallError::Fatal("cancelled".into()));
+        }
         let is_apply = call.capability == "core.set_fields";
         if is_apply {
             let writes = field_writes_of(call);

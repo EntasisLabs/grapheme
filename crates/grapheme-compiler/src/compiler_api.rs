@@ -129,7 +129,7 @@ fn glyph_entrypoint(ast: &Program) -> Result<Option<String>, CompilerError> {
         .filter(|g| g.store.is_none())
         .collect::<Vec<_>>();
     if workflow_glyphs.len() > 1 {
-        return Err(CompilerError::TypeError(format!(
+        return Err(CompilerError::type_error(format!(
             "only one workflow glyph is allowed per file, found: {}",
             workflow_glyphs
                 .iter()
@@ -160,7 +160,7 @@ fn glyph_entrypoint(ast: &Program) -> Result<Option<String>, CompilerError> {
             .collect::<Vec<_>>();
 
         if executable_roots.len() > 1 {
-            return Err(CompilerError::TypeError(format!(
+            return Err(CompilerError::type_error(format!(
                 "ambiguous entrypoint: file has multiple query/mutation roots ({}) and no glyph; add `glyph <Name> {{ ... }}` or pass an explicit entrypoint",
                 executable_roots.join(", ")
             )));

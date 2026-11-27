@@ -90,7 +90,8 @@ fn each_invoke_commits_one_revision_with_runtime_and_history_diffs() {
     let commit = session.invoke("Increment", None).unwrap();
     let revision = commit.committed.expect("committed");
     assert_eq!(revision.revision, 1);
-    assert_eq!(revision.cause, "Increment");
+    assert_eq!(revision.cause.kind, "mutation");
+    assert_eq!(revision.cause.name.as_deref(), Some("Increment"));
     assert_eq!(
         serde_json::Value::Object(revision.diff),
         json!({"count": [0, 2], "pulse": [0, 1]})
@@ -350,7 +351,8 @@ fn task_applies_commit_separately_and_capability_result_writes_into_store() {
     assert_eq!(commit.revision, 2);
     let last = commit.committed.expect("last apply committed");
     assert_eq!(last.revision, 2);
-    assert_eq!(last.cause, "LoadFeed");
+    assert_eq!(last.cause.kind, "task");
+    assert_eq!(last.cause.name.as_deref(), Some("LoadFeed"));
     assert!(last.diff.contains_key("posts"), "{:?}", last.diff);
     assert!(last.diff.contains_key("status"), "{:?}", last.diff);
     assert_eq!(session.revisions().len(), 2);
@@ -524,8 +526,10 @@ task RunFail on S {
         "task apply plus one mutation transaction"
     );
     assert_eq!(session.revisions().len(), 2);
-    assert_eq!(session.revisions()[0].cause, "Run");
-    assert_eq!(session.revisions()[1].cause, "Run");
+    assert_eq!(session.revisions()[0].cause.kind, "task");
+    assert_eq!(session.revisions()[0].cause.name.as_deref(), Some("Run"));
+    assert_eq!(session.revisions()[1].cause.kind, "task");
+    assert_eq!(session.revisions()[1].cause.name.as_deref(), Some("Run"));
     assert!(session.revisions()[1].diff.contains_key("n"));
     assert!(session.revisions()[1].diff.contains_key("flag"));
     let snap = session.snapshot("S").unwrap();

@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::{Map, Value as JsonValue};
 
 use crate::ast::{Definition, Program, StoreDef, StoreFieldKind, TypeRef};
-use crate::error::GraphemeError;
+use crate::error::{GraphemeError, SpanGuard};
 use crate::hir::{
     HirEnumDef, HirExecutable, HirExecutableKind, HirStateMachineDef, HirStep, HirStore,
     HirStoreField, HirStructDef, HirStructField, value_to_json,
@@ -96,7 +96,7 @@ pub(crate) fn is_store_bound(
 }
 
 fn type_error(message: String) -> GraphemeError {
-    GraphemeError::TypeError(message)
+    GraphemeError::type_error(message)
 }
 
 fn lower_store(
@@ -129,6 +129,7 @@ fn lower_store(
     let mut seen = HashSet::new();
     let mut fields = Vec::new();
     for field in &store.fields {
+        let _span = field.span.map(SpanGuard::for_pos);
         if !seen.insert(field.name.as_str()) {
             return Err(type_error(format!(
                 "state '{}': field '{}' is declared more than once",
@@ -565,7 +566,7 @@ fn reject_bare(exec: &str, args: &JsonValue) -> Result<(), GraphemeError> {
         }
     });
     match found {
-        Some(name) => Err(GraphemeError::ParseError(format!(
+        Some(name) => Err(GraphemeError::parse_error(format!(
             "definition '{exec}': '${name}' must reference $state.<field> or $item.<field> outside a store executable"
         ))),
         None => Ok(()),

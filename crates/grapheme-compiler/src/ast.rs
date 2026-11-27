@@ -175,6 +175,9 @@ pub struct StoreFieldDef {
     pub type_ref: TypeRef,
     /// Default for stored fields; the computed expression for derives.
     pub value: Value,
+    /// Position of the field name. Absent for deserialized AST.
+    #[serde(skip)]
+    pub span: Option<SourcePos>,
 }
 
 /// `state Name { ... }`: a typed, revisioned state store (RFC-0007 Part A).
@@ -280,6 +283,9 @@ pub struct ViewEvent {
     pub event: String,
     pub target: String,
     pub args: Vec<(String, Value)>,
+    /// Position of the `on <event>` binding. Absent for deserialized AST.
+    #[serde(skip)]
+    pub span: Option<SourcePos>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

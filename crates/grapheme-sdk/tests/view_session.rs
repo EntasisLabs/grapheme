@@ -98,7 +98,8 @@ fn invoking_an_action_commits_one_revision_like_invoke() {
     let commit = session.invoke_action(&id, None).unwrap();
     assert_eq!(commit.revision, 1);
     let revision = commit.committed.expect("a revision");
-    assert_eq!(revision.cause, "Increment");
+    assert_eq!(revision.cause.kind, "mutation");
+    assert_eq!(revision.cause.name.as_deref(), Some("Increment"));
     assert_eq!(revision.diff["count"], json!([0, 1]));
 
     let snapshot = session.render("CounterView").unwrap();
@@ -136,7 +137,10 @@ fn rebinding_an_action_makes_its_old_id_stale() {
 
     session.invoke_action(&increment, None).unwrap();
     // `Add(by: $count + 1)` is now bound to a different argument.
-    let err = session.invoke_action(&old_add, None).unwrap_err().to_string();
+    let err = session
+        .invoke_action(&old_add, None)
+        .unwrap_err()
+        .to_string();
     assert!(err.contains("stale_action"), "{err}");
     assert_eq!(session.revision("Counter"), Some(1));
 
@@ -187,7 +191,10 @@ fn feed_view_if_for_expands_after_load() {
         idle.actions
     );
     assert!(
-        !idle.actions.iter().any(|a| a.target == "Like" && a.id.starts_with("FeedView/")),
+        !idle
+            .actions
+            .iter()
+            .any(|a| a.target == "Like" && a.id.starts_with("FeedView/")),
         "like buttons should not render while idle: {:?}",
         idle.actions
     );
@@ -203,11 +210,15 @@ fn feed_view_if_for_expands_after_load() {
         .collect();
     assert_eq!(likes.len(), 2, "{likes:?}");
     assert!(
-        likes.iter().any(|(id, args)| id.contains("/1/") && args.get("id") == Some(&json!("1"))),
+        likes
+            .iter()
+            .any(|(id, args)| id.contains("/1/") && args.get("id") == Some(&json!("1"))),
         "{likes:?}"
     );
     assert!(
-        likes.iter().any(|(id, args)| id.contains("/2/") && args.get("id") == Some(&json!("2"))),
+        likes
+            .iter()
+            .any(|(id, args)| id.contains("/2/") && args.get("id") == Some(&json!("2"))),
         "{likes:?}"
     );
 
@@ -255,16 +266,16 @@ fn textfield_change_merges_payload_into_search() {
         .invoke_action(&search.id, Some(json!({"value": "x", "extra": 1})))
         .unwrap_err()
         .to_string();
-    assert!(unknown.contains("unknown payload param 'extra'"), "{unknown}");
+    assert!(
+        unknown.contains("unknown payload param 'extra'"),
+        "{unknown}"
+    );
 
     let wrong_type = session
         .invoke_action(&search.id, Some(json!({"value": 1})))
         .unwrap_err()
         .to_string();
-    assert!(
-        wrong_type.contains("expects String"),
-        "{wrong_type}"
-    );
+    assert!(wrong_type.contains("expects String"), "{wrong_type}");
 }
 
 fn render(source: &str, view: &str) -> grapheme_sdk::GraphemeStoreSession {
@@ -348,7 +359,10 @@ view Bad on S {
         .store_session(src)
         .unwrap();
     let snap = session.render("V").unwrap();
-    let children = snap.ir["root"]["children"].as_array().map(|c| c.len()).unwrap_or(0);
+    let children = snap.ir["root"]["children"]
+        .as_array()
+        .map(|c| c.len())
+        .unwrap_or(0);
     assert_eq!(children, 0, "{:?}", snap.ir);
     let err = session.render("Bad").unwrap_err().to_string();
     assert!(err.contains("for source must be a list"), "{err}");
