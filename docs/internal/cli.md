@@ -17,6 +17,7 @@ grapheme session <file.gr> [--catalog file.json] [--invoke Name[:<json-object>] 
 grapheme --help
 grapheme --version
 grapheme run <file.gr> [--glyph <name>] [--bind module=path.wasm ...] [--json] [--native-modules]
+grapheme dev <file.gr> [--glyph <name>]
                     [--state-json '<json>' | --state-file path.json]
                     [--args-json '<json-object>']
                     [--aot-stage stage_a|stage_b] [--type-policy warn|strict]
@@ -97,6 +98,8 @@ Compiles and executes a program. A run that ends in `fatal_failure` exits non-ze
 A file with a UI glyph (`glyph App on Store { … }`) and no workflow entry opens in a window instead, in-process through [grapheme-ui](https://github.com/EntasisLabs/grapheme-ui). That needs the optional `ui` feature (`cargo install grapheme-cli --features ui`, or `cargo run -p grapheme-cli --features ui -- run app.gr`). Without it, `grapheme run` prints a message naming that reinstall and exits non-zero. The default build has no window or GPU dependencies.
 
 `grapheme --version` and `-V` print `grapheme-cli <version>` and exit 0. `grapheme --help` and `-h` print usage and exit 0.
+
+`grapheme dev <file.gr> [--glyph <name>]` is the same window, and it reloads when the file is saved. Plain fields and non-transient lifecycle fields are kept, transient fields reset, derives recompute, and a running task is fenced. The migration is one revision with `cause.kind` `reload`. A save that does not compile leaves the last good UI in place and shows the file, line, column, and message in the window. It needs the same `ui` feature. Without it, the command names the reinstall and exits non-zero.
 
 A file with exactly one UI glyph opens that glyph. Several UI glyphs (`glyph Name on Store`) in one file are allowed; `grapheme run` exits unless you pass `--glyph <name>` (`grapheme run app.gr --glyph FeedApp`, or `--glyph FeedApp app.gr`). The error names the glyphs you can pass. The name is forwarded to grapheme-ui's `desktop::run_file`. A workflow glyph (`glyph Name { … }`) is still limited to one per file. The default CLI build's `rust-version` stays **1.94**. The `ui` feature needs Rust **1.95** (grapheme-ui's rust-version).
 
