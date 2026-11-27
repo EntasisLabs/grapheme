@@ -8,7 +8,9 @@
 //! revisions if a later step fails. A mutation the task calls is still one
 //! transaction.
 
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use grapheme_artifact::expr::{evaluate, expr_parts, first_error, select_path};
 use grapheme_artifact::{
@@ -159,16 +161,47 @@ struct BoundEvent {
 
 const MAX_VIEW_DEPTH: usize = 64;
 
+/// Called after each task commit, once that revision is visible to
+/// [`StoreSession::snapshot`] and [`StoreSession::app_snapshot`].
+///
+/// Runs on the invoking thread, before the task continues and before
+/// [`StoreSession::invoke`] returns. The callback may read the session
+/// (`snapshot`, `app_snapshot`, `revision`, `revisions`). It must not call
+/// [`StoreSession::invoke`], [`StoreSession::invoke_action`],
+/// [`StoreSession::query`], [`StoreSession::mount`], or
+/// [`StoreSession::set_commit_observer`].
+///
+/// Top-level mutations do not notify: they commit once, and `invoke` returns
+/// that revision. A task notifies on every `apply` and on every mutation it
+/// commits. Renderer-free: the argument is the committed revision, not a view.
+pub type CommitObserver = Arc<dyn Fn(&StoreSession, &StoreRevision) + Send + Sync>;
+
 /// Owns one instance of every store declared by an artifact.
 #[derive(Debug, Clone)]
 pub struct StoreSession {
     artifact: ArtifactEnvelope,
-    stores: BTreeMap<String, StoreInstance>,
-    log: Vec<StoreRevision>,
-    bindings: BTreeMap<(String, String), Binding>,
-    rendered: BTreeSet<String>,
+    stores: RefCell<BTreeMap<String, StoreInstance>>,
+    log: RefCell<Vec<StoreRevision>>,
+    bindings: RefCell<BTreeMap<(String, String), Binding>>,
+    rendered: RefCell<BTreeSet<String>>,
     /// Currently mounted UI glyph, if any.
     mounted: Option<String>,
+    commit_observer: CommitObserverSlot,
+    /// Set while the commit observer is running, so a callback that invokes
+    /// the session fails instead of re-entering the task.
+    notifying: Cell<bool>,
+}
+
+#[derive(Clone)]
+struct CommitObserverSlot(Option<CommitObserver>);
+
+impl std::fmt::Debug for CommitObserverSlot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            Some(_) => f.write_str("Some(..)"),
+            None => f.write_str("None"),
+        }
+    }
 }
 
 fn session_error(message: impl Into<String>) -> RuntimeError {
@@ -229,16 +262,61 @@ impl StoreSession {
         }
         Ok(Self {
             artifact,
-            stores,
-            log: Vec::new(),
-            bindings: BTreeMap::new(),
-            rendered: BTreeSet::new(),
+            stores: RefCell::new(stores),
+            log: RefCell::new(Vec::new()),
+            bindings: RefCell::new(BTreeMap::new()),
+            rendered: RefCell::new(BTreeSet::new()),
             mounted: None,
+            commit_observer: CommitObserverSlot(None),
+            notifying: Cell::new(false),
         })
     }
 
-    pub fn store_names(&self) -> impl Iterator<Item = &str> {
-        self.stores.keys().map(String::as_str)
+    /// Install `observer` for later task commits, or clear it.
+    ///
+    /// See [`CommitObserver`]. Replaces any observer already installed.
+    pub fn set_commit_observer(&mut self, observer: Option<CommitObserver>) {
+        self.commit_observer = CommitObserverSlot(observer);
+    }
+
+    fn ensure_not_notifying(&self) -> Result<(), RuntimeError> {
+        if self.notifying.get() {
+            return Err(session_error(
+                "commit observer must not invoke, query, or mount the session",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Publish one task commit into the session and run the observer.
+    ///
+    /// The task executor calls this before the next step. The session log
+    /// already contains `revision` when the observer runs.
+    fn publish_task_commit(
+        &self,
+        store_name: &str,
+        fields: &Map<String, JsonValue>,
+        revision: &StoreRevision,
+    ) {
+        if let Some(instance) = self.stores.borrow_mut().get_mut(store_name) {
+            instance.fields.clone_from(fields);
+            instance.revision = revision.revision;
+        }
+        self.log.borrow_mut().push(revision.clone());
+        self.emit_commit(revision);
+    }
+
+    fn emit_commit(&self, revision: &StoreRevision) {
+        let Some(observer) = self.commit_observer.0.clone() else {
+            return;
+        };
+        self.notifying.set(true);
+        observer(self, revision);
+        self.notifying.set(false);
+    }
+
+    pub fn store_names(&self) -> Vec<String> {
+        self.stores.borrow().keys().cloned().collect()
     }
 
     /// UI glyphs declared by the program (`glyph Name on Store { … }`).
@@ -252,19 +330,21 @@ impl StoreSession {
     }
 
     pub fn revision(&self, store: &str) -> Option<u64> {
-        self.stores.get(store).map(|s| s.revision)
+        self.stores.borrow().get(store).map(|s| s.revision)
     }
 
     /// Every committed revision, oldest first.
-    pub fn revisions(&self) -> &[StoreRevision] {
-        &self.log
+    pub fn revisions(&self) -> Vec<StoreRevision> {
+        self.log.borrow().clone()
     }
 
     /// The store's stored fields plus its derives, evaluated at the latest revision.
     pub fn snapshot(&self, store: &str) -> Result<JsonValue, RuntimeError> {
         let instance = self
             .stores
+            .borrow()
             .get(store)
+            .cloned()
             .ok_or_else(|| session_error(format!("no state named '{store}'")))?;
         let mut out = instance.fields.clone();
         let scope = JsonValue::Object(instance.fields.clone());
@@ -290,6 +370,7 @@ impl StoreSession {
         options: RuntimeOptions,
         host: &mut dyn CapabilityHost,
     ) -> Result<JsonValue, RuntimeError> {
+        self.ensure_not_notifying()?;
         let (store, kind) = self.bound_store(query)?;
         if !matches!(kind, MirFunctionKind::Query) {
             return Err(session_error(format!(
@@ -303,9 +384,9 @@ impl StoreSession {
     /// Evaluates `view` against its store's latest revision and returns the
     /// tree plus its action list. Rendering is read-only for stores; it only
     /// advances binding epochs whose node was remounted or rebound.
-    pub fn render(&mut self, view: &str) -> Result<ViewSnapshot, RuntimeError> {
+    pub fn render(&self, view: &str) -> Result<ViewSnapshot, RuntimeError> {
         let (mut snapshot, events) = self.evaluate_view(view)?;
-        self.rendered.insert(view.to_string());
+        self.rendered.borrow_mut().insert(view.to_string());
         snapshot.actions = self.bind(view, events);
         attach_action_ids(&mut snapshot.ir["root"], &snapshot.actions);
         Ok(snapshot)
@@ -314,13 +395,14 @@ impl StoreSession {
     /// Mounts a UI glyph and returns its app snapshot (RFC-0007 Part H / I.2).
     /// When `glyph` is `None`, mounts the program's sole UI glyph.
     pub fn mount(&mut self, glyph: Option<&str>) -> Result<AppSnapshot, RuntimeError> {
+        self.ensure_not_notifying()?;
         let selected = self.resolve_ui_glyph(glyph)?.name.clone();
         self.mounted = Some(selected);
         self.app_snapshot()
     }
 
     /// Re-evaluates the mounted UI glyph: View IR, tree actions and `expose` actions.
-    pub fn app_snapshot(&mut self) -> Result<AppSnapshot, RuntimeError> {
+    pub fn app_snapshot(&self) -> Result<AppSnapshot, RuntimeError> {
         let glyph_name = self
             .mounted
             .clone()
@@ -361,10 +443,11 @@ impl StoreSession {
         options: RuntimeOptions,
         host: &mut dyn CapabilityHost,
     ) -> Result<StoreCommit, RuntimeError> {
+        self.ensure_not_notifying()?;
         if self.mounted.is_some() {
             let _ = self.app_snapshot()?;
         } else {
-            for view in self.rendered.clone() {
+            for view in self.rendered.borrow().clone() {
                 let (_, events) = self.evaluate_view(&view)?;
                 self.bind(&view, events);
             }
@@ -420,6 +503,7 @@ impl StoreSession {
         }
         let Some(binding) = self
             .bindings
+            .borrow()
             .iter()
             .find(|((key, event), b)| b.mounted && action_id(key, event, b.epoch) == id)
             .map(|(_, b)| b.clone())
@@ -616,7 +700,10 @@ impl StoreSession {
             return Ok(());
         };
         let fail = |message: String| {
-            session_error(format!("view '{}', element '{child_key}': {message}", view.name))
+            session_error(format!(
+                "view '{}', element '{child_key}': {message}",
+                view.name
+            ))
         };
         let source = eval_view_value(&repeat.source, place.scope)
             .map_err(|e| fail(format!("for source: {e}")))?;
@@ -742,7 +829,10 @@ impl StoreSession {
                 args.insert(name.clone(), value);
             }
             let mut event_ir = serde_json::Map::new();
-            event_ir.insert("$action".to_string(), JsonValue::from(binding.target.clone()));
+            event_ir.insert(
+                "$action".to_string(),
+                JsonValue::from(binding.target.clone()),
+            );
             event_ir.insert("args".to_string(), JsonValue::Object(args.clone()));
             if !binding.payload_params.is_empty() {
                 event_ir.insert(
@@ -776,22 +866,20 @@ impl StoreSession {
     /// Assigns epochs: a binding keeps its epoch while its node stays mounted
     /// with the same target, arguments and payload params; otherwise the epoch
     /// advances.
-    fn bind(&mut self, view: &str, events: Vec<BoundEvent>) -> Vec<ViewAction> {
+    fn bind(&self, view: &str, events: Vec<BoundEvent>) -> Vec<ViewAction> {
         let mut seen = BTreeSet::new();
         let mut actions = Vec::new();
+        let mut bindings = self.bindings.borrow_mut();
         for event in events {
             let slot = (event.key.clone(), event.event.clone());
-            let binding = self
-                .bindings
-                .entry(slot.clone())
-                .or_insert_with(|| Binding {
-                    view: view.to_string(),
-                    target: event.target.clone(),
-                    args: event.args.clone(),
-                    payload_params: event.payload_params.clone(),
-                    epoch: 0,
-                    mounted: false,
-                });
+            let binding = bindings.entry(slot.clone()).or_insert_with(|| Binding {
+                view: view.to_string(),
+                target: event.target.clone(),
+                args: event.args.clone(),
+                payload_params: event.payload_params.clone(),
+                epoch: 0,
+                mounted: false,
+            });
             if !binding.mounted
                 || binding.view != view
                 || binding.target != event.target
@@ -817,7 +905,7 @@ impl StoreSession {
             });
             seen.insert(slot);
         }
-        for (slot, binding) in &mut self.bindings {
+        for (slot, binding) in &mut *bindings {
             if binding.view == view && !seen.contains(slot) {
                 binding.mounted = false;
             }
@@ -846,7 +934,9 @@ impl StoreSession {
     ) -> Result<(crate::AgentState, Vec<FieldWrite>), RuntimeError> {
         let instance = self
             .stores
+            .borrow()
             .get(store)
+            .cloned()
             .ok_or_else(|| session_error(format!("no state named '{store}'")))?;
         let mut artifact = self.artifact.clone();
         artifact.entrypoint = name.to_string();
@@ -891,6 +981,7 @@ impl StoreSession {
         host: &mut dyn CapabilityHost,
         action: Option<&str>,
     ) -> Result<StoreCommit, RuntimeError> {
+        self.ensure_not_notifying()?;
         let (store_name, kind) = self.bound_store(mutation)?;
         if matches!(kind, MirFunctionKind::Query) {
             return Err(session_error(format!(
@@ -912,7 +1003,7 @@ impl StoreSession {
     }
 
     fn invoke_task(
-        &mut self,
+        &self,
         task: &str,
         store_name: &str,
         args: Option<JsonValue>,
@@ -923,7 +1014,9 @@ impl StoreSession {
         let (fields, mut sink) = {
             let instance = self
                 .stores
+                .borrow()
                 .get(store_name)
+                .cloned()
                 .ok_or_else(|| session_error(format!("no state named '{store_name}'")))?;
             (
                 JsonValue::Object(instance.fields.clone()),
@@ -945,6 +1038,10 @@ impl StoreSession {
 
         let mut effects = Vec::new();
         let mut effect_seq = 0u64;
+        let store_for_hook = store_name.to_string();
+        let mut on_commit = |revision: &StoreRevision, fields: Map<String, JsonValue>| {
+            self.publish_task_commit(&store_for_hook, &fields, revision);
+        };
         let executed = {
             let mut task_host = TaskHost {
                 sink: &mut sink,
@@ -954,20 +1051,25 @@ impl StoreSession {
                 effects: &mut effects,
                 effect_seq: &mut effect_seq,
                 txns: Vec::new(),
+                on_commit: &mut on_commit,
             };
             RuntimeEngine::new(options).execute_artifact(&artifact, &mut task_host)
         };
 
-        // Task applies commit as they run; keep them even if a later step fails.
+        // Each task commit was published as it happened, including when a
+        // later step fails. Copy the final fields again so a commit that
+        // changed nothing still leaves the sink's copy in place.
         let commits = sink.log.len();
         let last_committed = sink.last_committed.clone();
         let revision = sink.revision;
-        let Some(instance) = self.stores.get_mut(store_name) else {
-            return Err(session_error(format!("no state named '{store_name}'")));
-        };
-        instance.fields = sink.fields;
-        instance.revision = sink.revision;
-        self.log.extend(sink.log);
+        {
+            let mut stores = self.stores.borrow_mut();
+            let Some(instance) = stores.get_mut(store_name) else {
+                return Err(session_error(format!("no state named '{store_name}'")));
+            };
+            instance.fields = sink.fields;
+            instance.revision = sink.revision;
+        }
 
         let failure = match executed {
             Ok((_, result)) if matches!(result.outcome, ExecutionOutcome::Succeeded) => None,
@@ -1002,7 +1104,10 @@ impl StoreSession {
         next: &Map<String, JsonValue>,
         writes: &[FieldWrite],
     ) -> Result<StoreCommit, RuntimeError> {
-        let instance = &self.stores[store_name];
+        let mut stores = self.stores.borrow_mut();
+        let instance = stores
+            .get_mut(store_name)
+            .ok_or_else(|| session_error(format!("no state named '{store_name}'")))?;
         let mut transitioned = Vec::new();
         for (name, from, to) in writes {
             let Some(field) = instance.schema.fields.iter().find(|f| &f.name == name) else {
@@ -1049,9 +1154,6 @@ impl StoreSession {
             diff.insert(field.name.clone(), change);
         }
 
-        let Some(instance) = self.stores.get_mut(store_name) else {
-            return Err(session_error(format!("no state named '{store_name}'")));
-        };
         if diff.is_empty() {
             return Ok(StoreCommit {
                 store: store_name.to_string(),
@@ -1071,7 +1173,7 @@ impl StoreSession {
             diff,
             history_diff,
         };
-        self.log.push(revision.clone());
+        self.log.borrow_mut().push(revision.clone());
         Ok(StoreCommit {
             store: store_name.to_string(),
             revision: instance.revision,
@@ -1215,6 +1317,7 @@ struct TaskHost<'a> {
     effects: &'a mut Vec<EffectReceipt>,
     effect_seq: &'a mut u64,
     txns: Vec<TxnFrame>,
+    on_commit: &'a mut dyn FnMut(&StoreRevision, Map<String, JsonValue>),
 }
 
 impl CapabilityHost for TaskHost<'_> {
@@ -1247,9 +1350,11 @@ impl CapabilityHost for TaskHost<'_> {
             return Ok(());
         }
         if let Some(next) = frame.next {
+            let before = self.sink.log.len();
             self.sink
                 .commit(&self.cause, &next, &frame.writes)
                 .map_err(HostCallError::Fatal)?;
+            self.note_commit(before);
         }
         Ok(())
     }
@@ -1272,9 +1377,11 @@ impl CapabilityHost for TaskHost<'_> {
                 frame.writes.extend(writes);
                 frame.next = Some(next);
             } else {
+                let before = self.sink.log.len();
                 self.sink
                     .commit(&self.cause, &next, &writes)
                     .map_err(HostCallError::Fatal)?;
+                self.note_commit(before);
             }
             return Ok(output);
         }
@@ -1297,6 +1404,19 @@ impl CapabilityHost for TaskHost<'_> {
 }
 
 impl TaskHost<'_> {
+    /// If `commit` appended a revision, hand it to the session observer
+    /// before the task continues.
+    fn note_commit(&mut self, log_len_before: usize) {
+        if self.sink.log.len() == log_len_before {
+            return;
+        }
+        let Some(revision) = self.sink.last_committed.clone() else {
+            return;
+        };
+        let fields = self.sink.fields.clone();
+        (self.on_commit)(&revision, fields);
+    }
+
     fn push_receipt(
         &mut self,
         module: Option<&str>,
@@ -1435,7 +1555,10 @@ fn attach_action_ids(node: &mut JsonValue, actions: &[ViewAction]) {
     if let Some(events) = node.get_mut("events").and_then(JsonValue::as_object_mut) {
         for (event, binding) in events.iter_mut() {
             // Last match: if two rows ever shared a key, the later epoch is the live id.
-            if let Some(action) = actions.iter().rev().find(|a| a.key == key && &a.event == event)
+            if let Some(action) = actions
+                .iter()
+                .rev()
+                .find(|a| a.key == key && &a.event == event)
             {
                 binding["id"] = JsonValue::from(action.id.clone());
             }
