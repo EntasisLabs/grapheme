@@ -532,7 +532,7 @@ fn expand_fragment_steps(
     for step in steps {
         match step {
             PipelineStep::Call(call) if fragment_defs.contains_key(&call.target) => {
-                return Err(GraphemeError::TypeError(format!(
+                return Err(GraphemeError::type_error(format!(
                     "definition '{}': fragment '{}' cannot be invoked via call; use a bare fragment step",
                     owner_name, call.target
                 )));
@@ -548,7 +548,7 @@ fn expand_fragment_steps(
                     || !field.directives.is_empty()
                     || field.selection.is_some()
                 {
-                    return Err(GraphemeError::TypeError(format!(
+                    return Err(GraphemeError::type_error(format!(
                         "definition '{}': fragment '{}' must be invoked as a bare step with no args/directives/selection",
                         owner_name, field.name
                     )));
@@ -557,7 +557,7 @@ fn expand_fragment_steps(
                 if expansion_stack.iter().any(|name| name == &field.name) {
                     let mut cycle = expansion_stack.clone();
                     cycle.push(field.name.clone());
-                    return Err(GraphemeError::TypeError(format!(
+                    return Err(GraphemeError::type_error(format!(
                         "definition '{}': fragment expansion cycle detected: {}",
                         owner_name,
                         cycle.join(" -> ")
@@ -765,7 +765,7 @@ fn normalize_executable_directives(
     }
 
     if resilient_directives > 1 {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}': multiple @resilient directives are not allowed",
             executable_name
         )));
@@ -775,7 +775,7 @@ fn normalize_executable_directives(
         .iter()
         .any(|d| d.name == "loop" || d.name == "retry" || d.name == "timeout")
     {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}': @resilient cannot be combined with @loop/@retry/@timeout",
             executable_name
         )));
@@ -798,7 +798,7 @@ fn normalize_executable_directives(
             "retry" | "r" => "retry",
             "timeout" | "t" => "timeout",
             other => {
-                return Err(GraphemeError::TypeError(format!(
+                return Err(GraphemeError::type_error(format!(
                     "definition '{}': @resilient unknown key '{}'",
                     executable_name, other
                 )));
@@ -806,7 +806,7 @@ fn normalize_executable_directives(
         };
 
         let Value::Object(fields) = value else {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}': @resilient.{} must be an object",
                 executable_name, key
             )));

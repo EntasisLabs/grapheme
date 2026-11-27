@@ -25,7 +25,7 @@ use grapheme_artifact::{
 
 pub use catalog::ElementCatalog;
 pub use compiler_api::{CompiledAotScript, CompiledScript, Compiler, CompilerOptions};
-pub use error::CompilerError;
+pub use error::{CompilerError, Diagnostic, SourceSpan};
 pub use parser::parse;
 pub use pipeline::{CompilationArtifact, CompileOptions, compile_program};
 
@@ -67,7 +67,7 @@ pub fn compile_to_artifact(
             .collect::<Vec<_>>();
 
         if executable_roots.len() > 1 {
-            return Err(CompilerError::TypeError(format!(
+            return Err(CompilerError::type_error(format!(
                 "ambiguous entrypoint: file has multiple query/mutation roots ({}) and no glyph; add `glyph <Name> {{ ... }}` or pass an explicit entrypoint",
                 executable_roots.join(", ")
             )));

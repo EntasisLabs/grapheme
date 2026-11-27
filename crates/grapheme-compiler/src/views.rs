@@ -14,7 +14,7 @@ use crate::ast::{
     Definition, GlyphDef, Program, ScalarKind, SourcePos, TypeRef, Value, ViewDef, ViewElement,
 };
 use crate::catalog::{CatalogElement, ElementCatalog, PropType};
-use crate::error::GraphemeError;
+use crate::error::{GraphemeError, SpanGuard};
 use crate::hir::{HirExecutable, HirExecutableKind, HirStore, value_to_json};
 use crate::stores::{find_field, rewrite_strings, rewrite_vars, split_path};
 use crate::verifier::LintWarning;
@@ -70,7 +70,7 @@ fn catalog_located(message: String, catalog: &str, at: Option<SourcePos>) -> Str
 }
 
 fn type_error(message: String) -> GraphemeError {
-    GraphemeError::TypeError(message)
+    GraphemeError::type_error(message)
 }
 
 pub(crate) fn lower_views(
@@ -335,6 +335,7 @@ impl Ctx<'_> {
         key: String,
         items: &[String],
     ) -> Result<MirViewNode, GraphemeError> {
+        let _span = element.span.map(SpanGuard::for_pos);
         if element.kind == "if" {
             return self.lower_if(element, key, items);
         }
@@ -427,6 +428,7 @@ impl Ctx<'_> {
                 .iter()
                 .map(|param| (param.name.as_str(), param.ty.as_str()))
                 .collect();
+            let _event_span = event.span.map(SpanGuard::for_pos);
             let binding = self.lower_binding(&key, &event.target, &event.args, &payload, items)?;
             events.insert(event.event.clone(), binding);
         }

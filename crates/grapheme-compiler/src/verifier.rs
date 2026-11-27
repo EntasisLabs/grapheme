@@ -222,7 +222,7 @@ pub(crate) fn verify_hir_with_lints_mode_catalog(
                         def.name, i, step_idx, message
                     );
                     if policy_mode == ExecutableKindPolicyMode::StrictMutationOnly {
-                        return Err(GraphemeError::TypeError(message));
+                        return Err(GraphemeError::type_error(message));
                     }
                     lint_warnings.push(LintWarning {
                         code: "expression-type".to_string(),
@@ -312,7 +312,7 @@ fn apply_executable_kind_policy(
     );
 
     if matches!(policy_mode, ExecutableKindPolicyMode::StrictMutationOnly) {
-        return Err(GraphemeError::TypeError(message));
+        return Err(GraphemeError::type_error(message));
     }
 
     lint_warnings.push(LintWarning {
@@ -464,7 +464,7 @@ fn verify_typed_output_field_population(
 
         for key in literal_patch.keys() {
             if !all_fields.contains(key) {
-                return Err(GraphemeError::TypeError(format!(
+                return Err(GraphemeError::type_error(format!(
                     "definition '{}', pipeline {}: field '{}' is not declared on output type '{}'",
                     def_name, pipeline_idx, key, output_type_name
                 )));
@@ -492,7 +492,7 @@ fn verify_typed_output_field_population(
         .collect::<Vec<_>>();
 
     if !missing_required.is_empty() {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}', pipeline {}: output type '{}' missing required fields in literal state patches: {}",
             def_name,
             pipeline_idx,
@@ -556,14 +556,14 @@ fn verify_type_ref_known(
                     return Ok(());
                 }
 
-                return Err(GraphemeError::TypeError(format!(
+                return Err(GraphemeError::type_error(format!(
                     "{} references unknown type namespace '{}'",
                     context, namespace
                 )));
             }
 
             if !known_type_names.contains(name) {
-                return Err(GraphemeError::TypeError(format!(
+                return Err(GraphemeError::type_error(format!(
                     "{} references unknown type '{}'",
                     context, name
                 )));
@@ -594,7 +594,7 @@ fn verify_state_machine(
     enum_members_by_name: &HashMap<String, HashSet<String>>,
 ) -> Result<(), GraphemeError> {
     let members = enum_members_by_name.get(&sm.enum_name).ok_or_else(|| {
-        GraphemeError::TypeError(format!(
+        GraphemeError::type_error(format!(
             "state_machine '{}' references unknown enum '{}'",
             sm.name, sm.enum_name
         ))
@@ -603,7 +603,7 @@ fn verify_state_machine(
     let terminal_set = sm.terminals.iter().cloned().collect::<HashSet<_>>();
     for terminal in &sm.terminals {
         if !members.contains(terminal) {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "state_machine '{}' terminal '{}' is not a member of enum '{}'",
                 sm.name, terminal, sm.enum_name
             )));
@@ -614,26 +614,26 @@ fn verify_state_machine(
     let mut outgoing = HashMap::<String, HashSet<String>>::new();
     for t in &sm.transitions {
         if !members.contains(&t.from) {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "state_machine '{}' transition from '{}' is not a member of enum '{}'",
                 sm.name, t.from, sm.enum_name
             )));
         }
         if !members.contains(&t.to) {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "state_machine '{}' transition to '{}' is not a member of enum '{}'",
                 sm.name, t.to, sm.enum_name
             )));
         }
         if terminal_set.contains(&t.from) {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "state_machine '{}' transition '{}' -> '{}' is invalid: terminals cannot have outgoing transitions",
                 sm.name, t.from, t.to
             )));
         }
 
         if !transition_pairs.insert((t.from.clone(), t.to.clone())) {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "state_machine '{}' has duplicate transition '{} -> {}'",
                 sm.name, t.from, t.to
             )));
@@ -653,7 +653,7 @@ fn verify_state_machine(
 
     if !missing.is_empty() {
         missing.sort();
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "state_machine '{}' non-terminal states without outgoing transitions: {}",
             sm.name,
             missing.join(", ")
@@ -669,7 +669,7 @@ fn index_state_machines_by_enum(
     let mut out = HashMap::new();
     for sm in state_machines {
         if let Some(existing) = out.insert(sm.enum_name.clone(), sm.clone()) {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "multiple state_machines declared for enum '{}': '{}' and '{}'",
                 sm.enum_name, existing.name, sm.name
             )));
@@ -751,7 +751,7 @@ fn verify_state_machine_transitions_in_pipeline(
             };
 
             if !members.contains(next_state) {
-                return Err(GraphemeError::TypeError(format!(
+                return Err(GraphemeError::type_error(format!(
                     "definition '{}', pipeline {}, step {}: field '{}' assigns unknown enum member '{}' for enum '{}'",
                     def_name, pipeline_idx, step_idx, field, next_state, sm.enum_name
                 )));
@@ -763,7 +763,7 @@ fn verify_state_machine_transitions_in_pipeline(
                 }
 
                 if sm.terminals.iter().any(|t| t == prev_state) {
-                    return Err(GraphemeError::TypeError(format!(
+                    return Err(GraphemeError::type_error(format!(
                         "definition '{}', pipeline {}, step {}: invalid transition for field '{}' from terminal state '{}' to '{}' in state_machine '{}'",
                         def_name, pipeline_idx, step_idx, field, prev_state, next_state, sm.name
                     )));
@@ -774,7 +774,7 @@ fn verify_state_machine_transitions_in_pipeline(
                     .iter()
                     .any(|t| t.from == *prev_state && t.to == next_state);
                 if !allowed {
-                    return Err(GraphemeError::TypeError(format!(
+                    return Err(GraphemeError::type_error(format!(
                         "definition '{}', pipeline {}, step {}: invalid transition for field '{}' from '{}' to '{}' in state_machine '{}'",
                         def_name, pipeline_idx, step_idx, field, prev_state, next_state, sm.name
                     )));
@@ -830,7 +830,7 @@ fn verify_typed_current_field_access(
 
             let root_field = field.split('.').next().unwrap_or(field);
             if !known_fields.contains(root_field) {
-                return Err(GraphemeError::TypeError(format!(
+                return Err(GraphemeError::type_error(format!(
                     "definition '{}', pipeline {}, step {}: unknown field '$current.{}' for input type '{}'",
                     def_name, pipeline_idx, step_idx, root_field, input_type_name
                 )));
@@ -888,14 +888,14 @@ fn verify_recursive_directive(def: &super::hir::HirExecutable) -> Result<(), Gra
     }
 
     if def.recursive_directive_count > 1 {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}': multiple @recursive directives are not allowed",
             def.name
         )));
     }
 
     if !matches!(def.kind, HirExecutableKind::Fragment) {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}': @recursive is only allowed on iterator definitions",
             def.name
         )));
@@ -906,7 +906,7 @@ fn verify_recursive_directive(def: &super::hir::HirExecutable) -> Result<(), Gra
         .as_ref()
         .and_then(|v| v.as_object())
         .ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}': @recursive requires named args",
                 def.name
             ))
@@ -914,7 +914,7 @@ fn verify_recursive_directive(def: &super::hir::HirExecutable) -> Result<(), Gra
 
     for key in args.keys() {
         if key != "max_depth" {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}': @recursive unknown arg '{}'",
                 def.name, key
             )));
@@ -923,14 +923,14 @@ fn verify_recursive_directive(def: &super::hir::HirExecutable) -> Result<(), Gra
 
     if let Some(max_depth) = args.get("max_depth") {
         let value = max_depth.as_i64().ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}': @recursive max_depth must be an integer",
                 def.name
             ))
         })?;
 
         if value < 1 {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}': @recursive max_depth must be >= 1",
                 def.name
             )));
@@ -946,14 +946,14 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
     }
 
     if def.loop_directive_count > 1 {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}': multiple @loop directives are not allowed",
             def.name
         )));
     }
 
     if !matches!(def.kind, HirExecutableKind::Fragment) {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}': @loop is only allowed on iterator definitions",
             def.name
         )));
@@ -964,7 +964,7 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
         .as_ref()
         .and_then(|v| v.as_object())
         .ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}': @loop requires named args",
                 def.name
             ))
@@ -972,7 +972,7 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
 
     for key in args.keys() {
         if key != "max" && key != "each" && key != "until" && key != "merge" {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}': @loop unknown arg '{}'",
                 def.name, key
             )));
@@ -981,14 +981,14 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
 
     if let Some(max) = args.get("max") {
         let max_value = max.as_i64().ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}': @loop max must be an integer",
                 def.name
             ))
         })?;
 
         if max_value < 1 {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}': @loop max must be >= 1",
                 def.name
             )));
@@ -997,14 +997,14 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
 
     if let Some(each) = args.get("each") {
         let selector = loop_each_selector(each).ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}': @loop each must be a string or variable reference",
                 def.name
             ))
         })?;
 
         if selector.trim().is_empty() {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}': @loop each cannot be empty",
                 def.name
             )));
@@ -1015,7 +1015,7 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
             && selector != "$current"
             && !selector.starts_with("$current.")
         {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}': @loop each must start with '$state'",
                 def.name
             )));
@@ -1024,7 +1024,7 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
 
     if let Some(until) = args.get("until") {
         let until_obj = until.as_object().ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}': @loop until must be an object",
                 def.name
             ))
@@ -1032,7 +1032,7 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
 
         for key in until_obj.keys() {
             if key != "field" && key != "eq" {
-                return Err(GraphemeError::TypeError(format!(
+                return Err(GraphemeError::type_error(format!(
                     "definition '{}': @loop until unknown field '{}'",
                     def.name, key
                 )));
@@ -1043,21 +1043,21 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
             .get("field")
             .and_then(|v| v.as_str())
             .ok_or_else(|| {
-                GraphemeError::TypeError(format!(
+                GraphemeError::type_error(format!(
                     "definition '{}': @loop until.field must be a string",
                     def.name
                 ))
             })?;
 
         if field.trim().is_empty() {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}': @loop until.field cannot be empty",
                 def.name
             )));
         }
 
         if !until_obj.contains_key("eq") {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}': @loop until requires eq",
                 def.name
             )));
@@ -1066,7 +1066,7 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
 
     if let Some(merge) = args.get("merge") {
         let merge_value = merge.as_str().ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}': @loop merge must be a string",
                 def.name
             ))
@@ -1077,7 +1077,7 @@ fn verify_loop_directive(def: &super::hir::HirExecutable) -> Result<(), Grapheme
             && merge_value != "reduce"
             && merge_value != "none"
         {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}': @loop merge must be one of replace|append|reduce|none",
                 def.name
             )));
@@ -1108,14 +1108,14 @@ fn verify_retry_directive(
     }
 
     if def.retry_directive_count > 1 {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}': multiple @retry directives are not allowed",
             def.name
         )));
     }
 
     if !matches!(def.kind, HirExecutableKind::Fragment) {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}': @retry is only allowed on iterator definitions",
             def.name
         )));
@@ -1126,7 +1126,7 @@ fn verify_retry_directive(
         .as_ref()
         .and_then(|v| v.as_object())
         .ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}': @retry requires named args",
                 def.name
             ))
@@ -1134,7 +1134,7 @@ fn verify_retry_directive(
 
     for key in args.keys() {
         if key != "max" && key != "backoff_ms" && key != "on_fail" {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}': @retry unknown arg '{}'",
                 def.name, key
             )));
@@ -1142,13 +1142,13 @@ fn verify_retry_directive(
     }
 
     let max = args.get("max").and_then(|v| v.as_i64()).ok_or_else(|| {
-        GraphemeError::TypeError(format!(
+        GraphemeError::type_error(format!(
             "definition '{}': @retry max must be an integer",
             def.name
         ))
     })?;
     if max < 1 {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}': @retry max must be >= 1",
             def.name
         )));
@@ -1156,13 +1156,13 @@ fn verify_retry_directive(
 
     if let Some(backoff_ms) = args.get("backoff_ms") {
         let value = backoff_ms.as_i64().ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}': @retry backoff_ms must be an integer",
                 def.name
             ))
         })?;
         if value < 0 {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}': @retry backoff_ms must be >= 0",
                 def.name
             )));
@@ -1173,14 +1173,14 @@ fn verify_retry_directive(
         .get("on_fail")
         .and_then(|v| parse_branch_target(Some(v)))
         .ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}': @retry on_fail must be a target (string or symbol)",
                 def.name
             ))
         })?;
 
     if on_fail != "$return" && !executable_names.contains(&on_fail) {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}': @retry on_fail target '{}' not found",
             def.name, on_fail
         )));
@@ -1198,14 +1198,14 @@ fn verify_timeout_directive(
     }
 
     if def.timeout_directive_count > 1 {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}': multiple @timeout directives are not allowed",
             def.name
         )));
     }
 
     if !matches!(def.kind, HirExecutableKind::Fragment) {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}': @timeout is only allowed on iterator definitions",
             def.name
         )));
@@ -1216,7 +1216,7 @@ fn verify_timeout_directive(
         .as_ref()
         .and_then(|v| v.as_object())
         .ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}': @timeout requires named args",
                 def.name
             ))
@@ -1224,7 +1224,7 @@ fn verify_timeout_directive(
 
     for key in args.keys() {
         if key != "ms" && key != "on_timeout" {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}': @timeout unknown arg '{}'",
                 def.name, key
             )));
@@ -1232,13 +1232,13 @@ fn verify_timeout_directive(
     }
 
     let ms = args.get("ms").and_then(|v| v.as_i64()).ok_or_else(|| {
-        GraphemeError::TypeError(format!(
+        GraphemeError::type_error(format!(
             "definition '{}': @timeout ms must be an integer",
             def.name
         ))
     })?;
     if ms < 1 {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}': @timeout ms must be >= 1",
             def.name
         )));
@@ -1248,14 +1248,14 @@ fn verify_timeout_directive(
         .get("on_timeout")
         .and_then(|v| parse_branch_target(Some(v)))
         .ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}': @timeout on_timeout must be a target (string or symbol)",
                 def.name
             ))
         })?;
 
     if on_timeout != "$return" && !executable_names.contains(&on_timeout) {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}': @timeout on_timeout target '{}' not found",
             def.name, on_timeout
         )));
@@ -1270,7 +1270,7 @@ fn verify_executable_params(def: &super::hir::HirExecutable) -> Result<(), Graph
     let mut seen = HashSet::new();
     for param in &def.params {
         if param.name.trim().is_empty() {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}': parameter name cannot be empty",
                 def.name
             )));
@@ -1279,13 +1279,13 @@ fn verify_executable_params(def: &super::hir::HirExecutable) -> Result<(), Graph
             .iter()
             .any(|reserved| param.name.eq_ignore_ascii_case(reserved))
         {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}': parameter '${}' uses reserved name",
                 def.name, param.name
             )));
         }
         if !seen.insert(param.name.clone()) {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}': duplicate parameter '${}'",
                 def.name, param.name
             )));
@@ -1312,14 +1312,14 @@ fn verify_call_step(
     }
 
     if !executable_names.contains(&step.op) {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: unknown call target '{}'",
             def_name, pipeline_idx, step_idx, step.op
         )));
     }
 
     let args = step.args.as_object().ok_or_else(|| {
-        GraphemeError::TypeError(format!(
+        GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: args for call '{}' must be an object",
             def_name, pipeline_idx, step_idx, step.op
         ))
@@ -1338,7 +1338,7 @@ fn verify_call_step(
         if arg_name == "max_depth" || callee_param_names.contains(arg_name.as_str()) {
             continue;
         }
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: unknown call arg '{}' for target '{}'",
             def_name, pipeline_idx, step_idx, arg_name, step.op
         )));
@@ -1346,7 +1346,7 @@ fn verify_call_step(
 
     for param in callee_params {
         if param.required && !args.contains_key(&param.name) {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: call '{}' missing required arg '{}'",
                 def_name, pipeline_idx, step_idx, step.op, param.name
             )));
@@ -1357,14 +1357,14 @@ fn verify_call_step(
         && !is_variable_placeholder(max_depth)
     {
         let value = max_depth.as_i64().ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: call '{}': max_depth must be an integer",
                 def_name, pipeline_idx, step_idx, step.op
             ))
         })?;
 
         if value < 1 {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: call '{}': max_depth must be >= 1",
                 def_name, pipeline_idx, step_idx, step.op
             )));
@@ -1372,7 +1372,7 @@ fn verify_call_step(
     }
 
     if step.op == def_name && !args.contains_key("max_depth") && !has_recursive_directive {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: self-recursive call requires max_depth",
             def_name, pipeline_idx, step_idx
         )));
@@ -1404,7 +1404,7 @@ fn verify_step_types(
     if maybe_spec.is_none() {
         let module_known = op_specs().iter().any(|spec| spec.module == module);
         if module_known {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: unknown op '{}.{}'",
                 def_name, pipeline_idx, step_idx, module_raw, step.op
             )));
@@ -1415,7 +1415,7 @@ fn verify_step_types(
 
     let spec = maybe_spec.unwrap();
     let args = step.args.as_object().ok_or_else(|| {
-        GraphemeError::TypeError(format!(
+        GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: args for '{}.{}' must be an object",
             def_name, pipeline_idx, step_idx, module_raw, step.op
         ))
@@ -1429,7 +1429,7 @@ fn verify_step_types(
                 }
 
                 if !value_matches_arg_type(value, arg_spec.ty) {
-                    return Err(GraphemeError::TypeError(format!(
+                    return Err(GraphemeError::type_error(format!(
                         "definition '{}', pipeline {}, step {}: '{}.{}' arg '{}' expected {}, got {}",
                         def_name,
                         pipeline_idx,
@@ -1444,7 +1444,7 @@ fn verify_step_types(
             }
             None => {
                 if arg_spec.required {
-                    return Err(GraphemeError::TypeError(format!(
+                    return Err(GraphemeError::type_error(format!(
                         "definition '{}', pipeline {}, step {}: '{}.{}' missing required arg '{}'",
                         def_name, pipeline_idx, step_idx, module_raw, step.op, arg_spec.name
                     )));
@@ -1463,7 +1463,7 @@ fn verify_step_types(
                 allowed_args.join(", ")
             };
 
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: unknown arg '{}' for '{}.{}' (allowed: {})",
                 def_name, pipeline_idx, step_idx, arg_name, module_raw, step.op, allowed_display
             )));
@@ -1495,7 +1495,7 @@ fn verify_flow_branch_step(
     }
 
     let args = step.args.as_object().ok_or_else(|| {
-        GraphemeError::TypeError(format!(
+        GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: args for 'flow.branch' must be an object",
             def_name, pipeline_idx, step_idx
         ))
@@ -1504,7 +1504,7 @@ fn verify_flow_branch_step(
     for arg_name in args.keys() {
         if arg_name != "when" && arg_name != "then" && arg_name != "else" && arg_name != "max_depth"
         {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: unknown arg '{}' for flow.branch",
                 def_name, pipeline_idx, step_idx, arg_name
             )));
@@ -1515,21 +1515,21 @@ fn verify_flow_branch_step(
         .get("when")
         .and_then(|v| v.as_object())
         .ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: flow.branch requires object arg 'when'",
                 def_name, pipeline_idx, step_idx
             ))
         })?;
 
     let field = when.get("field").and_then(|v| v.as_str()).ok_or_else(|| {
-        GraphemeError::TypeError(format!(
+        GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: flow.branch when.field must be a string",
             def_name, pipeline_idx, step_idx
         ))
     })?;
 
     if field.trim().is_empty() {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: flow.branch when.field cannot be empty",
             def_name, pipeline_idx, step_idx
         )));
@@ -1542,7 +1542,7 @@ fn verify_flow_branch_step(
         .collect::<Vec<_>>();
 
     if provided.len() != 1 {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: flow.branch when requires exactly one comparator: eq|gt|gte|lt|lte",
             def_name, pipeline_idx, step_idx
         )));
@@ -1559,7 +1559,7 @@ fn verify_flow_branch_step(
     ) {
         enum_context = Some((strip_scope_prefix(field).to_string(), enum_name.clone()));
         if cmp_key != "eq" {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: enum field '{}' only supports eq comparator",
                 def_name, pipeline_idx, step_idx, field
             )));
@@ -1567,7 +1567,7 @@ fn verify_flow_branch_step(
 
         if !is_variable_placeholder(cmp_value) {
             let member = parse_enum_member_value(cmp_value).ok_or_else(|| {
-                GraphemeError::TypeError(format!(
+                GraphemeError::type_error(format!(
                     "definition '{}', pipeline {}, step {}: enum field '{}' comparison must use a literal member",
                     def_name, pipeline_idx, step_idx, field
                 ))
@@ -1578,7 +1578,7 @@ fn verify_flow_branch_step(
                 .expect("enum name resolved from existing enum map");
 
             if !members.contains(member) {
-                return Err(GraphemeError::TypeError(format!(
+                return Err(GraphemeError::type_error(format!(
                     "definition '{}', pipeline {}, step {}: unknown enum member '{}' for enum '{}'",
                     def_name, pipeline_idx, step_idx, member, enum_name
                 )));
@@ -1590,14 +1590,14 @@ fn verify_flow_branch_step(
         && !is_variable_placeholder(cmp_value)
         && !cmp_value.is_number()
     {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: flow.branch when.{} must be a number or variable reference",
             def_name, pipeline_idx, step_idx, cmp_key
         )));
     }
 
     let then_target = parse_branch_target(args.get("then")).ok_or_else(|| {
-        GraphemeError::TypeError(format!(
+        GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: flow.branch then must be a target (string or symbol)",
             def_name, pipeline_idx, step_idx
         ))
@@ -1630,7 +1630,7 @@ fn verify_flow_branch_step(
 
     if let Some(else_value) = args.get("else") {
         let else_target = parse_branch_target(Some(else_value)).ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: flow.branch else must be a target (string or symbol)",
                 def_name, pipeline_idx, step_idx
             ))
@@ -1647,13 +1647,13 @@ fn verify_flow_branch_step(
 
     if let Some(max_depth) = args.get("max_depth") {
         let value = max_depth.as_i64().ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: flow.branch max_depth must be an integer",
                 def_name, pipeline_idx, step_idx
             ))
         })?;
         if value < 1 {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: flow.branch max_depth must be >= 1",
                 def_name, pipeline_idx, step_idx
             )));
@@ -1679,7 +1679,7 @@ fn verify_branch_target(
         return Ok(());
     }
 
-    Err(GraphemeError::TypeError(format!(
+    Err(GraphemeError::type_error(format!(
         "definition '{}', pipeline {}, step {}: flow.branch {} target '{}' not found",
         def_name, pipeline_idx, step_idx, label, target
     )))
@@ -1707,7 +1707,7 @@ fn verify_flow_match_step(
     }
 
     let args = step.args.as_object().ok_or_else(|| {
-        GraphemeError::TypeError(format!(
+        GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: args for 'flow.match' must be an object",
             def_name, pipeline_idx, step_idx
         ))
@@ -1719,7 +1719,7 @@ fn verify_flow_match_step(
             && arg_name != "default"
             && arg_name != "max_depth"
         {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: unknown arg '{}' for flow.match",
                 def_name, pipeline_idx, step_idx, arg_name
             )));
@@ -1727,14 +1727,14 @@ fn verify_flow_match_step(
     }
 
     let field = args.get("field").and_then(|v| v.as_str()).ok_or_else(|| {
-        GraphemeError::TypeError(format!(
+        GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: flow.match field must be a string",
             def_name, pipeline_idx, step_idx
         ))
     })?;
 
     if field.trim().is_empty() {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: flow.match field cannot be empty",
             def_name, pipeline_idx, step_idx
         )));
@@ -1744,21 +1744,21 @@ fn verify_flow_match_step(
         .get("cases")
         .and_then(|v| v.as_array())
         .ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: flow.match cases must be an array",
                 def_name, pipeline_idx, step_idx
             ))
         })?;
 
     if cases.is_empty() {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: flow.match requires at least one case",
             def_name, pipeline_idx, step_idx
         )));
     }
 
     let default_target = args.get("default").ok_or_else(|| {
-        GraphemeError::TypeError(format!(
+        GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: flow.match requires default target",
             def_name, pipeline_idx, step_idx
         ))
@@ -1774,7 +1774,7 @@ fn verify_flow_match_step(
 
     for (case_idx, case) in cases.iter().enumerate() {
         let case_obj = case.as_object().ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: flow.match case {} must be an object",
                 def_name, pipeline_idx, step_idx, case_idx
             ))
@@ -1782,7 +1782,7 @@ fn verify_flow_match_step(
 
         for key in case_obj.keys() {
             if key != "eq" && key != "then" {
-                return Err(GraphemeError::TypeError(format!(
+                return Err(GraphemeError::type_error(format!(
                     "definition '{}', pipeline {}, step {}: flow.match case {} unknown key '{}'",
                     def_name, pipeline_idx, step_idx, case_idx, key
                 )));
@@ -1790,7 +1790,7 @@ fn verify_flow_match_step(
         }
 
         let eq_value = case_obj.get("eq").ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: flow.match case {} missing eq",
                 def_name, pipeline_idx, step_idx, case_idx
             ))
@@ -1801,7 +1801,7 @@ fn verify_flow_match_step(
                 None
             } else {
                 let member = parse_enum_member_value(eq_value).ok_or_else(|| {
-                    GraphemeError::TypeError(format!(
+                    GraphemeError::type_error(format!(
                         "definition '{}', pipeline {}, step {}: enum field '{}' match case {} must use a literal member",
                         def_name, pipeline_idx, step_idx, field, case_idx
                     ))
@@ -1811,7 +1811,7 @@ fn verify_flow_match_step(
                     .get(enum_name)
                     .expect("enum name resolved from existing enum map");
                 if !members.contains(member) {
-                    return Err(GraphemeError::TypeError(format!(
+                    return Err(GraphemeError::type_error(format!(
                         "definition '{}', pipeline {}, step {}: unknown enum member '{}' for enum '{}'",
                         def_name, pipeline_idx, step_idx, member, enum_name
                     )));
@@ -1824,7 +1824,7 @@ fn verify_flow_match_step(
         };
 
         let then_target = case_obj.get("then").ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: flow.match case {} missing then target",
                 def_name, pipeline_idx, step_idx, case_idx
             ))
@@ -1859,13 +1859,13 @@ fn verify_flow_match_step(
 
     if let Some(max_depth) = args.get("max_depth") {
         let value = max_depth.as_i64().ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: flow.match max_depth must be an integer",
                 def_name, pipeline_idx, step_idx
             ))
         })?;
         if value < 1 {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: flow.match max_depth must be >= 1",
                 def_name, pipeline_idx, step_idx
             )));
@@ -1914,7 +1914,7 @@ fn verify_match_target_value(
         .and_then(|obj| obj.get("$match"))
         .and_then(|v| v.as_object())
         .ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: flow.match target must be a symbol target or nested match",
                 def_name, pipeline_idx, step_idx
             ))
@@ -1922,7 +1922,7 @@ fn verify_match_target_value(
 
     for key in nested.keys() {
         if key != "field" && key != "cases" && key != "default" {
-            return Err(GraphemeError::TypeError(format!(
+            return Err(GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: nested match unknown key '{}'",
                 def_name, pipeline_idx, step_idx, key
             )));
@@ -1933,14 +1933,14 @@ fn verify_match_target_value(
         .get("field")
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: nested match field must be a string",
                 def_name, pipeline_idx, step_idx
             ))
         })?;
 
     if field.trim().is_empty() {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: nested match field cannot be empty",
             def_name, pipeline_idx, step_idx
         )));
@@ -1950,14 +1950,14 @@ fn verify_match_target_value(
         .get("cases")
         .and_then(|v| v.as_array())
         .ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: nested match cases must be an array",
                 def_name, pipeline_idx, step_idx
             ))
         })?;
 
     if cases.is_empty() {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: nested match requires at least one case",
             def_name, pipeline_idx, step_idx
         )));
@@ -1965,14 +1965,14 @@ fn verify_match_target_value(
 
     for (case_idx, case) in cases.iter().enumerate() {
         let case_obj = case.as_object().ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: nested match case {} must be an object",
                 def_name, pipeline_idx, step_idx, case_idx
             ))
         })?;
 
         let then_target = case_obj.get("then").ok_or_else(|| {
-            GraphemeError::TypeError(format!(
+            GraphemeError::type_error(format!(
                 "definition '{}', pipeline {}, step {}: nested match case {} missing then target",
                 def_name, pipeline_idx, step_idx, case_idx
             ))
@@ -1993,7 +1993,7 @@ fn verify_match_target_value(
     }
 
     let default_target = nested.get("default").ok_or_else(|| {
-        GraphemeError::TypeError(format!(
+        GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: nested match missing default target",
             def_name, pipeline_idx, step_idx
         ))
@@ -2028,7 +2028,7 @@ fn verify_match_target_exists(
         return Ok(());
     }
 
-    Err(GraphemeError::TypeError(format!(
+    Err(GraphemeError::type_error(format!(
         "definition '{}', pipeline {}, step {}: flow.match target '{}' not found",
         def_name, pipeline_idx, step_idx, target
     )))
@@ -2124,7 +2124,7 @@ fn verify_branch_target_transition_from_status(
     }
 
     if state_machine.terminals.iter().any(|t| t == from_state) {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: branch then target '{}' makes invalid transition for '{}' from terminal '{}' in state_machine '{}'",
             def_name, pipeline_idx, step_idx, target, enum_field, from_state, state_machine.name
         )));
@@ -2135,7 +2135,7 @@ fn verify_branch_target_transition_from_status(
         .iter()
         .any(|t| t.from == from_state && t.to == to_state);
     if !allowed {
-        return Err(GraphemeError::TypeError(format!(
+        return Err(GraphemeError::type_error(format!(
             "definition '{}', pipeline {}, step {}: branch then target '{}' makes invalid transition for '{}' from '{}' to '{}' in state_machine '{}'",
             def_name,
             pipeline_idx,

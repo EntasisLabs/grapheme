@@ -11,6 +11,7 @@ use grapheme_compiler::ast::{ScalarKind, TypeRef};
 use grapheme_compiler::hir::HirExecutableKind;
 use grapheme_compiler::verifier::LintWarning;
 use grapheme_compiler::{CompiledScript, Compiler, CompilerError, CompilerOptions, ElementCatalog};
+pub use grapheme_compiler::{Diagnostic, SourceSpan};
 use grapheme_runtime::{
     ActivationResult, CapabilityCall, CapabilityHost, HostCallError, HotloadError,
     LoadModuleRequest, ModuleLifecycleEvent, ModuleLoadError, PolicyGuard, RuntimeEngine,
@@ -72,6 +73,14 @@ pub enum GraphemeSdkError {
 }
 
 impl GraphemeSdkError {
+    /// Structured parse and type diagnostics. Empty for runtime and other failures.
+    pub fn diagnostics(&self) -> Vec<Diagnostic> {
+        match self {
+            Self::Compiler(err) => err.diagnostics(),
+            _ => Vec::new(),
+        }
+    }
+
     /// Effect receipts from a failed task invoke (RFC-0007 F.4).
     /// `Some` only when the error is that failure, including an empty list
     /// when the task made no capability calls.
@@ -298,6 +307,25 @@ impl GraphemeEngine {
             capability_observer: self.capability_observer.clone(),
             capability_interceptor: self.capability_interceptor.clone(),
         }
+    }
+
+    /// Compile `source` and return structured diagnostics.
+    ///
+    /// An empty list means the source compiled. Parse and type errors carry a
+    /// [`SourceSpan`] when the compiler has a position. The messages are the
+    /// diagnostic text, without the `"parse error:"` / `"type error:"` prefix
+    /// [`GraphemeSdkError`]'s display adds.
+    pub fn diagnostics(&self, source: &str) -> Vec<Diagnostic> {
+        match Compiler::compile_source(source, self.compiler_options.clone()) {
+            Ok(_) => Vec::new(),
+            Err(err) => err.diagnostics(),
+        }
+    }
+
+    /// Compile `source` with this engine's options and return the artifact.
+    pub fn compile_artifact(&self, source: &str) -> Result<ArtifactEnvelope, GraphemeSdkError> {
+        let compiled = Compiler::compile_source(source, self.compiler_options.clone())?;
+        Ok(compiled.artifact)
     }
 
     /// Compile source and open a headless session over its `state` stores,
@@ -611,6 +639,19 @@ impl GraphemeStoreSession {
                 .invoke_action(id, payload, options, &mut host)?
         };
         Ok(commit)
+    }
+
+    /// Migrate this session onto a newly compiled artifact (RFC-0007 A.9).
+    ///
+    /// See [`grapheme_runtime::StoreSession::reload`]. Compile with
+    /// [`GraphemeEngine::compile_artifact`] so the engine's catalog and
+    /// options apply. A compile failure is not a reload: keep the previous
+    /// artifact and surface the diagnostics instead.
+    pub fn reload(
+        &self,
+        artifact: ArtifactEnvelope,
+    ) -> Result<grapheme_runtime::ReloadOutcome, GraphemeSdkError> {
+        Ok(self.session.reload(artifact)?)
     }
 
     /// Install a callback for each task commit. See

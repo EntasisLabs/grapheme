@@ -46,13 +46,12 @@ pub struct GraphemeParser;
 
 pub fn parse(source: &str) -> Result<Program, GraphemeError> {
     let normalized_source = normalize_intent_attributes(source);
-    let pairs = GraphemeParser::parse(Rule::program, &normalized_source)
-        .map_err(|e| GraphemeError::ParseError(readable_parse_error(e)))?;
+    let pairs = GraphemeParser::parse(Rule::program, &normalized_source).map_err(parse_failure)?;
 
     let program_pair = pairs
         .into_iter()
         .next()
-        .ok_or_else(|| GraphemeError::ParseError("empty program".into()))?;
+        .ok_or_else(|| GraphemeError::parse_error("empty program"))?;
 
     let mut state = ParseState::default();
     parse_program(program_pair, &mut state)
@@ -183,7 +182,7 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
     }
 
     if workflow_glyphs.len() > 1 {
-        return Err(GraphemeError::ParseError(format!(
+        return Err(GraphemeError::parse_error(format!(
             "only one workflow glyph is allowed per file, found: {}",
             workflow_glyphs.join(", ")
         )));
@@ -203,23 +202,23 @@ fn parse_glyph(pair: Pair<Rule>, state: &mut ParseState) -> Result<GlyphDef, Gra
     let mut inner = pair.into_inner();
     let name = inner
         .next()
-        .ok_or_else(|| GraphemeError::ParseError("glyph missing name".to_string()))?
+        .ok_or_else(|| GraphemeError::parse_error("glyph missing name".to_string()))?
         .as_str()
         .to_string();
 
     let first = inner
         .next()
-        .ok_or_else(|| GraphemeError::ParseError(format!("glyph '{name}' is empty")))?;
+        .ok_or_else(|| GraphemeError::parse_error(format!("glyph '{name}' is empty")))?;
 
     // UI glyph: `glyph Name on Store { … }` — after the name comes `on`, then the store.
     if first.as_rule() == Rule::kw_on {
         let store = inner
             .next()
-            .ok_or_else(|| GraphemeError::ParseError(format!("glyph '{name}' missing store")))?
+            .ok_or_else(|| GraphemeError::parse_error(format!("glyph '{name}' missing store")))?
             .as_str()
             .to_string();
         let body = inner.next().ok_or_else(|| {
-            GraphemeError::ParseError(format!("glyph '{name}' on {store} missing body"))
+            GraphemeError::parse_error(format!("glyph '{name}' on {store} missing body"))
         })?;
         return parse_ui_glyph(name, store, body);
     }
@@ -232,7 +231,7 @@ fn parse_glyph(pair: Pair<Rule>, state: &mut ParseState) -> Result<GlyphDef, Gra
         }
     }
     if pipelines.is_empty() {
-        return Err(GraphemeError::ParseError(format!(
+        return Err(GraphemeError::parse_error(format!(
             "glyph '{name}' must contain at least one pipeline"
         )));
     }
@@ -258,7 +257,7 @@ fn parse_ui_glyph(
                 for ident in part.into_inner() {
                     let exposed = ident.as_str().to_string();
                     if expose.iter().any(|e| e == &exposed) {
-                        return Err(GraphemeError::ParseError(format!(
+                        return Err(GraphemeError::parse_error(format!(
                             "glyph '{glyph}': '{exposed}' is exposed more than once"
                         )));
                     }
@@ -267,7 +266,7 @@ fn parse_ui_glyph(
             }
             Rule::view_element => {
                 if root.is_some() {
-                    return Err(GraphemeError::ParseError(format!(
+                    return Err(GraphemeError::parse_error(format!(
                         "glyph '{glyph}' on {store} must have exactly one root element"
                     )));
                 }
@@ -281,7 +280,7 @@ fn parse_ui_glyph(
         }
     }
     let root = root.ok_or_else(|| {
-        GraphemeError::ParseError(format!(
+        GraphemeError::parse_error(format!(
             "glyph '{glyph}' on {store} must contain a root element"
         ))
     })?;
@@ -358,7 +357,7 @@ fn parse_view_def(pair: Pair<Rule>) -> Result<ViewDef, GraphemeError> {
     }
     let name = name.unwrap_or_default();
     if roots.len() != 1 {
-        return Err(GraphemeError::ParseError(format!(
+        return Err(GraphemeError::parse_error(format!(
             "view '{name}' must have exactly one root element; wrap its elements in a Column or Row"
         )));
     }
@@ -374,7 +373,7 @@ fn parse_view_element(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
         Rule::view_if => parse_view_if(pair),
         Rule::view_for => parse_view_for(pair),
         Rule::view_element => parse_view_prim(pair),
-        other => Err(GraphemeError::ParseError(format!(
+        other => Err(GraphemeError::parse_error(format!(
             "expected a view element, found {other:?}"
         ))),
     }
@@ -416,7 +415,7 @@ fn parse_view_body_children(
                 children.push(parse_view_element(item)?)
             }
             Rule::view_step => {
-                return Err(GraphemeError::ParseError(format!(
+                return Err(GraphemeError::parse_error(format!(
                     "a view contains elements only; '{}' is a pipeline step or module call",
                     item.as_str().trim()
                 )));
@@ -430,7 +429,7 @@ fn parse_view_body_children(
                             children.push(parse_view_element(inner)?)
                         }
                         Rule::view_step => {
-                            return Err(GraphemeError::ParseError(format!(
+                            return Err(GraphemeError::parse_error(format!(
                                 "a view contains elements only; '{}' is a pipeline step or module call",
                                 inner.as_str().trim()
                             )));
@@ -488,13 +487,13 @@ fn parse_view_if(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
         }
     }
     if element.condition.is_none() {
-        return Err(GraphemeError::ParseError(
+        return Err(GraphemeError::parse_error(
             "if requires a condition expression".to_string(),
         ));
     }
     let mut bodies = bodies.into_iter();
     let Some(then_body) = bodies.next() else {
-        return Err(GraphemeError::ParseError("if requires a body".to_string()));
+        return Err(GraphemeError::parse_error("if requires a body".to_string()));
     };
     element.children = parse_if_body(then_body, "if")?;
     if let Some(else_body) = bodies.next() {
@@ -508,7 +507,7 @@ fn parse_if_body(body: Pair<Rule>, which: &str) -> Result<Vec<ViewElement>, Grap
     let mut children = Vec::new();
     parse_view_body_children(body, &mut events, &mut children)?;
     if !events.is_empty() {
-        return Err(GraphemeError::ParseError(format!(
+        return Err(GraphemeError::parse_error(format!(
             "{which} {{ … }} may only contain elements"
         )));
     }
@@ -536,17 +535,17 @@ fn parse_view_for(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
         }
     }
     let Some(item) = names.first().cloned() else {
-        return Err(GraphemeError::ParseError(
+        return Err(GraphemeError::parse_error(
             "for requires `$item in <source> key <expr>`".to_string(),
         ));
     };
     if names.len() > 2 {
-        return Err(GraphemeError::ParseError(
+        return Err(GraphemeError::parse_error(
             "for takes at most `$item, $index`".to_string(),
         ));
     }
     let (Some(source), Some(key_expr)) = (source, key) else {
-        return Err(GraphemeError::ParseError(
+        return Err(GraphemeError::parse_error(
             "for requires `$item in <source> key <expr>`".to_string(),
         ));
     };
@@ -560,6 +559,7 @@ fn parse_view_for(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
 }
 
 fn parse_view_event(pair: Pair<Rule>) -> Result<ViewEvent, GraphemeError> {
+    let span = Some(source_pos(&pair));
     let mut idents = Vec::new();
     let mut args = Vec::new();
     for p in pair.into_inner() {
@@ -574,6 +574,7 @@ fn parse_view_event(pair: Pair<Rule>) -> Result<ViewEvent, GraphemeError> {
         event: idents.next().unwrap_or_default(),
         target: idents.next().unwrap_or_default(),
         args,
+        span,
     })
 }
 
@@ -617,6 +618,7 @@ fn parse_store_def(pair: Pair<Rule>) -> Result<StoreDef, GraphemeError> {
                     StoreFieldKind::Plain
                 };
                 let mut field_name = None;
+                let mut field_span = None;
                 let mut type_ref = None;
                 let mut value = None;
                 for part in p.into_inner() {
@@ -628,7 +630,10 @@ fn parse_store_def(pair: Pair<Rule>) -> Result<StoreDef, GraphemeError> {
                                 _ => StoreFieldKind::Transient,
                             }
                         }
-                        Rule::ident => field_name = Some(part.as_str().to_string()),
+                        Rule::ident => {
+                            field_span = Some(source_pos(&part));
+                            field_name = Some(part.as_str().to_string());
+                        }
                         Rule::type_ref => type_ref = Some(parse_type_ref(part)?),
                         _ => value = Some(parse_value(part)?),
                     }
@@ -637,11 +642,12 @@ fn parse_store_def(pair: Pair<Rule>) -> Result<StoreDef, GraphemeError> {
                     name: field_name.unwrap_or_default(),
                     kind,
                     type_ref: type_ref.ok_or_else(|| {
-                        GraphemeError::ParseError("store field missing type".to_string())
+                        GraphemeError::parse_error("store field missing type".to_string())
                     })?,
                     value: value.ok_or_else(|| {
-                        GraphemeError::ParseError("store field missing value".to_string())
+                        GraphemeError::parse_error("store field missing value".to_string())
                     })?,
+                    span: field_span,
                 });
             }
             r => return Err(GraphemeError::UnexpectedRule(format!("{r:?}"))),
@@ -659,13 +665,13 @@ fn parse_enum_def(pair: Pair<Rule>) -> Result<EnumDef, GraphemeError> {
     let mut inner = pair.into_inner();
     let name = inner
         .next()
-        .ok_or_else(|| GraphemeError::ParseError("enum missing name".to_string()))?
+        .ok_or_else(|| GraphemeError::parse_error("enum missing name".to_string()))?
         .as_str()
         .to_string();
     let members = inner.map(|p| p.as_str().to_string()).collect::<Vec<_>>();
 
     if members.is_empty() {
-        return Err(GraphemeError::ParseError(format!(
+        return Err(GraphemeError::parse_error(format!(
             "enum '{}' must declare at least one member",
             name
         )));
@@ -678,7 +684,7 @@ fn parse_tag_def(pair: Pair<Rule>) -> Result<TagDef, GraphemeError> {
     let mut inner = pair.into_inner();
     let name = inner
         .next()
-        .ok_or_else(|| GraphemeError::ParseError("tag missing name".to_string()))?
+        .ok_or_else(|| GraphemeError::parse_error("tag missing name".to_string()))?
         .as_str()
         .to_string();
 
@@ -693,7 +699,7 @@ fn parse_tag_def(pair: Pair<Rule>) -> Result<TagDef, GraphemeError> {
     }
 
     if variables.is_empty() {
-        return Err(GraphemeError::ParseError(format!(
+        return Err(GraphemeError::parse_error(format!(
             "tag '{}' must declare at least one binding",
             name
         )));
@@ -710,7 +716,7 @@ fn parse_using_mutability(pair: Pair<Rule>) -> Result<UsingMutability, GraphemeE
     match pair.as_str() {
         "const" => Ok(UsingMutability::Const),
         "mutable" => Ok(UsingMutability::Mutable),
-        other => Err(GraphemeError::ParseError(format!(
+        other => Err(GraphemeError::parse_error(format!(
             "unknown using mutability '{other}'"
         ))),
     }
@@ -760,7 +766,7 @@ fn parse_using_binding(pair: Pair<Rule>) -> Result<UsingBinding, GraphemeError> 
         [tag] => (None, tag.clone()),
         [handle, tag] => (Some(handle.clone()), tag.clone()),
         _ => {
-            return Err(GraphemeError::ParseError(
+            return Err(GraphemeError::parse_error(
                 "using binding must be `tag(...)` or `$handle: tag(...)`".to_string(),
             ));
         }
@@ -797,12 +803,12 @@ fn parse_using_decl(pair: Pair<Rule>) -> Result<UsingDecl, GraphemeError> {
 
     Ok(UsingDecl {
         mutability: mutability.ok_or_else(|| {
-            GraphemeError::ParseError("using decl requires const or mutable".to_string())
+            GraphemeError::parse_error("using decl requires const or mutable".to_string())
         })?,
         handle: handle.ok_or_else(|| {
-            GraphemeError::ParseError("using decl missing handle name".to_string())
+            GraphemeError::parse_error("using decl missing handle name".to_string())
         })?,
-        tag: tag.ok_or_else(|| GraphemeError::ParseError("using decl missing tag".to_string()))?,
+        tag: tag.ok_or_else(|| GraphemeError::parse_error("using decl missing tag".to_string()))?,
         fields,
     })
 }
@@ -820,12 +826,12 @@ fn parse_using_step(pair: Pair<Rule>, state: &mut ParseState) -> Result<UsingSte
     }
 
     if bindings.is_empty() {
-        return Err(GraphemeError::ParseError(
+        return Err(GraphemeError::parse_error(
             "using step requires at least one binding".to_string(),
         ));
     }
     if pipelines.is_empty() {
-        return Err(GraphemeError::ParseError(
+        return Err(GraphemeError::parse_error(
             "using step requires a body pipeline".to_string(),
         ));
     }
@@ -840,12 +846,12 @@ fn parse_state_machine_def(pair: Pair<Rule>) -> Result<StateMachineDef, Grapheme
     let mut inner = pair.into_inner();
     let name = inner
         .next()
-        .ok_or_else(|| GraphemeError::ParseError("state_machine missing name".to_string()))?
+        .ok_or_else(|| GraphemeError::parse_error("state_machine missing name".to_string()))?
         .as_str()
         .to_string();
     let enum_name = inner
         .next()
-        .ok_or_else(|| GraphemeError::ParseError("state_machine missing enum target".to_string()))?
+        .ok_or_else(|| GraphemeError::parse_error("state_machine missing enum target".to_string()))?
         .as_str()
         .to_string();
 
@@ -859,7 +865,7 @@ fn parse_state_machine_def(pair: Pair<Rule>) -> Result<StateMachineDef, Grapheme
                     .into_inner()
                     .next()
                     .ok_or_else(|| {
-                        GraphemeError::ParseError(
+                        GraphemeError::parse_error(
                             "state_machine terminal missing member".to_string(),
                         )
                     })?
@@ -872,7 +878,7 @@ fn parse_state_machine_def(pair: Pair<Rule>) -> Result<StateMachineDef, Grapheme
                 let from = ti
                     .next()
                     .ok_or_else(|| {
-                        GraphemeError::ParseError(
+                        GraphemeError::parse_error(
                             "state_machine transition missing from member".to_string(),
                         )
                     })?
@@ -881,7 +887,7 @@ fn parse_state_machine_def(pair: Pair<Rule>) -> Result<StateMachineDef, Grapheme
                 let to = ti
                     .next()
                     .ok_or_else(|| {
-                        GraphemeError::ParseError(
+                        GraphemeError::parse_error(
                             "state_machine transition missing to member".to_string(),
                         )
                     })?
@@ -894,7 +900,7 @@ fn parse_state_machine_def(pair: Pair<Rule>) -> Result<StateMachineDef, Grapheme
     }
 
     if transitions.is_empty() {
-        return Err(GraphemeError::ParseError(format!(
+        return Err(GraphemeError::parse_error(format!(
             "state_machine '{}' must define at least one transition",
             name
         )));
@@ -961,7 +967,7 @@ fn parse_type_ref(pair: Pair<Rule>) -> Result<TypeRef, GraphemeError> {
                 "Bool" => ScalarKind::Bool,
                 "Any" => ScalarKind::Any,
                 "Json" => ScalarKind::Json,
-                s => return Err(GraphemeError::ParseError(format!("unknown scalar: {s}"))),
+                s => return Err(GraphemeError::parse_error(format!("unknown scalar: {s}"))),
             };
             Ok(TypeRef::Scalar(kind, non_null))
         }
@@ -1017,8 +1023,7 @@ fn parse_op_def(pair: Pair<Rule>) -> Result<OpDef, GraphemeError> {
         kind,
         name,
         args,
-        returns: returns
-            .ok_or_else(|| GraphemeError::ParseError("op_def missing return type".into()))?,
+        returns: returns.ok_or_else(|| GraphemeError::parse_error("op_def missing return type"))?,
     })
 }
 
@@ -1071,7 +1076,7 @@ fn parse_iterator(pair: Pair<Rule>, state: &mut ParseState) -> Result<IteratorDe
     let name = inner.next().unwrap().as_str().to_string();
     let (variables, signature, directives, pipelines) = parse_operation_body(inner, state)?;
     let signature = signature.ok_or_else(|| {
-        GraphemeError::ParseError(format!("iterator '{}' is missing required signature", name))
+        GraphemeError::parse_error(format!("iterator '{}' is missing required signature", name))
     })?;
     Ok(IteratorDef {
         name,
@@ -1087,11 +1092,11 @@ fn parse_fragment(pair: Pair<Rule>, state: &mut ParseState) -> Result<FragmentDe
     let name = inner.next().unwrap().as_str().to_string();
     let (_, signature, directives, pipelines) = parse_operation_body(inner, state)?;
     let signature = signature.ok_or_else(|| {
-        GraphemeError::ParseError(format!("fragment '{}' is missing required signature", name))
+        GraphemeError::parse_error(format!("fragment '{}' is missing required signature", name))
     })?;
 
     if !directives.is_empty() {
-        return Err(GraphemeError::ParseError(format!(
+        return Err(GraphemeError::parse_error(format!(
             "fragment '{}' does not support directives in Phase A",
             name
         )));
@@ -1287,7 +1292,7 @@ fn parse_match_spec(pair: Pair<Rule>, state: &mut ParseState) -> Result<MatchSpe
     let mut inner = pair.into_inner();
     let match_var = inner
         .next()
-        .ok_or_else(|| GraphemeError::ParseError("match-step missing variable".to_string()))?
+        .ok_or_else(|| GraphemeError::parse_error("match-step missing variable".to_string()))?
         .as_str()
         .to_string();
     let field_name = parse_current_field_name(&match_var, "match-step")?;
@@ -1300,14 +1305,14 @@ fn parse_match_spec(pair: Pair<Rule>, state: &mut ParseState) -> Result<MatchSpe
             Rule::match_case => {
                 let case_items = entry.into_inner().collect::<Vec<_>>();
                 if case_items.len() < 2 {
-                    return Err(GraphemeError::ParseError(
+                    return Err(GraphemeError::parse_error(
                         "match case requires at least one value and one target".to_string(),
                     ));
                 }
 
                 let target = parse_match_target_value(
                     case_items.last().cloned().ok_or_else(|| {
-                        GraphemeError::ParseError("match case missing target".to_string())
+                        GraphemeError::parse_error("match case missing target".to_string())
                     })?,
                     state,
                 )?;
@@ -1322,7 +1327,7 @@ fn parse_match_spec(pair: Pair<Rule>, state: &mut ParseState) -> Result<MatchSpe
             }
             Rule::match_default => {
                 let target_pair = entry.into_inner().next().ok_or_else(|| {
-                    GraphemeError::ParseError("match default missing target".to_string())
+                    GraphemeError::parse_error("match default missing target".to_string())
                 })?;
                 default_target = Some(parse_match_target_value(target_pair, state)?);
             }
@@ -1331,13 +1336,13 @@ fn parse_match_spec(pair: Pair<Rule>, state: &mut ParseState) -> Result<MatchSpe
     }
 
     if cases.is_empty() {
-        return Err(GraphemeError::ParseError(
+        return Err(GraphemeError::parse_error(
             "match-step requires at least one case".to_string(),
         ));
     }
 
     let default_target = default_target.ok_or_else(|| {
-        GraphemeError::ParseError("match-step requires a default target".to_string())
+        GraphemeError::parse_error("match-step requires a default target".to_string())
     })?;
 
     Ok((field_name, cases, default_target))
@@ -1347,7 +1352,7 @@ fn parse_set_step_as_set_fields_call(pair: Pair<Rule>) -> Result<FieldCall, Grap
     let object = pair
         .into_inner()
         .next()
-        .ok_or_else(|| GraphemeError::ParseError("set-step missing object body".to_string()))?;
+        .ok_or_else(|| GraphemeError::parse_error("set-step missing object body".to_string()))?;
 
     let mut fields = Vec::new();
     for field in object.into_inner() {
@@ -1390,12 +1395,12 @@ fn parse_apply_step_as_apply_lane_call(pair: Pair<Rule>) -> Result<FieldCall, Gr
     }
     let lane = inner
         .next()
-        .ok_or_else(|| GraphemeError::ParseError("apply-step missing lane name".to_string()))?
+        .ok_or_else(|| GraphemeError::parse_error("apply-step missing lane name".to_string()))?
         .as_str()
         .to_string();
 
     if lane != "state" && lane != "data" {
-        return Err(GraphemeError::ParseError(format!(
+        return Err(GraphemeError::parse_error(format!(
             "apply-step lane must be 'state' or 'data', got '{}'",
             lane
         )));
@@ -1403,7 +1408,7 @@ fn parse_apply_step_as_apply_lane_call(pair: Pair<Rule>) -> Result<FieldCall, Gr
 
     let object = inner
         .next()
-        .ok_or_else(|| GraphemeError::ParseError("apply-step missing object body".to_string()))?;
+        .ok_or_else(|| GraphemeError::parse_error("apply-step missing object body".to_string()))?;
 
     let mut fields = Vec::new();
     for field in object.into_inner() {
@@ -1430,12 +1435,12 @@ fn parse_transition_step_as_set_fields_call(pair: Pair<Rule>) -> Result<FieldCal
     let left_var = inner
         .next()
         .ok_or_else(|| {
-            GraphemeError::ParseError("transition-step missing left variable".to_string())
+            GraphemeError::parse_error("transition-step missing left variable".to_string())
         })?
         .as_str()
         .to_string();
     let to_value = parse_value(inner.next().ok_or_else(|| {
-        GraphemeError::ParseError("transition-step missing target value".to_string())
+        GraphemeError::parse_error("transition-step missing target value".to_string())
     })?)?;
     let to_value = match to_value {
         Value::Symbol(member) => Value::String(member),
@@ -1474,7 +1479,7 @@ fn parse_match_target_value(
     let inner = if pair.as_rule() == Rule::match_target {
         pair.into_inner()
             .next()
-            .ok_or_else(|| GraphemeError::ParseError("match target is empty".to_string()))?
+            .ok_or_else(|| GraphemeError::parse_error("match target is empty".to_string()))?
     } else {
         pair
     };
@@ -1511,7 +1516,7 @@ fn parse_branch_target_value(
     let inner = if pair.as_rule() == Rule::branch_target {
         pair.into_inner()
             .next()
-            .ok_or_else(|| GraphemeError::ParseError("branch target is empty".to_string()))?
+            .ok_or_else(|| GraphemeError::parse_error("branch target is empty".to_string()))?
     } else {
         pair
     };
@@ -1552,7 +1557,7 @@ fn extract_symbol_target_from_inline_step(
     let step_pair = if pair.as_rule() == Rule::inline_target_step {
         pair.into_inner()
             .next()
-            .ok_or_else(|| GraphemeError::ParseError("inline target step is empty".to_string()))?
+            .ok_or_else(|| GraphemeError::parse_error("inline target step is empty".to_string()))?
     } else {
         pair
     };
@@ -1607,13 +1612,13 @@ fn parse_inline_target_pipeline_steps(
         match entry.as_rule() {
             Rule::inline_target_step => {
                 let step = entry.into_inner().next().ok_or_else(|| {
-                    GraphemeError::ParseError("inline target step is empty".to_string())
+                    GraphemeError::parse_error("inline target step is empty".to_string())
                 })?;
                 steps.push(parse_inline_target_step(step, state)?);
             }
             Rule::inline_target_pipe => {
                 let step = entry.into_inner().next().ok_or_else(|| {
-                    GraphemeError::ParseError("inline target pipe step is empty".to_string())
+                    GraphemeError::parse_error("inline target pipe step is empty".to_string())
                 })?;
                 steps.push(parse_inline_target_step(step, state)?);
             }
@@ -1630,7 +1635,7 @@ fn parse_inline_target_step(
     let step_pair = if pair.as_rule() == Rule::inline_target_step {
         pair.into_inner()
             .next()
-            .ok_or_else(|| GraphemeError::ParseError("inline target step is empty".to_string()))?
+            .ok_or_else(|| GraphemeError::parse_error("inline target step is empty".to_string()))?
     } else {
         pair
     };
@@ -1665,28 +1670,28 @@ fn parse_if_step_as_branch_call(
     let mut inner = pair.into_inner();
     let left_var = inner
         .next()
-        .ok_or_else(|| GraphemeError::ParseError("if-step missing left variable".to_string()))?
+        .ok_or_else(|| GraphemeError::parse_error("if-step missing left variable".to_string()))?
         .as_str()
         .to_string();
     let cmp = inner
         .next()
-        .ok_or_else(|| GraphemeError::ParseError("if-step missing comparator".to_string()))?
+        .ok_or_else(|| GraphemeError::parse_error("if-step missing comparator".to_string()))?
         .as_str()
         .to_string();
     let right_value =
         parse_value(inner.next().ok_or_else(|| {
-            GraphemeError::ParseError("if-step missing right value".to_string())
+            GraphemeError::parse_error("if-step missing right value".to_string())
         })?)?;
     let then_target = parse_branch_target_value(
         inner
             .next()
-            .ok_or_else(|| GraphemeError::ParseError("if-step missing then target".to_string()))?,
+            .ok_or_else(|| GraphemeError::parse_error("if-step missing then target".to_string()))?,
         state,
     )?;
     let else_target = parse_branch_target_value(
         inner
             .next()
-            .ok_or_else(|| GraphemeError::ParseError("if-step missing else target".to_string()))?,
+            .ok_or_else(|| GraphemeError::parse_error("if-step missing else target".to_string()))?,
         state,
     )?;
 
@@ -1699,7 +1704,7 @@ fn parse_if_step_as_branch_call(
         "<" => "lt",
         "<=" => "lte",
         _ => {
-            return Err(GraphemeError::ParseError(format!(
+            return Err(GraphemeError::parse_error(format!(
                 "unsupported if-step comparator: {}",
                 cmp
             )));
@@ -1742,7 +1747,7 @@ fn parse_current_field_name(var_expr: &str, context: &str) -> Result<String, Gra
         return Ok(format!("{BARE_FIELD_PREFIX}{var_name}"));
     }
 
-    Err(GraphemeError::ParseError(format!(
+    Err(GraphemeError::parse_error(format!(
         "{} expression must reference $state.<field> or $item.<field>",
         context
     )))
@@ -1758,7 +1763,7 @@ fn parse_struct_init_step(pair: Pair<Rule>) -> Result<StructInitStep, GraphemeEr
     let mut inner = pair.into_inner();
     let type_name = inner.next().unwrap().as_str().to_string();
     let object = inner.next().ok_or_else(|| {
-        GraphemeError::ParseError("struct initializer missing object body".to_string())
+        GraphemeError::parse_error("struct initializer missing object body".to_string())
     })?;
 
     let mut fields = Vec::new();
@@ -1883,7 +1888,7 @@ fn parse_selected_field(pair: Pair<Rule>) -> Result<SelectedField, GraphemeError
                     "errors" => Ok(StateSelector::Errors),
                     "pipeline" => Ok(StateSelector::Pipeline),
                     "proposed" => Ok(StateSelector::Proposed),
-                    s => Err(GraphemeError::ParseError(format!(
+                    s => Err(GraphemeError::parse_error(format!(
                         "unknown state selector: {s}"
                     ))),
                 })
@@ -1918,6 +1923,29 @@ fn is_operator_rule(rule: &Rule) -> bool {
 }
 
 /// Reports the binary-operator alternatives after a value as one "operator".
+fn parse_failure(error: pest::error::Error<Rule>) -> GraphemeError {
+    let span = span_of_pest(&error);
+    let message = readable_parse_error(error);
+    match span {
+        Some(span) => GraphemeError::parse_error_at(message, span),
+        None => GraphemeError::parse_error(message),
+    }
+}
+
+fn span_of_pest(error: &pest::error::Error<Rule>) -> Option<crate::error::SourceSpan> {
+    use pest::error::LineColLocation;
+    let (start, end) = match error.line_col {
+        LineColLocation::Pos(start) => (start, start),
+        LineColLocation::Span(start, end) => (start, end),
+    };
+    Some(crate::error::SourceSpan {
+        line: start.0 as u32,
+        column: start.1 as u32,
+        end_line: end.0 as u32,
+        end_column: end.1 as u32,
+    })
+}
+
 fn readable_parse_error(mut error: pest::error::Error<Rule>) -> String {
     if let pest::error::ErrorVariant::ParsingError { positives, .. } = &mut error.variant {
         let mut seen_operator = false;
@@ -1962,7 +1990,7 @@ fn parse_value_expr(pair: Pair<Rule>) -> Result<Value, GraphemeError> {
             let mut left = parse_value_expr(inner.next().unwrap())?;
             while let Some(op) = inner.next() {
                 let op = BinaryOp::from_token(op.as_str().trim()).ok_or_else(|| {
-                    GraphemeError::ParseError(format!("unknown operator '{}'", op.as_str()))
+                    GraphemeError::parse_error(format!("unknown operator '{}'", op.as_str()))
                 })?;
                 let right = parse_value_expr(inner.next().unwrap())?;
                 left = Value::Expr(Box::new(ValueExpr::Binary(op, left, right)));

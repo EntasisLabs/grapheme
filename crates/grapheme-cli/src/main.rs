@@ -44,6 +44,8 @@ use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+mod dev;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RunOutputMode {
     Plain,
@@ -444,6 +446,7 @@ fn run(args: Vec<String>) -> Result<(), CompilerError> {
         && args[1] != "modules"
         && args[1] != "telemetry"
         && args[1] != "session"
+        && args[1] != "dev"
     {
         return emit_parse(&args[1], DiscoveryOutputMode::Yaml);
     }
@@ -459,6 +462,7 @@ fn run(args: Vec<String>) -> Result<(), CompilerError> {
             run_program(&file_path, run_options)
         }
         "session" => emit_session_cmd(&args[2..]),
+        "dev" => dev::dev_command(&args[2..]),
         "modules" => emit_modules_cmd(&args[2..]),
         "telemetry" => emit_telemetry_cmd(&args[2..]),
         _ => {
@@ -3330,6 +3334,9 @@ fn print_usage() {
     );
     eprintln!(
         "               a file with a UI glyph and no workflow entry opens in a window (needs `--features ui`)"
+    );
+    eprintln!(
+        "  grapheme dev [<file.gr>] [--glyph <name>]   # watch the file and reload the window (needs `--features ui`)"
     );
     eprintln!("               one UI view opens as before; several views need `--glyph <name>`");
     eprintln!("               [--state-json '<json>' | --state-file path.json]");

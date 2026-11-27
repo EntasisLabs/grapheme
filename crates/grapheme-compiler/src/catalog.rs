@@ -513,11 +513,11 @@ fn expect_name(value: &JsonValue, what: &str) -> Result<String, CompilerError> {
 }
 
 fn invalid(message: String) -> CompilerError {
-    CompilerError::TypeError(format!("invalid element catalog: {message}"))
+    CompilerError::type_error(format!("invalid element catalog: {message}"))
 }
 
 fn invalid_named(catalog: &str, message: String) -> CompilerError {
-    CompilerError::TypeError(format!("invalid element catalog '{catalog}': {message}"))
+    CompilerError::type_error(format!("invalid element catalog '{catalog}': {message}"))
 }
 
 #[cfg(test)]
