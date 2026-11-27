@@ -734,3 +734,152 @@ view V on S { Divider(label: "rule") { on activate: Flip } }
         "{err}"
     );
 }
+
+#[test]
+fn style_block_typechecks_sizes_roles_and_states() {
+    let artifact = compile(
+        r##"
+view CounterView on Counter {
+  Column {
+    style {
+      width: fill, height: hug, min: { width: 120, height: 28 }, max: { width: 400 }
+      padding: { x: 16, top: 14, bottom: 10 }
+      gap: if $count == 0 then 4 else 8
+      align: center, justify: space_between
+      fill: bg
+    }
+    title: Text("{$count}") { style { size: 15, weight: semibold, color: text_secondary } }
+    accent: Text("mark") { style { color: accent, fill: "#009fff" } }
+    save: Button(label: "Save") {
+      on click: Increment
+      style {
+        width: full, padding: 8, fill: control_off, weight: 600
+        hover { fill: hover }
+        pressed { fill: press }
+        focused { fill: accent }
+        disabled { color: disabled }
+      }
+    }
+    }
+}
+"##,
+    )
+    .expect("style compiles");
+    let root = &artifact.mir.views[0].root.props["style"];
+    assert_eq!(root["width"], "fill");
+    assert_eq!(root["height"], "hug");
+    assert_eq!(root["min"]["width"], 120);
+    assert_eq!(root["min"]["height"], 28);
+    assert_eq!(root["max"]["width"], 400);
+    assert_eq!(root["padding"]["left"], 16);
+    assert_eq!(root["padding"]["right"], 16);
+    assert_eq!(root["padding"]["top"], 14);
+    assert_eq!(root["padding"]["bottom"], 10);
+    assert_eq!(root["align"], "center");
+    assert_eq!(root["justify"], "space_between");
+    assert_eq!(root["fill"], serde_json::json!({"$role": "bg"}));
+    assert_eq!(
+        root["gap"]["$expr"]["args"][1], 4,
+        "gap branches stay lengths: {}",
+        root["gap"]
+    );
+    let title = &artifact.mir.views[0].root.children[0].props["style"];
+    assert_eq!(title["size"], 15);
+    assert_eq!(title["weight"], "semibold");
+    assert_eq!(
+        title["color"],
+        serde_json::json!({"$role": "text_secondary"})
+    );
+    let accent = &artifact.mir.views[0].root.children[1].props["style"];
+    assert_eq!(accent["color"], serde_json::json!({"$role": "accent"}));
+    assert_eq!(accent["fill"], "#009fff");
+    let button = &artifact.mir.views[0].root.children[2].props["style"];
+    assert_eq!(button["width"], "fill", "`full` canonicalizes to fill");
+    assert_eq!(button["padding"]["top"], 8);
+    assert_eq!(button["padding"]["left"], 8);
+    assert_eq!(button["weight"], 600);
+    assert_eq!(
+        button["hover"]["fill"],
+        serde_json::json!({"$role": "hover"})
+    );
+    assert_eq!(
+        button["pressed"]["fill"],
+        serde_json::json!({"$role": "press"})
+    );
+    assert_eq!(
+        button["focused"]["fill"],
+        serde_json::json!({"$role": "accent"})
+    );
+    assert_eq!(
+        button["disabled"]["color"],
+        serde_json::json!({"$role": "disabled"})
+    );
+}
+
+#[test]
+fn style_resolves_identifiers_by_expected_type() {
+    for (source, expected) in [
+        (
+            r#"view V on Counter { Text("a") { style { width: bg } } }"#,
+            "expects fill, hug, or a length in px, found theme role 'bg'",
+        ),
+        (
+            r#"view V on Counter { Text("a") { style { fill: center } } }"#,
+            "found alignment 'center'",
+        ),
+        (
+            r#"view V on Counter { Text("a") { style { align: bg } } }"#,
+            "found theme role 'bg'",
+        ),
+        (
+            r#"view V on Counter { Text("a") { style { justify: stretch } } }"#,
+            "found alignment 'stretch'",
+        ),
+        (
+            r#"view V on Counter { Text("a") { style { size: accent } } }"#,
+            "found theme role 'accent'",
+        ),
+        (
+            r#"view V on Counter { Text("a") { style { weight: fill } } }"#,
+            "found size 'fill'",
+        ),
+        (
+            r#"view V on Counter { Text("a") { style { color: "not-a-color" } } }"#,
+            "found 'not-a-color'",
+        ),
+        (
+            r#"view V on Counter { Text("a") { style { width: -4 } } }"#,
+            "length >= 0",
+        ),
+        (
+            r#"view V on Counter { Text("a") { style { radius: 3 } } }"#,
+            "style has no property 'radius'",
+        ),
+        (
+            r#"view V on Counter { Text("a") { style { hover: accent } } }"#,
+            "'hover' is an interaction state",
+        ),
+        (
+            r#"view V on Counter { Text("a") { style { width: fill, width: hug } } }"#,
+            "style property 'width' is given more than once",
+        ),
+        (
+            r#"view V on Counter { Text("a") { style { hover { fill: accent }, hover { fill: bg } } } }"#,
+            "interaction state 'hover' is given more than once",
+        ),
+        (
+            r#"view V on Counter { Column { style { gap: 1 } style { gap: 2 } Text("a") } }"#,
+            "style is given more than once",
+        ),
+        (
+            r#"view V on Counter { Column { if true { style { gap: 1 } Text("a") } } }"#,
+            "if { … } may only contain elements",
+        ),
+    ] {
+        let err = error(source);
+        assert!(
+            err.contains(expected),
+            "{source}\nexpected '{expected}', got '{err}'"
+        );
+    }
+}

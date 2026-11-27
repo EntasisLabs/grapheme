@@ -13,6 +13,7 @@ pub mod mir_lower;
 pub mod parser;
 pub mod pipeline;
 mod stores;
+mod style;
 pub mod verifier;
 mod views;
 

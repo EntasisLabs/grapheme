@@ -226,6 +226,9 @@ pub struct ViewElement {
     pub prop_spans: Vec<SourcePos>,
     pub events: Vec<ViewEvent>,
     pub children: Vec<ViewElement>,
+    /// `style { … }` on this element (RFC-0007 C.5). Absent when the body has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<ViewStyle>,
     /// `if <cond> { … }` — condition expression when `kind == "if"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<Value>,
@@ -245,6 +248,33 @@ pub struct ViewFor {
     pub index: Option<String>,
     pub source: Value,
     pub key: Value,
+}
+
+/// `style { width: fill, hover { fill: accent } }` (RFC-0007 C.5).
+///
+/// Items keep source order. A state block is not a property: `hover { … }`
+/// is [`ViewStyleItem::State`], and `fill: hover` is a property whose value
+/// is the symbol `hover`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViewStyle {
+    pub items: Vec<ViewStyleItem>,
+}
+
+/// One item of a [`ViewStyle`], in source order.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ViewStyleItem {
+    /// `width: fill`.
+    Prop(String, Value),
+    /// `hover { fill: accent }`.
+    State(ViewStyleState),
+}
+
+/// An interaction-state block inside `style`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViewStyleState {
+    /// `hover`, `pressed`, `focused` or `disabled`.
+    pub name: String,
+    pub props: Vec<(String, Value)>,
 }
 
 /// `on click: Select(index: 3)`.

@@ -458,3 +458,36 @@ view V on S {
         .collect();
     assert_eq!(texts, ["no", "0:a", "1:b"], "{:?}", snap.ir);
 }
+
+#[test]
+fn render_evaluates_style_and_keeps_theme_roles() {
+    let src = r#"
+state Counter { count: Int = 0 }
+mutation Increment on Counter { apply { count: $count + 1 } }
+view CounterView on Counter {
+  Column {
+    style {
+      width: fill
+      gap: if $count == 0 then 4 else 8
+      fill: bg
+      align: center
+    }
+    Text("{$count}") { style { color: text_secondary, size: 13 } }
+  }
+}
+"#;
+    let mut session = GraphemeEngine::builder()
+        .build()
+        .store_session(src)
+        .unwrap();
+    let snap = session.render("CounterView").unwrap();
+    let style = &snap.ir["root"]["props"]["style"];
+    assert_eq!(style["width"], "fill");
+    assert_eq!(style["gap"], 4);
+    assert_eq!(style["align"], "center");
+    assert_eq!(style["fill"], json!({"$role": "bg"}));
+    assert_eq!(
+        snap.ir["root"]["children"][0]["props"]["style"]["color"],
+        json!({"$role": "text_secondary"})
+    );
+}
