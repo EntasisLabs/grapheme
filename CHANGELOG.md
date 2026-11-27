@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **VS Code extension 0.10.0.** Aligns `extensions/grapheme-vscode` (package.json, lock, and release-tag docs) with grapheme-lsp 0.10.0. Not published to a marketplace.
+
 ## [0.10.0] - 2026-11-27
 
 Language crates, `grapheme-lsp` and `grapheme-cli` are **0.10.0**. `grapheme-artifact` stays **0.5.0** (no format change). `grapheme-cli`'s `ui` feature uses grapheme-ui **0.2.0**, which depends on grapheme 0.10.
