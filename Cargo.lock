@@ -2927,7 +2927,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-aot-container"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "grapheme-artifact",
  "grapheme-stdlib",
@@ -2948,7 +2948,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-cli"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "grapheme-aot-container",
  "grapheme-artifact",
@@ -2957,8 +2957,6 @@ dependencies = [
  "grapheme-sdk",
  "grapheme-stdlib",
  "grapheme-ui",
- "notify",
- "rndr_core",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -2967,7 +2965,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-compiler"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "grapheme-aot-container",
  "grapheme-artifact",
@@ -2981,7 +2979,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-lsp"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "grapheme-compiler",
  "grapheme-signatures",
@@ -2991,7 +2989,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-runtime"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "grapheme-aot-container",
  "grapheme-artifact",
@@ -3014,7 +3012,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-sdk"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "grapheme-aot-container",
  "grapheme-artifact",
@@ -3030,11 +3028,11 @@ dependencies = [
 
 [[package]]
 name = "grapheme-signatures"
-version = "0.10.0"
+version = "0.11.0"
 
 [[package]]
 name = "grapheme-stdlib"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "csv",
  "ehttp",
@@ -3059,12 +3057,13 @@ dependencies = [
 
 [[package]]
 name = "grapheme-ui"
-version = "0.2.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "200dd2624a6851e2eaf26cd8ba6e0d5c70ba84110c63692fdc9fb821016bd66e"
+checksum = "2b6c8e9cfde7bd92da0a4fe2f1fffc4becc4701f3d7238439aba431c545eb044"
 dependencies = [
  "grapheme-runtime",
  "grapheme-sdk",
+ "notify",
  "rndr",
  "rndr_core",
  "rndr_render",
@@ -3076,7 +3075,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-wasm"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "grapheme-artifact",
  "grapheme-compiler",

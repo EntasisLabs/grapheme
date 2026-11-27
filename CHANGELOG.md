@@ -7,9 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **VS Code extension 0.10.0.** Aligns `extensions/grapheme-vscode` (package.json, lock, and release-tag docs) with grapheme-lsp 0.10.0. Not published to a marketplace.
+## [0.11.0] - 2026-11-27
+
+Language crates, `grapheme-lsp` and `grapheme-cli` are **0.11.0**. `grapheme-artifact` stays **0.5.0** (no format change). `grapheme-cli`'s `ui` feature uses grapheme-ui **0.3.1**, which depends on grapheme 0.11. The VS Code extension is **0.11.0** (not published to a marketplace).
+
+### Added
+
+- **`style { … }` on view elements (RFC-0007 C.5).** Properties are `width`, `height` (`fill` | `hug` | px; `full` is `fill`), `min`, `max`, `padding`, `gap`, `align`, `justify`, `fill`, `color`, `size` and `weight`. Bare identifiers resolve by the property's expected type: a theme role (`bg`, `text`, `text_secondary`, `accent`, …) in a colour slot, an enum variant in an enum slot. Interaction states `hover`, `pressed`, `focused` and `disabled` are nested blocks. The compiler records the result as renderer-free View IR (`{ "$role": "bg" }`, `"center"`, lengths in px); it knows no colours or widgets. `Spacer` and `Stack` live in the grapheme-ui catalog, not the compiler. (#53)
+- **`StoreSession::reload` (RFC-0007 A.9).** Migrates a running session to a recompiled program: plain and non-transient lifecycle fields keep their values, transient fields reset, `const` fields follow a changed default, added fields take their default, removed fields drop, and a type change resets the field with a diagnostic. Derives recompute on the next snapshot. Each changed store gets one revision with cause kind `reload`. A task running inside `invoke` is fenced and returns `status: "cancelled"`. (#54)
+- **Source spans on parse and type errors.** `GraphemeEngine::diagnostics` and `GraphemeSdkError::diagnostics` return structured diagnostics with line/column spans, so hosts no longer scrape positions from the message text. `GraphemeEngine::compile_artifact` compiles with the engine's element catalog. (#54)
+- **`grapheme dev <file.gr> [--glyph <name>]`** (with `--features ui`). Watches the file and reloads the window in place; a save is picked up within 300 ms. A broken save keeps the last good UI and shows file, line, column and message over it; the next good save clears it. It runs grapheme-ui 0.3.1's `desktop::dev_file`, so reloads compile against the grapheme-ui element catalog (`Spacer`, `Stack`). The headless CLI stays on Rust 1.94. (#54)
+
+### Changed
+
+- **Revision causes are `{ kind, name }`** (`kind` is `mutation`, `task` or `reload`) instead of a bare string. (#54)
+- **`CompilerError::ParseError` and `TypeError` are struct variants `{ message, span }`.** Construct them with `CompilerError::parse_error` / `parse_error_at` / `type_error` / `type_error_at`. (#54)
+- **VS Code extension 0.11.0.** `extensions/grapheme-vscode` matches grapheme-lsp 0.11.0, so the release workflow's tag/version check passes on the `v0.11.0` tag.
+
+### Crate versions
+
+| Crate | Version |
+| --- | --- |
+| `grapheme-signatures` | 0.11.0 |
+| `grapheme-stdlib` | 0.11.0 |
+| `grapheme-aot-container` | 0.11.0 |
+| `grapheme-runtime` | 0.11.0 |
+| `grapheme-compiler` | 0.11.0 |
+| `grapheme-sdk` | 0.11.0 |
+| `grapheme-wasm` | 0.11.0 |
+| `grapheme-lsp` | 0.11.0 |
+| `grapheme-cli` | 0.11.0 |
+| `grapheme-artifact` | 0.5.0 |
 
 ## [0.10.0] - 2026-11-27
+
+The `v0.10.0` tag also carries VS Code extension 0.10.0 (#52).
 
 Language crates, `grapheme-lsp` and `grapheme-cli` are **0.10.0**. `grapheme-artifact` stays **0.5.0** (no format change). `grapheme-cli`'s `ui` feature uses grapheme-ui **0.2.0**, which depends on grapheme 0.10.
 
