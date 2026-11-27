@@ -147,6 +147,7 @@ fn is_bare_view_ref(element: &ViewElement, views: &HashMap<&str, Option<&str>>) 
         && element.props.is_empty()
         && element.events.is_empty()
         && element.children.is_empty()
+        && element.style.is_none()
         && views.contains_key(element.kind.as_str())
 }
 
@@ -407,6 +408,12 @@ impl Ctx<'_> {
                 self.lower_prop(&key, name, declared.ty, value, items)?,
             );
         }
+        if let Some(style) = &element.style {
+            let style = self.lower_style(&key, style, items)?;
+            if style.as_object().is_some_and(|map| !map.is_empty()) {
+                props.insert("style".to_string(), style);
+            }
+        }
 
         let mut events = BTreeMap::new();
         for event in &element.events {
@@ -459,10 +466,14 @@ impl Ctx<'_> {
         let Some(cond) = &element.condition else {
             return Err(self.error(&key, "if is missing a condition".to_string()));
         };
-        if !element.events.is_empty() || !element.props.is_empty() || element.content.is_some() {
+        if !element.events.is_empty()
+            || !element.props.is_empty()
+            || element.content.is_some()
+            || element.style.is_some()
+        {
             return Err(self.error(
                 &key,
-                "if cannot have props, content or event bindings".to_string(),
+                "if cannot have props, content, a style block or event bindings".to_string(),
             ));
         }
         let when = self.lower_value(&key, cond, items)?;
@@ -496,10 +507,14 @@ impl Ctx<'_> {
         let Some(repeat) = &element.repeat else {
             return Err(self.error(&key, "for is missing its bindings".to_string()));
         };
-        if !element.events.is_empty() || !element.props.is_empty() || element.content.is_some() {
+        if !element.events.is_empty()
+            || !element.props.is_empty()
+            || element.content.is_some()
+            || element.style.is_some()
+        {
             return Err(self.error(
                 &key,
-                "for cannot have props, content or event bindings".to_string(),
+                "for cannot have props, content, a style block or event bindings".to_string(),
             ));
         }
         self.reject_for_name(&key, &repeat.item, items, "item")?;
@@ -628,6 +643,15 @@ impl Ctx<'_> {
                 ),
             ));
         }
+        if element.style.is_some() {
+            return Err(self.error(
+                &key,
+                format!(
+                    "view '{}' takes no style yet (style on a view reference is not supported)",
+                    element.kind
+                ),
+            ));
+        }
         if !element.events.is_empty() || !element.children.is_empty() {
             return Err(self.error(
                 &key,
@@ -659,6 +683,23 @@ impl Ctx<'_> {
             props: Map::new(),
             events: BTreeMap::new(),
             children: Vec::new(),
+        })
+    }
+
+    fn lower_style(
+        &self,
+        key: &str,
+        style: &crate::ast::ViewStyle,
+        items: &[String],
+    ) -> Result<JsonValue, GraphemeError> {
+        crate::style::lower_style_block(
+            style,
+            |value| self.lower_value(key, value, items),
+            |value| self.static_type(value),
+        )
+        .map_err(|err| match err {
+            crate::style::StyleError::Style(message) => self.error(key, message),
+            crate::style::StyleError::Value(err) => err,
         })
     }
 

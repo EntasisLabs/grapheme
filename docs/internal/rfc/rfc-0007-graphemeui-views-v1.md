@@ -1,6 +1,6 @@
 # RFC-0007: GraphemeUI — State Stores, Views and Tasks v1
 
-Status: Accepted — Implementation in progress (revision 4; rollout steps 0–2, Part H headless mount, Part F tasks headless slice, Part C.7 view `if` / `for`)
+Status: Accepted — Implementation in progress (revision 4; rollout steps 0–2, Part H headless mount, Part F tasks headless slice, Part C.5 style, Part C.7 view `if` / `for`)
 Authors: language + runtime
 Created: 2026-11-07
 Revised: 2026-11-09
@@ -581,7 +581,7 @@ view_for   = "for" variable ("," variable)? "in" expr "key" expr "{" element* "}
 8. **Recursion** is allowed (layers panels, trees). Each level is a view reference that the renderer evaluates lazily, bounded by data and by the call-depth limit.
 9. `fragment` keeps its inline-macro contract unchanged.
 
-**Implementation status (rollout step 2 + C.7 + TextField):** the element grammar (named children, positional content, props, view references, rule 1's rejection of steps and module calls), rules 2–4, 6 and 7 (`if` / `else` / `for`, including `for $item, $index`) for `on Store` views, with a built-in catalog of `Column`, `Row`, `Text`, `Button` and `TextField` (`change` supplies `value: String`). A view `if` condition must be `Bool`. Nested `for` bodies see outer items; shadowing an outer binding is a compile error. Unnamed `if` / `for` keys use a `$if` / `$for` segment. `for` keys must be a non-empty string or number (`/` and `#` escaped); duplicates fail the render. Compiler `--emit view-ir` is `grapheme-ui/2` because it still contains `$if` / `$for` nodes. Expanded session trees stay `grapheme-ui/1`. Not yet: view params, `style`, slots, `VirtualList`, `transient state` on views, registry stores in scope, and recursion beyond eager inlining.
+**Implementation status (rollout step 2 + C.7 + TextField):** the element grammar (named children, positional content, props, view references, rule 1's rejection of steps and module calls), rules 2–4, 6 and 7 (`if` / `else` / `for`, including `for $item, $index`) for `on Store` views, with a built-in catalog of `Column`, `Row`, `Text`, `Button` and `TextField` (`change` supplies `value: String`). A view `if` condition must be `Bool`. Nested `for` bodies see outer items; shadowing an outer binding is a compile error. Unnamed `if` / `for` keys use a `$if` / `$for` segment. `for` keys must be a non-empty string or number (`/` and `#` escaped); duplicates fail the render. Compiler `--emit view-ir` is `grapheme-ui/2` because it still contains `$if` / `$for` nodes. Expanded session trees stay `grapheme-ui/1`. Style blocks (rule 5) type-check: `width` and `height` (`fill`, `hug`, or px; `full` is `fill`), `min` / `max`, `padding`, `gap`, `align`, `justify`, `fill`, `color`, `size` and `weight`. A bare identifier is resolved by the property's expected type (a theme role in a colour slot, an enum variant in an enum slot) and recorded as data (`{ "$role": "bg" }`, `"center"`). Interaction states are nested blocks. Not yet: view params, slots, `VirtualList`, `transient state` on views, registry stores in scope, and recursion beyond eager inlining.
 
 ## Part D — Events and delegates
 

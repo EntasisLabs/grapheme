@@ -156,12 +156,21 @@ view_step       = { ("|>" ~ ident ~ ("." ~ ident)* | ident ~ ("." ~ ident)+) ~ a
 kw_for = @{ "for" ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_in  = @{ "in" ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_key = @{ "key" ~ !(ASCII_ALPHANUMERIC | "_") }
+// RFC-0007 C.5: `style { width: fill, fill: bg, hover { fill: accent } }`.
+// `style` is a keyword only at the start of a view-body item, so an element
+// named `style` without a block still parses as an element.
+kw_style = @{ "style" ~ !(ASCII_ALPHANUMERIC | "_") }
+style_state_name = @{ ("hover" | "pressed" | "focused" | "disabled") ~ !(ASCII_ALPHANUMERIC | "_") }
+style_prop = { ident ~ ":" ~ value }
+style_state = { style_state_name ~ "{" ~ (style_prop ~ ","?)* ~ "}" }
+style_item = { style_state | style_prop }
+style_block = { kw_style ~ "{" ~ (style_item ~ ","?)* ~ "}" }
 view_if  = { view_child_name? ~ kw_if ~ value ~ view_body ~ (kw_else ~ view_body)? }
 view_for = {
     view_child_name? ~ kw_for ~ "$" ~ ident ~ ("," ~ "$" ~ ident)? ~ kw_in ~ value ~ kw_key ~ value
     ~ view_body
 }
-view_child      = { view_if | view_for | view_event | view_step | view_element }
+view_child      = { style_block | view_if | view_for | view_event | view_step | view_element }
 view_body       = { "{" ~ (view_child ~ ","?)* ~ "}" }
 view_element    = { view_child_name? ~ ident ~ (arg_list | view_content)? ~ view_body? }
 

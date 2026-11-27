@@ -398,6 +398,7 @@ fn empty_view_element() -> ViewElement {
         prop_spans: Vec::new(),
         events: Vec::new(),
         children: Vec::new(),
+        style: None,
         condition: None,
         else_children: Vec::new(),
         repeat: None,
@@ -408,41 +409,115 @@ fn parse_view_body_children(
     body: Pair<Rule>,
     events: &mut Vec<crate::ast::ViewEvent>,
     children: &mut Vec<ViewElement>,
+    style: &mut Option<crate::ast::ViewStyle>,
 ) -> Result<(), GraphemeError> {
     for item in body.into_inner() {
+        take_view_body_item(item, events, children, style)?;
+    }
+    Ok(())
+}
+
+fn take_view_body_item(
+    item: Pair<Rule>,
+    events: &mut Vec<crate::ast::ViewEvent>,
+    children: &mut Vec<ViewElement>,
+    style: &mut Option<crate::ast::ViewStyle>,
+) -> Result<(), GraphemeError> {
+    match item.as_rule() {
+        Rule::view_event => events.push(parse_view_event(item)?),
+        Rule::view_if | Rule::view_for | Rule::view_element => {
+            children.push(parse_view_element(item)?)
+        }
+        Rule::style_block => {
+            if style.is_some() {
+                return Err(GraphemeError::ParseError(
+                    "style is given more than once".to_string(),
+                ));
+            }
+            *style = Some(parse_style_block(item)?);
+        }
+        Rule::view_step => {
+            return Err(GraphemeError::ParseError(format!(
+                "a view contains elements only; '{}' is a pipeline step or module call",
+                item.as_str().trim()
+            )));
+        }
+        Rule::view_child => {
+            for inner in item.into_inner() {
+                take_view_body_item(inner, events, children, style)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn parse_style_block(pair: Pair<Rule>) -> Result<crate::ast::ViewStyle, GraphemeError> {
+    let mut items = Vec::new();
+    for item in pair.into_inner() {
         match item.as_rule() {
-            Rule::view_event => events.push(parse_view_event(item)?),
-            Rule::view_if | Rule::view_for | Rule::view_element => {
-                children.push(parse_view_element(item)?)
-            }
-            Rule::view_step => {
-                return Err(GraphemeError::ParseError(format!(
-                    "a view contains elements only; '{}' is a pipeline step or module call",
-                    item.as_str().trim()
-                )));
-            }
-            Rule::view_child => {
-                // Flatten the choice wrapper if pest surfaces it.
+            Rule::kw_style => {}
+            Rule::style_item => {
                 for inner in item.into_inner() {
-                    match inner.as_rule() {
-                        Rule::view_event => events.push(parse_view_event(inner)?),
-                        Rule::view_if | Rule::view_for | Rule::view_element => {
-                            children.push(parse_view_element(inner)?)
-                        }
-                        Rule::view_step => {
-                            return Err(GraphemeError::ParseError(format!(
-                                "a view contains elements only; '{}' is a pipeline step or module call",
-                                inner.as_str().trim()
-                            )));
-                        }
-                        _ => {}
-                    }
+                    push_style_item(&mut items, inner)?;
                 }
             }
+            Rule::style_state | Rule::style_prop => push_style_item(&mut items, item)?,
             _ => {}
         }
     }
+    Ok(crate::ast::ViewStyle { items })
+}
+
+fn push_style_item(
+    items: &mut Vec<crate::ast::ViewStyleItem>,
+    pair: Pair<Rule>,
+) -> Result<(), GraphemeError> {
+    match pair.as_rule() {
+        Rule::style_state => items.push(crate::ast::ViewStyleItem::State(parse_style_state(pair)?)),
+        Rule::style_prop => {
+            let (name, value) = parse_style_prop(pair)?;
+            items.push(crate::ast::ViewStyleItem::Prop(name, value));
+        }
+        _ => {}
+    }
     Ok(())
+}
+
+fn parse_style_state(pair: Pair<Rule>) -> Result<crate::ast::ViewStyleState, GraphemeError> {
+    let mut name = String::new();
+    let mut props = Vec::new();
+    for item in pair.into_inner() {
+        match item.as_rule() {
+            Rule::style_state_name => name = item.as_str().to_string(),
+            Rule::style_prop => props.push(parse_style_prop(item)?),
+            _ => {}
+        }
+    }
+    if name.is_empty() {
+        return Err(GraphemeError::ParseError(
+            "interaction state is missing its name".to_string(),
+        ));
+    }
+    Ok(crate::ast::ViewStyleState { name, props })
+}
+
+fn parse_style_prop(pair: Pair<Rule>) -> Result<(String, Value), GraphemeError> {
+    let mut name = None;
+    let mut value = None;
+    for item in pair.into_inner() {
+        match item.as_rule() {
+            Rule::ident => name = Some(item.as_str().to_string()),
+            Rule::value => value = Some(parse_value(item)?),
+            _ => {}
+        }
+    }
+    match (name, value) {
+        (Some(name), Some(value)) => Ok((name, value)),
+        _ => Err(GraphemeError::ParseError(
+            "style property is missing a name or a value".to_string(),
+        )),
+    }
 }
 
 fn parse_view_prim(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
@@ -464,9 +539,12 @@ fn parse_view_prim(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
             Rule::view_content => {
                 element.content = Some(parse_value(p.into_inner().next().unwrap())?)
             }
-            Rule::view_body => {
-                parse_view_body_children(p, &mut element.events, &mut element.children)?
-            }
+            Rule::view_body => parse_view_body_children(
+                p,
+                &mut element.events,
+                &mut element.children,
+                &mut element.style,
+            )?,
             _ => {}
         }
     }
@@ -506,8 +584,9 @@ fn parse_view_if(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
 fn parse_if_body(body: Pair<Rule>, which: &str) -> Result<Vec<ViewElement>, GraphemeError> {
     let mut events = Vec::new();
     let mut children = Vec::new();
-    parse_view_body_children(body, &mut events, &mut children)?;
-    if !events.is_empty() {
+    let mut style = None;
+    parse_view_body_children(body, &mut events, &mut children, &mut style)?;
+    if !events.is_empty() || style.is_some() {
         return Err(GraphemeError::ParseError(format!(
             "{which} {{ … }} may only contain elements"
         )));
