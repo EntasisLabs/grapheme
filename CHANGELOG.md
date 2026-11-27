@@ -7,13 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Data-only element catalog.** View elements are checked against a catalog of names, props, prop types, events and payload params. The default catalog is still `Column`, `Row`, `Text`, `Button` and `TextField` (`grapheme/builtins`), so existing programs compile unchanged. `GraphemeEngine::builder().element_catalog(json)` and `grapheme compile` / `build` / `session --catalog file.json` load another document. The compiler does not render. Unknown elements and props name the catalog (`$catalog`) and include `--> line:column`.
+- **`grapheme --version` and `-V` print the grapheme-cli version and exit 0.** They were read as a source file name. `--help` and `-h` print usage and exit 0 on the same path.
+- **`grapheme run --glyph <name>` chooses which UI view to open.** A file may declare several UI glyphs (`glyph Name on Store`). One UI glyph still opens with no flag. Several, and no `--glyph`, exit with an error that lists those names. The name is passed to grapheme-ui `desktop::run_file`. A file still has at most one workflow glyph.
+
+### Changed
+
+- **The `ui` feature needs Rust 1.95. The default CLI stays on 1.94.** `grapheme-cli`'s `rust-version` stays `1.94`, matching the rest of the workspace, because a headless install does not link grapheme-ui. `--features ui` pulls grapheme-ui, whose rust-version is 1.95. The CLI UI job builds that feature on 1.95. The MSRV job checks the default CLI on 1.94.
+
+### Fixed
+
+- **The 0.9.1 note no longer says `grapheme run` replaced an exec of a separate `grapheme-ui` binary.** That hand-off was on main between releases and never shipped. 0.9.1 is the first release that opens a UI file, and it does so in-process.
+
 ## [0.9.1] - 2026-11-11
 
 `grapheme-cli` only. The library crates and `grapheme-lsp` stay at 0.9.0.
 
 ### Changed
 
-- **`grapheme run` opens UI files in-process (`grapheme-cli` feature `ui`).** A file with a UI glyph and no workflow entry is opened in a window by the CLI itself through `grapheme-ui`, instead of execing a separate `grapheme-ui` binary from PATH. The feature is off by default, so the default install stays headless; without it, `grapheme run` on a UI file says to reinstall with `cargo install grapheme-cli --features ui`. The workspace `[patch.crates-io]` maps grapheme-ui's grapheme-* dependencies to the workspace crates so the binary links one runtime. grapheme-sdk and the other library crates do not depend on grapheme-ui. A run that ends in `fatal_failure` still exits non-zero.
+- **`grapheme run` opens UI files in-process (`grapheme-cli` feature `ui`).** A file with a UI glyph and no workflow entry is opened in a window by the CLI itself through `grapheme-ui`. This is the first release with that behavior. The feature is off by default, so the default install stays headless; without it, `grapheme run` on a UI file says to reinstall with `cargo install grapheme-cli --features ui`. The workspace `[patch.crates-io]` maps grapheme-ui's grapheme-* dependencies to the workspace crates so the binary links one runtime. grapheme-sdk and the other library crates do not depend on grapheme-ui. A run that ends in `fatal_failure` still exits non-zero.
 
 ## [0.9.0] - 2026-11-10
 

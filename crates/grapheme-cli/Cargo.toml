@@ -2,6 +2,10 @@
 name = "grapheme-cli"
 version = "0.9.1"
 edition = "2024"
+# Headless default stays on the workspace MSRV. Cargo has no per-feature
+# rust-version: `--features ui` needs Rust 1.95 because grapheme-ui does.
+# That floor is the CLI UI job. This field stays 1.94 so `cargo install
+# grapheme-cli` (no features) still builds on 1.94.
 rust-version = "1.94"
 description = "Grapheme CLI for parsing, compiling, and running .gr workflows"
 license = "Apache-2.0"
@@ -21,8 +25,9 @@ full = [
     "grapheme-runtime/full",
 ]
 # Run UI glyph files in-process: `grapheme run app.gr` opens a window.
-# Pulls grapheme-ui and its rndr/winit/wgpu window stack. Off by default so a
-# plain install stays headless. `cargo install grapheme-cli --features ui`.
+# Pulls grapheme-ui (rust-version 1.95) and its rndr/winit/wgpu window stack.
+# Off by default so a plain install stays headless and on Rust 1.94.
+# `cargo install grapheme-cli --features ui` needs Rust 1.95+.
 ui = ["dep:grapheme-ui", "grapheme-ui/desktop"]
 
 [dependencies]

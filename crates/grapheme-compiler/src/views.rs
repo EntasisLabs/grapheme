@@ -3,129 +3,40 @@
 //! A view is data: elements, props and event bindings, never steps. Inside
 //! `view V on Store`, `$field` reads the store's current revision (derives
 //! included) and lowers to `$state.field`. Every event binding is checked
-//! against its target mutation's parameters.
+//! against its target mutation's parameters. Which elements exist comes from
+//! the loaded [`ElementCatalog`](crate::ElementCatalog), not from a renderer.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde_json::{Map, Value as JsonValue};
 
 use crate::ast::{
-    Definition, GlyphDef, Program, ScalarKind, TypeRef, Value, ViewDef, ViewElement,
+    Definition, GlyphDef, Program, ScalarKind, SourcePos, TypeRef, Value, ViewDef, ViewElement,
 };
+use crate::catalog::{CatalogElement, ElementCatalog, PropType};
 use crate::error::GraphemeError;
 use crate::hir::{HirExecutable, HirExecutableKind, HirStore, value_to_json};
 use crate::stores::{find_field, rewrite_strings, rewrite_vars, split_path};
 use crate::verifier::LintWarning;
 use grapheme_artifact::{MirUiGlyph, MirView, MirViewBinding, MirViewFor, MirViewNode};
 
-#[derive(Clone, Copy, PartialEq)]
-enum PropType {
-    /// Any scalar; rendered as text.
-    Text,
-    String,
-    Int,
-    Bool,
-}
-
-/// Catalog event: name plus payload params the host/widget supplies at invoke.
-struct CatalogEvent {
-    name: &'static str,
-    /// Params the event supplies, as `(name, type)`. TextField `change` is
-    /// `("value", "String")`.
-    payload: &'static [(&'static str, &'static str)],
-}
-
-/// A built-in primitive of the GraphemeUI catalog.
-struct Primitive {
-    name: &'static str,
-    role: &'static str,
-    /// Accepts positional content, stored as the `content` prop.
-    content: bool,
-    props: &'static [(&'static str, PropType)],
-    events: &'static [CatalogEvent],
-    children: bool,
-}
-
-impl Primitive {
-    fn interactive(&self) -> bool {
-        !self.events.is_empty()
-    }
-
-    fn event(&self, name: &str) -> Option<&'static CatalogEvent> {
-        self.events.iter().find(|e| e.name == name)
-    }
-}
-
-const CATALOG: &[Primitive] = &[
-    Primitive {
-        name: "Column",
-        role: "group",
-        content: false,
-        props: &[("gap", PropType::Int), ("label", PropType::String)],
-        events: &[],
-        children: true,
-    },
-    Primitive {
-        name: "Row",
-        role: "group",
-        content: false,
-        props: &[("gap", PropType::Int), ("label", PropType::String)],
-        events: &[],
-        children: true,
-    },
-    Primitive {
-        name: "Text",
-        role: "text",
-        content: true,
-        props: &[("content", PropType::Text)],
-        events: &[],
-        children: false,
-    },
-    Primitive {
-        name: "Button",
-        role: "button",
-        content: false,
-        props: &[("label", PropType::String), ("enabled", PropType::Bool)],
-        events: &[CatalogEvent {
-            name: "click",
-            payload: &[],
-        }],
-        children: true,
-    },
-    Primitive {
-        name: "TextField",
-        role: "textbox",
-        content: false,
-        props: &[
-            ("value", PropType::Text),
-            ("placeholder", PropType::String),
-            ("label", PropType::String),
-        ],
-        events: &[CatalogEvent {
-            name: "change",
-            payload: &[("value", "String")],
-        }],
-        children: false,
-    },
-];
-
-fn primitive(name: &str) -> Option<&'static Primitive> {
-    CATALOG.iter().find(|p| p.name == name)
-}
-
 /// Warns for every interactive node with no accessible name: no `label`
 /// prop and no `Text` content beneath it (RFC-0007 I.1 rule 4).
-pub(crate) fn accessibility_lints(view: &MirView, out: &mut Vec<LintWarning>) {
+pub(crate) fn accessibility_lints(
+    view: &MirView,
+    catalog: &ElementCatalog,
+    out: &mut Vec<LintWarning>,
+) {
     fn has_text(node: &MirViewNode) -> bool {
         (node.prim.as_deref() == Some("Text") && node.props.contains_key("content"))
             || node.children.iter().any(has_text)
     }
-    fn walk(view: &str, node: &MirViewNode, out: &mut Vec<LintWarning>) {
+    fn walk(view: &str, catalog: &ElementCatalog, node: &MirViewNode, out: &mut Vec<LintWarning>) {
         let interactive = node
             .prim
             .as_deref()
-            .and_then(primitive)
-            .is_some_and(Primitive::interactive);
+            .and_then(|name| catalog.element(name))
+            .is_some_and(CatalogElement::interactive);
         if interactive && !node.props.contains_key("label") && !has_text(node) {
             out.push(LintWarning {
                 code: "view-accessibility".to_string(),
@@ -140,10 +51,22 @@ pub(crate) fn accessibility_lints(view: &MirView, out: &mut Vec<LintWarning>) {
             });
         }
         for child in &node.children {
-            walk(view, child, out);
+            walk(view, catalog, child, out);
         }
     }
-    walk(&view.name, &view.root, out);
+    walk(&view.name, catalog, &view.root, out);
+}
+
+/// `message` already names the element. The catalog name and, when `at` is
+/// set, `--> line:column` are appended so hosts can point at the source.
+fn catalog_located(message: String, catalog: &str, at: Option<SourcePos>) -> String {
+    match at {
+        Some(at) => format!(
+            "{message} in catalog '{catalog}' --> {}:{}",
+            at.line, at.column
+        ),
+        None => format!("{message} in catalog '{catalog}'"),
+    }
 }
 
 fn type_error(message: String) -> GraphemeError {
@@ -154,6 +77,7 @@ pub(crate) fn lower_views(
     program: &Program,
     stores: &[HirStore],
     executables: &[HirExecutable],
+    catalog: &ElementCatalog,
 ) -> Result<Vec<MirView>, GraphemeError> {
     let defs: Vec<&ViewDef> = program
         .definitions
@@ -174,10 +98,11 @@ pub(crate) fn lower_views(
                 def.name
             )));
         }
-        if primitive(&def.name).is_some() {
+        if catalog.element(&def.name).is_some() {
             return Err(type_error(format!(
-                "view '{}' has the name of a built-in primitive",
-                def.name
+                "view '{}' has the name of a built-in primitive in catalog '{}'",
+                def.name,
+                catalog.name()
             )));
         }
         if executables.iter().any(|e| e.name == def.name)
@@ -205,6 +130,7 @@ pub(crate) fn lower_views(
                 store,
                 views: &names,
                 executables,
+                catalog,
             };
             Ok(MirView {
                 name: def.name.clone(),
@@ -234,6 +160,7 @@ pub(crate) fn lower_ui_glyphs(
     stores: &[HirStore],
     executables: &[HirExecutable],
     views: &mut Vec<MirView>,
+    catalog: &ElementCatalog,
 ) -> Result<Vec<MirUiGlyph>, GraphemeError> {
     let glyphs: Vec<&GlyphDef> = program
         .definitions
@@ -250,12 +177,15 @@ pub(crate) fn lower_ui_glyphs(
     let mut out = Vec::new();
     for glyph in glyphs {
         let store_name = glyph.store.as_deref().expect("UI glyph has store");
-        let store = stores.iter().find(|s| s.name == store_name).ok_or_else(|| {
-            type_error(format!(
-                "glyph '{}' is on '{store_name}', which is not a declared state",
-                glyph.name
-            ))
-        })?;
+        let store = stores
+            .iter()
+            .find(|s| s.name == store_name)
+            .ok_or_else(|| {
+                type_error(format!(
+                    "glyph '{}' is on '{store_name}', which is not a declared state",
+                    glyph.name
+                ))
+            })?;
 
         let view_stores: HashMap<&str, Option<&str>> = views
             .iter()
@@ -263,7 +193,10 @@ pub(crate) fn lower_ui_glyphs(
             .collect();
 
         let root_el = glyph.root.as_ref().ok_or_else(|| {
-            type_error(format!("glyph '{}' is missing its root element", glyph.name))
+            type_error(format!(
+                "glyph '{}' is missing its root element",
+                glyph.name
+            ))
         })?;
 
         let root_view = if is_bare_view_ref(root_el, &view_stores) {
@@ -282,7 +215,7 @@ pub(crate) fn lower_ui_glyphs(
             if views.iter().any(|v| v.name == glyph.name)
                 || executables.iter().any(|e| e.name == glyph.name)
                 || stores.iter().any(|s| s.name == glyph.name)
-                || primitive(&glyph.name).is_some()
+                || catalog.element(&glyph.name).is_some()
             {
                 return Err(type_error(format!(
                     "glyph '{}' has the same name as another definition",
@@ -299,6 +232,7 @@ pub(crate) fn lower_ui_glyphs(
                 store: Some(store),
                 views: &view_stores,
                 executables,
+                catalog,
             };
             let mir = MirView {
                 name: glyph.name.clone(),
@@ -384,6 +318,7 @@ struct Ctx<'a> {
     store: Option<&'a HirStore>,
     views: &'a HashMap<&'a str, Option<&'a str>>,
     executables: &'a [HirExecutable],
+    catalog: &'a ElementCatalog,
 }
 
 impl Ctx<'_> {
@@ -406,20 +341,20 @@ impl Ctx<'_> {
         if element.kind == "for" {
             return self.lower_for(element, key, items);
         }
-        let Some(prim) = primitive(&element.kind) else {
+        let Some(prim) = self.catalog.element(&element.kind) else {
             if self.views.contains_key(element.kind.as_str()) {
                 return self.lower_view_ref(element, key);
             }
             return Err(self.error(
                 &key,
-                format!(
-                    "unknown element '{}'; expected a view, if/for, or one of: {}",
-                    element.kind,
-                    CATALOG
-                        .iter()
-                        .map(|p| p.name)
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                catalog_located(
+                    format!(
+                        "unknown element '{}'; expected a view, if/for, or one of: {}",
+                        element.kind,
+                        self.catalog.element_names()
+                    ),
+                    self.catalog.name(),
+                    element.span,
                 ),
             ));
         };
@@ -435,23 +370,32 @@ impl Ctx<'_> {
                     ),
                 ));
             }
+            let content_ty = prim
+                .prop("content")
+                .map(|prop| prop.ty)
+                .unwrap_or(PropType::Text);
             props.insert(
                 "content".to_string(),
-                self.lower_prop(&key, "content", PropType::Text, content, items)?,
+                self.lower_prop(&key, "content", content_ty, content, items)?,
             );
         }
-        for (name, value) in &element.props {
-            let Some((_, ty)) = prim.props.iter().find(|(p, _)| p == name) else {
+        for (index, (name, value)) in element.props.iter().enumerate() {
+            let Some(declared) = prim.prop(name) else {
+                let at = element.prop_spans.get(index).copied();
                 return Err(self.error(
                     &key,
-                    format!(
-                        "'{}' has no prop '{name}'; its props are: {}",
-                        prim.name,
-                        prim.props
-                            .iter()
-                            .map(|(p, _)| *p)
-                            .collect::<Vec<_>>()
-                            .join(", ")
+                    catalog_located(
+                        format!(
+                            "'{}' has no prop '{name}'; its props are: {}",
+                            prim.name,
+                            prim.props
+                                .iter()
+                                .map(|prop| prop.name.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                        self.catalog.name(),
+                        at,
                     ),
                 ));
             };
@@ -460,7 +404,7 @@ impl Ctx<'_> {
             }
             props.insert(
                 name.clone(),
-                self.lower_prop(&key, name, *ty, value, items)?,
+                self.lower_prop(&key, name, declared.ty, value, items)?,
             );
         }
 
@@ -478,13 +422,12 @@ impl Ctx<'_> {
                     format!("event '{}' is bound more than once", event.event),
                 ));
             }
-            let binding = self.lower_binding(
-                &key,
-                &event.target,
-                &event.args,
-                catalog_event.payload,
-                items,
-            )?;
+            let payload: Vec<(&str, &str)> = catalog_event
+                .payload
+                .iter()
+                .map(|param| (param.name.as_str(), param.ty.as_str()))
+                .collect();
+            let binding = self.lower_binding(&key, &event.target, &event.args, &payload, items)?;
             events.insert(event.event.clone(), binding);
         }
 
@@ -526,10 +469,7 @@ impl Ctx<'_> {
         if let Some(actual) = self.condition_type(&when)
             && actual != "Bool"
         {
-            return Err(self.error(
-                &key,
-                format!("if condition must be Bool, found {actual}"),
-            ));
+            return Err(self.error(&key, format!("if condition must be Bool, found {actual}")));
         }
         let children = self.lower_children(&element.children, &key, items)?;
         let else_children = self.lower_children(&element.else_children, &key, items)?;
@@ -736,6 +676,7 @@ impl Ctx<'_> {
                 PropType::Text => return Ok(lowered),
                 PropType::String => "String",
                 PropType::Int => "Int",
+                PropType::Float => "Float",
                 PropType::Bool => "Bool",
             };
             if actual != expected {
@@ -800,7 +741,10 @@ impl Ctx<'_> {
             if bound.contains_key(name) {
                 return Err(self.error(key, format!("argument '{name}' is given more than once")));
             }
-            if event_payload.iter().any(|(payload_name, _)| payload_name == name) {
+            if event_payload
+                .iter()
+                .any(|(payload_name, _)| payload_name == name)
+            {
                 return Err(self.error(
                     key,
                     format!(
@@ -934,7 +878,9 @@ impl Ctx<'_> {
         if let Some(ty) = self.static_type(value) {
             return Some(ty);
         }
-        let (op, _) = value.as_object().and_then(grapheme_artifact::expr::expr_parts)?;
+        let (op, _) = value
+            .as_object()
+            .and_then(grapheme_artifact::expr::expr_parts)?;
         match op {
             "==" | "!=" | "<" | "<=" | ">" | ">=" | "&&" | "||" | "!" => Some("Bool"),
             _ => None,

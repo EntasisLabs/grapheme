@@ -38,6 +38,14 @@ pub fn verify_hir_with_lints_mode(
     hir: &HirProgram,
     policy_mode: ExecutableKindPolicyMode,
 ) -> Result<Vec<LintWarning>, GraphemeError> {
+    verify_hir_with_lints_mode_catalog(hir, policy_mode, &crate::ElementCatalog::builtin())
+}
+
+pub(crate) fn verify_hir_with_lints_mode_catalog(
+    hir: &HirProgram,
+    policy_mode: ExecutableKindPolicyMode,
+    catalog: &crate::ElementCatalog,
+) -> Result<Vec<LintWarning>, GraphemeError> {
     if hir.executable_defs.is_empty() {
         return Err(GraphemeError::VerificationError(
             "program contains no executable definitions".to_string(),
@@ -46,7 +54,7 @@ pub fn verify_hir_with_lints_mode(
 
     let mut lint_warnings = Vec::new();
     for view in &hir.views {
-        crate::views::accessibility_lints(view, &mut lint_warnings);
+        crate::views::accessibility_lints(view, catalog, &mut lint_warnings);
     }
 
     let executable_names: HashSet<String> =

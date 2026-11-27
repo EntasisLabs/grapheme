@@ -4,7 +4,7 @@ Goal: run your first Grapheme workflow and understand what success looks like.
 
 Estimated time: 10 minutes.
 
-Requires Rust **1.94+** / edition **2024** when building from source (`rust-toolchain.toml`).
+Requires Rust **1.94+** / edition **2024** when building from source (`rust-toolchain.toml`). Installing the CLI with `--features ui` needs Rust **1.95+**.
 
 ## Install Paths
 

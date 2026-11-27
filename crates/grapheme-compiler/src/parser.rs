@@ -120,7 +120,7 @@ fn is_executable_definition_line(trimmed: &str) -> bool {
 fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, GraphemeError> {
     let mut imports = vec![];
     let mut definitions = vec![];
-    let mut glyph_names = Vec::new();
+    let mut workflow_glyphs = Vec::new();
 
     for inner in pair.into_inner() {
         match inner.as_rule() {
@@ -131,7 +131,13 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
                 match def.as_rule() {
                     Rule::glyph_def => {
                         let glyph = parse_glyph(def, state)?;
-                        glyph_names.push(glyph.name.clone());
+                        // UI glyphs (`glyph Name on Store`) may share a file so
+                        // `grapheme run --glyph` can choose one. A workflow
+                        // glyph is the file's entrypoint, so there is still
+                        // only one of those.
+                        if glyph.store.is_none() {
+                            workflow_glyphs.push(glyph.name.clone());
+                        }
                         definitions.push(Definition::Glyph(glyph));
                     }
                     Rule::query_def => {
@@ -140,9 +146,7 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
                     Rule::mutation_def => {
                         definitions.push(Definition::Mutation(parse_mutation(def, state)?))
                     }
-                    Rule::task_def => {
-                        definitions.push(Definition::Task(parse_task(def, state)?))
-                    }
+                    Rule::task_def => definitions.push(Definition::Task(parse_task(def, state)?)),
                     Rule::iterator_def => {
                         definitions.push(Definition::Iterator(parse_iterator(def, state)?))
                     }
@@ -178,10 +182,10 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
         }
     }
 
-    if glyph_names.len() > 1 {
+    if workflow_glyphs.len() > 1 {
         return Err(GraphemeError::ParseError(format!(
-            "only one glyph is allowed per file, found: {}",
-            glyph_names.join(", ")
+            "only one workflow glyph is allowed per file, found: {}",
+            workflow_glyphs.join(", ")
         )));
     }
 
@@ -272,7 +276,7 @@ fn parse_ui_glyph(
             r => {
                 return Err(GraphemeError::UnexpectedRule(format!(
                     "ui glyph body: {r:?}"
-                )))
+                )));
             }
         }
     }
@@ -376,12 +380,22 @@ fn parse_view_element(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
     }
 }
 
+fn source_pos(pair: &Pair<Rule>) -> SourcePos {
+    let (line, column) = pair.as_span().start_pos().line_col();
+    SourcePos {
+        line: line as u32,
+        column: column as u32,
+    }
+}
+
 fn empty_view_element() -> ViewElement {
     ViewElement {
         child_name: None,
         kind: String::new(),
+        span: None,
         content: None,
         props: Vec::new(),
+        prop_spans: Vec::new(),
         events: Vec::new(),
         children: Vec::new(),
         condition: None,
@@ -438,8 +452,15 @@ fn parse_view_prim(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
             Rule::view_child_name => {
                 element.child_name = Some(p.into_inner().next().unwrap().as_str().to_string())
             }
-            Rule::ident => element.kind = p.as_str().to_string(),
-            Rule::arg_list => element.props = parse_view_args(p)?,
+            Rule::ident => {
+                element.span = Some(source_pos(&p));
+                element.kind = p.as_str().to_string();
+            }
+            Rule::arg_list => {
+                let parsed = parse_view_args(p)?;
+                element.props = parsed.props;
+                element.prop_spans = parsed.spans;
+            }
             Rule::view_content => {
                 element.content = Some(parse_value(p.into_inner().next().unwrap())?)
             }
@@ -473,9 +494,7 @@ fn parse_view_if(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
     }
     let mut bodies = bodies.into_iter();
     let Some(then_body) = bodies.next() else {
-        return Err(GraphemeError::ParseError(
-            "if requires a body".to_string(),
-        ));
+        return Err(GraphemeError::ParseError("if requires a body".to_string()));
     };
     element.children = parse_if_body(then_body, "if")?;
     if let Some(else_body) = bodies.next() {
@@ -546,7 +565,7 @@ fn parse_view_event(pair: Pair<Rule>) -> Result<ViewEvent, GraphemeError> {
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::ident => idents.push(p.as_str().to_string()),
-            Rule::arg_list => args = parse_view_args(p)?,
+            Rule::arg_list => args = parse_view_args(p)?.props,
             _ => {}
         }
     }
@@ -558,9 +577,25 @@ fn parse_view_event(pair: Pair<Rule>) -> Result<ViewEvent, GraphemeError> {
     })
 }
 
-/// Keeps duplicates so the compiler can report them.
-fn parse_view_args(pair: Pair<Rule>) -> Result<Vec<(String, Value)>, GraphemeError> {
-    pair.into_inner().map(parse_named_arg).collect()
+/// Keeps duplicates so the compiler can report them. Spans point at each prop name.
+struct ParsedViewArgs {
+    props: Vec<(String, Value)>,
+    spans: Vec<SourcePos>,
+}
+
+/// Keeps duplicates so the compiler can report them. Spans point at each prop name.
+fn parse_view_args(pair: Pair<Rule>) -> Result<ParsedViewArgs, GraphemeError> {
+    let mut props = Vec::new();
+    let mut spans = Vec::new();
+    for arg in pair.into_inner() {
+        let mut inner = arg.into_inner();
+        let key_pair = inner.next().unwrap();
+        spans.push(source_pos(&key_pair));
+        let key = key_pair.as_str().to_string();
+        let val = parse_value(inner.next().unwrap())?;
+        props.push((key, val));
+    }
+    Ok(ParsedViewArgs { props, spans })
 }
 
 fn parse_store_def(pair: Pair<Rule>) -> Result<StoreDef, GraphemeError> {
@@ -1015,7 +1050,10 @@ fn parse_mutation(pair: Pair<Rule>, state: &mut ParseState) -> Result<MutationDe
     })
 }
 
-fn parse_task(pair: Pair<Rule>, state: &mut ParseState) -> Result<crate::ast::TaskDef, GraphemeError> {
+fn parse_task(
+    pair: Pair<Rule>,
+    state: &mut ParseState,
+) -> Result<crate::ast::TaskDef, GraphemeError> {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
     let (variables, signature, directives, pipelines) = parse_operation_body(inner, state)?;

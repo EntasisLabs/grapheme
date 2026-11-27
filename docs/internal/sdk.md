@@ -323,6 +323,21 @@ session.save_default_hotload_store().expect("persist hotload");
 
 Hotload store path: `.grapheme/modules/hotload.json` (schema `grapheme.modules.hotload/v1`).
 
+## Element catalog
+
+Views are checked against a data-only catalog. The default is the five built-ins (`Column`, `Row`, `Text`, `Button`, `TextField`), named `grapheme/builtins`. Pass a document to compile against another set. The SDK does not render the elements; a host such as GraphemeUI owns widgets and ships the document.
+
+```rust
+use grapheme_sdk::GraphemeEngine;
+
+let engine = GraphemeEngine::builder()
+    .element_catalog(include_str!("catalog.json"))
+    .expect("catalog")
+    .build();
+```
+
+`$catalog` is the name unknown-element and unknown-prop errors use. Those errors also include `--> line:column`. Prop types are `Text`, `String`, `Int`, `Float` and `Bool`. An event payload param is `String`, `Int`, `Float` or `Bool`.
+
 ## State Store Session
 
 Programs that declare `state` stores (RFC-0007 Part A) run through a store session. Each `invoke` is one transaction on one store; it returns a `StoreCommit` whose `committed` revision is `None` when nothing changed. A failed mutation commits nothing.

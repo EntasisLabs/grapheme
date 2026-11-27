@@ -247,21 +247,16 @@ view V on Form {{ {body} }}
     assert!(binding.args.is_empty());
     assert_eq!(binding.payload_params, vec!["value".to_string()]);
 
-    let err = grapheme_compiler::compile(&source(
-        r#"TextField(label: "Q") { on change: NeedsTwo }"#,
-    ))
-    .unwrap_err()
-    .to_string();
-    assert!(
-        err.contains("'NeedsTwo' needs argument 'extra'"),
-        "{err}"
-    );
+    let err =
+        grapheme_compiler::compile(&source(r#"TextField(label: "Q") { on change: NeedsTwo }"#))
+            .unwrap_err()
+            .to_string();
+    assert!(err.contains("'NeedsTwo' needs argument 'extra'"), "{err}");
 
-    let err = grapheme_compiler::compile(&source(
-        r#"TextField(label: "Q") { on click: SetQuery }"#,
-    ))
-    .unwrap_err()
-    .to_string();
+    let err =
+        grapheme_compiler::compile(&source(r#"TextField(label: "Q") { on click: SetQuery }"#))
+            .unwrap_err()
+            .to_string();
     assert!(err.contains("'TextField' has no event 'click'"), "{err}");
 }
 
@@ -298,9 +293,9 @@ fn counter_example_compiles_under_strict_policy() {
     let artifact = grapheme_compiler::compile_program(
         ast,
         grapheme_compiler::CompileOptions {
-            capability_policy: grapheme_artifact::CapabilityPolicy::default(),
             executable_kind_policy_mode:
                 grapheme_compiler::verifier::ExecutableKindPolicyMode::StrictMutationOnly,
+            ..grapheme_compiler::CompileOptions::default()
         },
     )
     .expect("strict compile");
@@ -501,13 +496,14 @@ view V on Items {{
     ))
     .expect("compiles");
     let view = artifact.mir.views.iter().find(|v| v.name == "V").unwrap();
-    let for_node = view.root.children.iter().find(|c| c.repeat.is_some()).unwrap();
-    assert_eq!(for_node.key, "V/$for");
-    let if_child = for_node
+    let for_node = view
+        .root
         .children
         .iter()
-        .find(|c| c.when.is_some())
+        .find(|c| c.repeat.is_some())
         .unwrap();
+    assert_eq!(for_node.key, "V/$for");
+    let if_child = for_node.children.iter().find(|c| c.when.is_some()).unwrap();
     assert_eq!(if_child.key, "V/$for/$if");
     assert_eq!(
         if_child.children[0].props.get("content"),
@@ -525,7 +521,10 @@ view V on S {
 }
 "#,
     );
-    assert!(err.contains("if condition must be Bool, found Int"), "{err}");
+    assert!(
+        err.contains("if condition must be Bool, found Int"),
+        "{err}"
+    );
 }
 
 #[test]
@@ -583,9 +582,19 @@ view V on S {
     )
     .expect("else and index compile");
     let view = artifact.mir.views.iter().find(|v| v.name == "V").unwrap();
-    let if_node = view.root.children.iter().find(|c| c.when.is_some()).unwrap();
+    let if_node = view
+        .root
+        .children
+        .iter()
+        .find(|c| c.when.is_some())
+        .unwrap();
     assert_eq!(if_node.else_children.len(), 1);
-    let for_node = view.root.children.iter().find(|c| c.repeat.is_some()).unwrap();
+    let for_node = view
+        .root
+        .children
+        .iter()
+        .find(|c| c.repeat.is_some())
+        .unwrap();
     assert_eq!(
         for_node.repeat.as_ref().and_then(|r| r.index.as_deref()),
         Some("index")
@@ -649,4 +658,79 @@ view V on S {
 "#,
     )
     .expect("String payload matches a String parameter");
+}
+
+const DIVIDER_CATALOG: &str = r#"{
+  "$catalog": "test/divider",
+  "elements": [
+    {
+      "name": "Divider",
+      "role": "separator",
+      "content": false,
+      "children": false,
+      "props": [{ "name": "label", "type": "String" }],
+      "events": [{ "name": "activate", "payload": [{ "name": "on", "type": "Bool" }] }]
+    }
+  ]
+}"#;
+
+fn compile_with_catalog(
+    source: &str,
+    catalog: &str,
+) -> Result<grapheme_compiler::pipeline::CompilationArtifact, String> {
+    let ast = grapheme_compiler::parse(source).map_err(|err| err.to_string())?;
+    let options = grapheme_compiler::CompileOptions {
+        element_catalog: grapheme_compiler::ElementCatalog::parse(catalog)
+            .map_err(|err| err.to_string())?,
+        ..grapheme_compiler::CompileOptions::default()
+    };
+    grapheme_compiler::compile_program(ast, options).map_err(|err| err.to_string())
+}
+
+#[test]
+fn unknown_element_and_prop_name_the_catalog_and_a_position() {
+    let source = "state S { n: Int = 0 }\nview V on S { Grid { Text(\"a\") } }\n";
+    let err =
+        compile_with_catalog(source, include_str!("../src/builtin_catalog.json")).unwrap_err();
+    assert!(
+        err.contains("unknown element 'Grid'")
+            && err.contains("in catalog 'grapheme/builtins'")
+            && err.contains("--> 2:15"),
+        "{err}"
+    );
+
+    let source = "state S { n: Int = 0 }\nview V on S { Button(color: \"red\") }\n";
+    let err =
+        compile_with_catalog(source, include_str!("../src/builtin_catalog.json")).unwrap_err();
+    assert!(
+        err.contains("'Button' has no prop 'color'")
+            && err.contains("in catalog 'grapheme/builtins'")
+            && err.contains("--> 2:22"),
+        "{err}"
+    );
+}
+
+#[test]
+fn loaded_catalog_accepts_a_new_element_and_checks_its_payload() {
+    let source = r#"
+state S { n: Int = 0 }
+mutation Flip($on: Bool) on S { apply { n: 1 } }
+view V on S { Divider(label: "rule") { on activate: Flip } }
+"#;
+    let artifact = compile_with_catalog(source, DIVIDER_CATALOG).expect("Divider compiles");
+    let root = &artifact.mir.views[0].root;
+    assert_eq!(root.prim.as_deref(), Some("Divider"));
+    assert_eq!(root.role.as_deref(), Some("separator"));
+    assert_eq!(root.props["label"], "rule");
+    assert_eq!(root.events["activate"].payload_params, ["on"]);
+
+    let err = compile_with_catalog(
+        "state S { n: Int = 0 }\nview V on S { Button(label: \"Go\") }\n",
+        DIVIDER_CATALOG,
+    )
+    .unwrap_err();
+    assert!(
+        err.contains("unknown element 'Button'") && err.contains("catalog 'test/divider'"),
+        "{err}"
+    );
 }

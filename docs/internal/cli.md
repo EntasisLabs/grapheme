@@ -7,14 +7,16 @@ The CLI binary is `grapheme` (package `grapheme-cli`, crate path `crates/graphem
 ```bash
 grapheme <file.gr>
 grapheme parse <file.gr> [--yaml|--json]
-grapheme compile <file.gr> [--emit ast|hir|mir|view-ir|artifact|aot] [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--yaml|--json]
-grapheme build <file.gr> [--aot-stage stage_a|stage_b] [--out path] [--yaml|--json]
+grapheme compile <file.gr> [--emit ast|hir|mir|view-ir|artifact|aot] [--aot-stage stage_a|stage_b] [--type-policy warn|strict] [--catalog file.json] [--yaml|--json]
+grapheme build <file.gr> [--aot-stage stage_a|stage_b] [--out path] [--catalog file.json] [--yaml|--json]
 grapheme plugins build [all|core|docs|io|http|memory|tcp|smtp|secrets ...]
 grapheme examples [list] [--yaml|--json] [--query q] [--tag tag] [--complexity level] [--native-only]
 grapheme examples show <name> [--summary] [--raw] [--yaml|--json]
 grapheme examples init [--out dir]
-grapheme session <file.gr> [--invoke Name[:<json-object>] ...] [--query Name[:<json-object>] ...] [--render View ...] [--mount [Glyph] ...] [--action <id|id:<json-object>> ...]
-grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules]
+grapheme session <file.gr> [--catalog file.json] [--invoke Name[:<json-object>] ...] [--query Name[:<json-object>] ...] [--render View ...] [--mount [Glyph] ...] [--action <id|id:<json-object>> ...]
+grapheme --help
+grapheme --version
+grapheme run <file.gr> [--glyph <name>] [--bind module=path.wasm ...] [--json] [--native-modules]
                     [--state-json '<json>' | --state-file path.json]
                     [--args-json '<json-object>']
                     [--aot-stage stage_a|stage_b] [--type-policy warn|strict]
@@ -64,6 +66,7 @@ Notes:
 - Default Stage B emission uses the workflow container from `scripts/build-aot-container.sh` when present (placeholder metadata otherwise).
 - `--type-policy warn` is the default and preserves compatibility-mode lint behavior.
 - `--type-policy strict` enables strict mutation-boundary enforcement at compile time.
+- `--catalog file.json` replaces the built-in element catalog for that compile, build or session. The file is `{ "$catalog": "<name>", "elements": [ ... ] }`. Each element names its `role`, whether it takes `content` and `children`, its `props` (`Text`, `String`, `Int`, `Float` or `Bool`) and its `events` with `payload` params (`String`, `Int`, `Float` or `Bool`). This is data for the type checker. It does not draw anything. Without the flag, the five built-ins are checked under the name `grapheme/builtins`. An unknown element or prop names `$catalog` and includes `--> line:column`.
 - For `compile`, default emit target is `mir`.
 - `--emit view-ir` prints the program's views as `{"$ir": "grapheme-ui/2", "views": [...]}` (RFC-0007 I.1). Nodes may be `$if` or `$for` as well as `$prim` or `$view`. A rendered session snapshot stays `grapheme-ui/1` because `if` / `for` are expanded before it is returned.
 - For `compile`, default output format is YAML.
@@ -92,6 +95,10 @@ cargo run -- build examples/hello-world.gr --aot-stage stage_b --out build/hello
 Compiles and executes a program. A run that ends in `fatal_failure` exits non-zero.
 
 A file with a UI glyph (`glyph App on Store { … }`) and no workflow entry opens in a window instead, in-process through [grapheme-ui](https://github.com/EntasisLabs/grapheme-ui). That needs the optional `ui` feature (`cargo install grapheme-cli --features ui`, or `cargo run -p grapheme-cli --features ui -- run app.gr`). Without it, `grapheme run` prints a message naming that reinstall and exits non-zero. The default build has no window or GPU dependencies.
+
+`grapheme --version` and `-V` print `grapheme-cli <version>` and exit 0. `grapheme --help` and `-h` print usage and exit 0.
+
+A file with exactly one UI glyph opens that glyph. Several UI glyphs (`glyph Name on Store`) in one file are allowed; `grapheme run` exits unless you pass `--glyph <name>` (`grapheme run app.gr --glyph FeedApp`, or `--glyph FeedApp app.gr`). The error names the glyphs you can pass. The name is forwarded to grapheme-ui's `desktop::run_file`. A workflow glyph (`glyph Name { … }`) is still limited to one per file. The default CLI build's `rust-version` stays **1.94**. The `ui` feature needs Rust **1.95** (grapheme-ui's rust-version).
 
 Plain text output (best-effort extraction from final state):
 

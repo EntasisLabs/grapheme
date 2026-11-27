@@ -186,6 +186,17 @@ pub struct StoreDef {
     pub fields: Vec<StoreFieldDef>,
 }
 
+/// 1-based line and column in the source a view element or prop was parsed from.
+///
+/// Not part of View IR. Catalog errors quote it as `--> line:column`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourcePos {
+    /// 1-based line.
+    pub line: u32,
+    /// 1-based column.
+    pub column: u32,
+}
+
 /// `view Name [on Store] { Element }`: a declarative element tree (RFC-0007 Parts C, D).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ViewDef {
@@ -201,9 +212,15 @@ pub struct ViewElement {
     pub child_name: Option<String>,
     /// `"if"` / `"for"` for control-flow nodes; otherwise a prim or view name.
     pub kind: String,
+    /// Position of the element name. Absent for deserialized AST.
+    #[serde(skip)]
+    pub span: Option<SourcePos>,
     /// Positional content: `Text("{$count}")`.
     pub content: Option<Value>,
     pub props: Vec<(String, Value)>,
+    /// Position of each prop name, aligned with [`Self::props`].
+    #[serde(skip)]
+    pub prop_spans: Vec<SourcePos>,
     pub events: Vec<ViewEvent>,
     pub children: Vec<ViewElement>,
     /// `if <cond> { … }` — condition expression when `kind == "if"`.
