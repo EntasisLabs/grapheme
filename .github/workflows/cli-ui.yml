@@ -2,7 +2,10 @@ name: CLI UI
 
 # grapheme-cli's optional `ui` feature links grapheme-ui and its rndr /
 # winit / wgpu window stack. The other workflows build the default (headless)
-# CLI only. grapheme-ui needs Rust 1.95+, so this job uses stable.
+# CLI only. grapheme-ui's rust-version is 1.95, and grapheme-cli's own
+# rust-version stays 1.94 for the headless default (see the MSRV job in
+# conformance.yml). This job is the 1.95 floor for `--features ui`.
+# RUSTUP_TOOLCHAIN overrides rust-toolchain.toml, which pins stable.
 
 on:
   pull_request:
@@ -13,6 +16,8 @@ on:
 jobs:
   cli-ui:
     runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: 1.95.0
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,9 +25,10 @@ jobs:
       - name: Window system dependencies
         run: sudo apt-get update && sudo apt-get install -y pkg-config libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libfontconfig1-dev
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust 1.95
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.95.0
           components: clippy
 
       - name: Cargo Cache

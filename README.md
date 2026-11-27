@@ -27,7 +27,7 @@ Write workflows in `.gr`, compile them into verified MIR artifacts, and run them
 
 ### Prerequisites
 
-- Rust **1.94+** stable + Cargo (edition 2024; see `rust-toolchain.toml`)
+- Rust **1.94+** stable + Cargo (edition 2024; see `rust-toolchain.toml`). The optional `grapheme-cli` feature `ui` needs Rust **1.95+** because it links grapheme-ui. A headless `cargo install grapheme-cli` stays on 1.94.
 - `wasm32-wasip1` target
 - Node.js + npm (for extension packaging/local extension work)
 

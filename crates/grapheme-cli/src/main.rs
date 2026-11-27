@@ -6,12 +6,14 @@
 /// ─────────────────────────────────────────────────────────────
 ///  Grapheme  —  CLI
 ///  Usage:
+///    grapheme --help
+///    grapheme --version
 ///    grapheme <file.gr>
 ///    grapheme parse <file.gr>
 ///    grapheme compile <file.gr> --emit ast|hir|mir|view-ir|artifact|aot
 ///    grapheme build <file.gr> [--aot-stage stage_a|stage_b] [--out path]
 ///    grapheme plugins build [all|core|io ...]")
-///    grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules]
+///    grapheme run <file.gr> [--glyph <name>] [--bind module=path.wasm ...] [--json] [--native-modules]
 ///                          [--aot-stage stage_a|stage_b] [--strict-stage-b]
 ///    grapheme modules [search <query> | ops <query> | info <module> | types <module> | examples <module> | scan [paths...]]
 /// ─────────────────────────────────────────────────────────────
@@ -69,6 +71,9 @@ struct RunOptions {
     trace_projection: Option<TraceProjection>,
     trace_max_string_bytes: Option<usize>,
     executable_kind_policy_mode: ExecutableKindPolicyMode,
+    /// UI glyph to open when the file has no workflow entry.
+    /// `None` leaves the choice to grapheme-ui, which accepts exactly one glyph.
+    glyph: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -400,6 +405,23 @@ fn main() {
 }
 
 fn run(args: Vec<String>) -> Result<(), CompilerError> {
+    // `--version` used to fall through to the single-argument file path and
+    // was parsed as a source file named `--version`. Help is handled here too
+    // so a flag is never treated as a path.
+    if let Some(flag) = args.get(1).map(String::as_str) {
+        match flag {
+            "--version" | "-V" => {
+                println!("{}", cli_version_line());
+                return Ok(());
+            }
+            "help" | "--help" | "-h" => {
+                print_usage();
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
+
     if args.len() < 2 {
         if let Ok(main_file) = resolve_project_main_path() {
             return run_program(&main_file, default_run_options());
@@ -409,11 +431,6 @@ fn run(args: Vec<String>) -> Result<(), CompilerError> {
         return Err(CompilerError::RuntimeError(
             "missing command or file path (or configure project main in grapheme.toml)".to_string(),
         ));
-    }
-
-    if args.len() == 2 && matches!(args[1].as_str(), "help" | "--help" | "-h") {
-        print_usage();
-        return Ok(());
     }
 
     // Backwards-compatible mode: `grapheme file.gr` maps to parse.
@@ -1919,7 +1936,8 @@ fn run_program(file_path: &str, run_options: RunOptions) -> Result<(), CompilerE
         run_options.executable_kind_policy_mode;
     let compiled = Compiler::compile_source(&source, compiler_options.clone())?;
     if ui_glyph_without_workflow(&compiled.artifact) {
-        return launch_grapheme_ui(file_path);
+        let glyph = resolve_run_glyph(&compiled.artifact, run_options.glyph.as_deref())?;
+        return launch_grapheme_ui(file_path, glyph.as_deref());
     }
 
     let cwd = env::current_dir()
@@ -2141,11 +2159,44 @@ fn fatal_failure_error(execution: &ExecutionResult) -> Result<(), CompilerError>
 #[cfg(not(feature = "ui"))]
 const UI_FEATURE_MISSING: &str = "this file has a UI glyph and no workflow entry, so `grapheme run` would open it in a window, but this `grapheme` was built without UI support. Reinstall with: cargo install grapheme-cli --features ui";
 
+/// Glyph passed to [`launch_grapheme_ui`].
+///
+/// A file with exactly one UI glyph and no `--glyph` returns `None`, which is
+/// the current `run_file` behavior (grapheme-ui mounts that glyph). Several
+/// glyphs and no name is an error that lists those names. An explicit name is
+/// forwarded to `grapheme_ui::desktop::run_file`.
+fn resolve_run_glyph(
+    artifact: &grapheme_artifact::ArtifactEnvelope,
+    requested: Option<&str>,
+) -> Result<Option<String>, CompilerError> {
+    let names: Vec<&str> = artifact
+        .payload
+        .mir
+        .ui_glyphs
+        .iter()
+        .map(|glyph| glyph.name.as_str())
+        .collect();
+    let available = names.join(", ");
+    match requested {
+        Some(name) if names.contains(&name) => Ok(Some(name.to_string())),
+        Some(name) => Err(CompilerError::RuntimeError(format!(
+            "no UI view named '{name}'. Available views: {available}. Pass --glyph <name> to choose one."
+        ))),
+        None if names.len() <= 1 => Ok(None),
+        None => Err(CompilerError::RuntimeError(format!(
+            "this file has multiple UI views ({available}) and no --glyph was given. Pass --glyph <name> to choose one."
+        ))),
+    }
+}
+
 /// Open a UI glyph file in a window, in-process, and block until it closes.
+///
+/// `glyph` is forwarded to grapheme-ui 0.1.0's `desktop::run_file`. `None`
+/// mounts the file's only UI glyph.
 #[cfg(feature = "ui")]
-fn launch_grapheme_ui(file_path: &str) -> Result<(), CompilerError> {
+fn launch_grapheme_ui(file_path: &str, glyph: Option<&str>) -> Result<(), CompilerError> {
     use grapheme_ui::desktop::{RunFileError, run_file};
-    run_file(Path::new(file_path), None).map_err(|err| match err {
+    run_file(Path::new(file_path), glyph).map_err(|err| match err {
         RunFileError::Load(load) => CompilerError::RuntimeError(load.to_string()),
         RunFileError::Surface(surface) => {
             CompilerError::RuntimeError(format!("failed to open UI glyph: {surface}"))
@@ -2154,7 +2205,7 @@ fn launch_grapheme_ui(file_path: &str) -> Result<(), CompilerError> {
 }
 
 #[cfg(not(feature = "ui"))]
-fn launch_grapheme_ui(_file_path: &str) -> Result<(), CompilerError> {
+fn launch_grapheme_ui(_file_path: &str, _glyph: Option<&str>) -> Result<(), CompilerError> {
     Err(CompilerError::RuntimeError(UI_FEATURE_MISSING.into()))
 }
 
@@ -2174,6 +2225,7 @@ fn default_run_options() -> RunOptions {
         trace_projection: None,
         trace_max_string_bytes: None,
         executable_kind_policy_mode: ExecutableKindPolicyMode::Compatibility,
+        glyph: None,
     }
 }
 
@@ -2459,12 +2511,29 @@ fn parse_optional_usize_env(var: &str) -> Result<(bool, Option<usize>), String> 
 }
 
 fn parse_run_args(args: &[String]) -> Result<(String, RunOptions), CompilerError> {
-    let (file_path, consumed) = resolve_file_path_arg_or_project_main(args, "run")?;
     let mut run_options = default_run_options();
-    let mut i = consumed;
+    let mut file_path = None;
+    let mut i = 0;
 
     while i < args.len() {
         match args[i].as_str() {
+            "--glyph" => {
+                let name = args.get(i + 1).ok_or_else(|| {
+                    CompilerError::RuntimeError("--glyph requires a view name".to_string())
+                })?;
+                if name.is_empty() || name.starts_with('-') {
+                    return Err(CompilerError::RuntimeError(
+                        "--glyph requires a view name".to_string(),
+                    ));
+                }
+                if run_options.glyph.is_some() {
+                    return Err(CompilerError::RuntimeError(
+                        "--glyph was given more than once".to_string(),
+                    ));
+                }
+                run_options.glyph = Some(name.clone());
+                i += 2;
+            }
             "--bind" => {
                 if i + 1 >= args.len() {
                     return Err(CompilerError::RuntimeError(
@@ -2625,14 +2694,34 @@ fn parse_run_args(args: &[String]) -> Result<(String, RunOptions), CompilerError
                     parse_executable_kind_policy_mode("--type-policy", &args[i + 1])?;
                 i += 2;
             }
-            other => {
+            other if other.starts_with('-') => {
                 return Err(CompilerError::RuntimeError(format!(
                     "unknown run flag '{}'",
                     other
                 )));
             }
+            other => {
+                if file_path.is_some() {
+                    return Err(CompilerError::RuntimeError(format!(
+                        "unexpected argument '{}'",
+                        other
+                    )));
+                }
+                file_path = Some(other.to_string());
+                i += 1;
+            }
         }
     }
+
+    let file_path = match file_path {
+        Some(path) => path,
+        None => resolve_project_main_path().map_err(|_| {
+            CompilerError::RuntimeError(
+                "run requires a file path or a project main configured in grapheme.toml"
+                    .to_string(),
+            )
+        })?,
+    };
 
     Ok((file_path, run_options))
 }
@@ -3160,8 +3249,14 @@ fn print_discovery<T: serde::Serialize>(
     Ok(())
 }
 
+fn cli_version_line() -> String {
+    format!("grapheme-cli {}", env!("CARGO_PKG_VERSION"))
+}
+
 fn print_usage() {
     eprintln!("usage:");
+    eprintln!("  grapheme --help");
+    eprintln!("  grapheme --version");
     eprintln!("  grapheme                    # run project main from grapheme.toml");
     eprintln!("  grapheme <file.gr>");
     eprintln!("  grapheme parse [<file.gr>] [--yaml|--json]");
@@ -3181,11 +3276,12 @@ fn print_usage() {
         "  grapheme session [<file.gr>] [--invoke|--query Name[:<json-object>] | --render View | --mount [Glyph] | --action <id|id:<json-object>> ...]"
     );
     eprintln!(
-        "  grapheme run [<file.gr>] [--bind module=path.wasm ...] [--json] [--native-modules]"
+        "  grapheme run [<file.gr>] [--glyph <name>] [--bind module=path.wasm ...] [--json] [--native-modules]"
     );
     eprintln!(
         "               a file with a UI glyph and no workflow entry opens in a window (needs `--features ui`)"
     );
+    eprintln!("               one UI view opens as before; several views need `--glyph <name>`");
     eprintln!("               [--state-json '<json>' | --state-file path.json]");
     eprintln!("               [--args-json '<json-object>']");
     eprintln!(
@@ -3257,6 +3353,19 @@ mod tests {
     }
 
     #[test]
+    fn version_and_help_flags_exit_ok_instead_of_reading_a_file() {
+        for flag in ["--version", "-V", "--help", "-h", "help"] {
+            let result = run(vec!["grapheme".to_string(), flag.to_string()]);
+            assert!(result.is_ok(), "{flag}: {result:?}");
+        }
+        assert_eq!(
+            cli_version_line(),
+            format!("grapheme-cli {}", env!("CARGO_PKG_VERSION"))
+        );
+        assert!(cli_version_line().contains(env!("CARGO_PKG_VERSION")));
+    }
+
+    #[test]
     fn core_reduce_avg_computes_expected_value() {
         let out = dispatch_std(
             "core",
@@ -3317,7 +3426,7 @@ glyph App on S { V }
     #[cfg(not(feature = "ui"))]
     #[test]
     fn ui_file_without_the_ui_feature_names_the_reinstall() {
-        let err = launch_grapheme_ui("app.gr").unwrap_err().to_string();
+        let err = launch_grapheme_ui("app.gr", None).unwrap_err().to_string();
         assert!(
             err.contains("--features ui") && err.contains("cargo install grapheme-cli"),
             "{err}"
@@ -3327,10 +3436,173 @@ glyph App on S { V }
     #[cfg(feature = "ui")]
     #[test]
     fn ui_feature_reports_load_diagnostics_without_opening_a_window() {
-        let err = launch_grapheme_ui("does-not-exist.gr")
+        let err = launch_grapheme_ui("does-not-exist.gr", None)
             .unwrap_err()
             .to_string();
         assert!(err.contains("does-not-exist.gr"), "{err}");
+    }
+
+    #[cfg(feature = "ui")]
+    #[test]
+    fn launch_forwards_glyph_name_to_run_file_without_opening_a_window() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = env::temp_dir().join(format!("grapheme-cli-glyph-forward-{unique}"));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        let path = dir.join("app.gr");
+        fs::write(
+            &path,
+            r#"
+state S { n: Int = 0 }
+view Only on S { Text("{$n}") }
+glyph OnlyApp on S { Only }
+"#,
+        )
+        .expect("write ui file");
+
+        let err = launch_grapheme_ui(path.to_str().expect("utf8 path"), Some("Nope"))
+            .unwrap_err()
+            .to_string();
+        let _ = fs::remove_dir_all(&dir);
+        assert!(
+            err.contains("Nope"),
+            "run_file should report the glyph it was given: {err}"
+        );
+    }
+
+    const TWO_UI_VIEWS: &str = r#"
+state S { n: Int = 0 }
+view AlphaView on S { Text("a") }
+view BetaView on S { Text("b") }
+glyph Alpha on S { AlphaView }
+glyph Beta on S { BetaView }
+"#;
+
+    fn compile_ui(source: &str) -> grapheme_artifact::ArtifactEnvelope {
+        Compiler::compile_source(source, CompilerOptions::default())
+            .expect("ui fixture compiles")
+            .artifact
+    }
+
+    #[test]
+    fn one_ui_view_without_glyph_keeps_the_default() {
+        let source = r#"
+state S { n: Int = 0 }
+view One on S { Text("a") }
+view Two on S { Text("b") }
+glyph App on S { One }
+"#;
+        let artifact = compile_ui(source);
+        assert!(ui_glyph_without_workflow(&artifact));
+        assert_eq!(resolve_run_glyph(&artifact, None).unwrap(), None);
+        assert_eq!(
+            resolve_run_glyph(&artifact, Some("App"))
+                .unwrap()
+                .as_deref(),
+            Some("App")
+        );
+    }
+
+    #[test]
+    fn several_ui_views_without_glyph_list_the_names() {
+        let artifact = compile_ui(TWO_UI_VIEWS);
+        let err = resolve_run_glyph(&artifact, None)
+            .expect_err("several views require --glyph")
+            .to_string();
+        assert!(err.contains("Alpha") && err.contains("Beta"), "{err}");
+        assert!(err.contains("--glyph"), "{err}");
+        assert!(
+            !err.contains("AlphaView") && !err.contains("BetaView"),
+            "the list is the runnable view names, not inner view declarations: {err}"
+        );
+    }
+
+    #[test]
+    fn glyph_flag_selects_a_named_view_and_rejects_an_unknown_one() {
+        let artifact = compile_ui(TWO_UI_VIEWS);
+        assert_eq!(
+            resolve_run_glyph(&artifact, Some("Beta"))
+                .unwrap()
+                .as_deref(),
+            Some("Beta")
+        );
+        let err = resolve_run_glyph(&artifact, Some("Nope"))
+            .expect_err("unknown view")
+            .to_string();
+        assert!(
+            err.contains("Nope") && err.contains("Alpha") && err.contains("Beta"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn run_without_glyph_lists_multiple_views_and_does_not_open_one() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = env::temp_dir().join(format!("grapheme-cli-multi-view-{unique}"));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        let path = dir.join("multi.gr");
+        fs::write(&path, TWO_UI_VIEWS).expect("write multi view file");
+
+        let missing = run(vec![
+            "grapheme".to_string(),
+            "run".to_string(),
+            path.to_string_lossy().to_string(),
+        ])
+        .expect_err("several views require --glyph");
+        let unknown = run(vec![
+            "grapheme".to_string(),
+            "run".to_string(),
+            path.to_string_lossy().to_string(),
+            "--glyph".to_string(),
+            "Nope".to_string(),
+        ])
+        .expect_err("unknown view");
+        let _ = fs::remove_dir_all(&dir);
+
+        let missing = missing.to_string();
+        assert!(
+            missing.contains("Alpha") && missing.contains("Beta"),
+            "{missing}"
+        );
+        assert!(missing.contains("--glyph"), "{missing}");
+        let unknown = unknown.to_string();
+        assert!(
+            unknown.contains("Nope") && unknown.contains("Alpha") && unknown.contains("Beta"),
+            "{unknown}"
+        );
+    }
+
+    #[test]
+    fn parse_run_args_accepts_glyph_before_or_after_the_file() {
+        let (_file, options) = parse_run_args(&[
+            "app.gr".to_string(),
+            "--glyph".to_string(),
+            "Beta".to_string(),
+        ])
+        .expect("glyph after file");
+        assert_eq!(_file, "app.gr");
+        assert_eq!(options.glyph.as_deref(), Some("Beta"));
+
+        let (file, options) = parse_run_args(&[
+            "--glyph".to_string(),
+            "Alpha".to_string(),
+            "nested/app.gr".to_string(),
+        ])
+        .expect("glyph before file");
+        assert_eq!(file, "nested/app.gr");
+        assert_eq!(options.glyph.as_deref(), Some("Alpha"));
+    }
+
+    #[test]
+    fn parse_run_args_rejects_a_missing_glyph_name() {
+        let err = parse_run_args(&["app.gr".to_string(), "--glyph".to_string()])
+            .expect_err("missing name");
+        assert!(err.to_string().contains("--glyph requires a view name"));
     }
 
     #[test]
@@ -3507,6 +3779,7 @@ showcase = "examples/legacy/showcase"
             trace_projection: None,
             trace_max_string_bytes: None,
             executable_kind_policy_mode: ExecutableKindPolicyMode::Compatibility,
+            glyph: None,
         };
 
         assert!(resolve_stage_b_strict_mode(&run_options));
@@ -3529,6 +3802,7 @@ showcase = "examples/legacy/showcase"
             trace_projection: None,
             trace_max_string_bytes: None,
             executable_kind_policy_mode: ExecutableKindPolicyMode::Compatibility,
+            glyph: None,
         };
 
         assert!(!resolve_stage_b_strict_mode(&run_options));
