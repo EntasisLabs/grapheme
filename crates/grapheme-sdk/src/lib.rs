@@ -1174,7 +1174,7 @@ pub fn modules_search_contract(query: &str, options: &ModuleSearchOptions) -> Mo
                 })
                 .collect::<Vec<_>>();
 
-            if !(module_match || !matching_ops.is_empty()) {
+            if !module_match && matching_ops.is_empty() {
                 continue;
             }
 
@@ -1251,7 +1251,7 @@ pub fn modules_search_contract(query: &str, options: &ModuleSearchOptions) -> Mo
             })
             .collect::<Vec<_>>();
 
-        if !(module_match || !matching_ops.is_empty()) {
+        if !module_match && matching_ops.is_empty() {
             continue;
         }
 

@@ -14,7 +14,9 @@ grapheme examples [list] [--yaml|--json] [--query q] [--tag tag] [--complexity l
 grapheme examples show <name> [--summary] [--raw] [--yaml|--json]
 grapheme examples init [--out dir]
 grapheme session <file.gr> [--invoke Name[:<json-object>] ...] [--query Name[:<json-object>] ...] [--render View ...] [--mount [Glyph] ...] [--action <id|id:<json-object>> ...]
-grapheme run <file.gr> [--bind module=path.wasm ...] [--json] [--native-modules]
+grapheme --help
+grapheme --version
+grapheme run <file.gr> [--glyph <name>] [--bind module=path.wasm ...] [--json] [--native-modules]
                     [--state-json '<json>' | --state-file path.json]
                     [--args-json '<json-object>']
                     [--aot-stage stage_a|stage_b] [--type-policy warn|strict]
@@ -92,6 +94,10 @@ cargo run -- build examples/hello-world.gr --aot-stage stage_b --out build/hello
 Compiles and executes a program. A run that ends in `fatal_failure` exits non-zero.
 
 A file with a UI glyph (`glyph App on Store { … }`) and no workflow entry opens in a window instead, in-process through [grapheme-ui](https://github.com/EntasisLabs/grapheme-ui). That needs the optional `ui` feature (`cargo install grapheme-cli --features ui`, or `cargo run -p grapheme-cli --features ui -- run app.gr`). Without it, `grapheme run` prints a message naming that reinstall and exits non-zero. The default build has no window or GPU dependencies.
+
+`grapheme --version` and `-V` print `grapheme-cli <version>` and exit 0. `grapheme --help` and `-h` print usage and exit 0.
+
+A file with exactly one UI glyph opens that glyph. Several UI glyphs (`glyph Name on Store`) in one file are allowed; `grapheme run` exits unless you pass `--glyph <name>` (`grapheme run app.gr --glyph FeedApp`, or `--glyph FeedApp app.gr`). The error names the glyphs you can pass. The name is forwarded to grapheme-ui's `desktop::run_file`. A workflow glyph (`glyph Name { … }`) is still limited to one per file. The default CLI build's `rust-version` stays **1.94**. The `ui` feature needs Rust **1.95** (grapheme-ui's rust-version).
 
 Plain text output (best-effort extraction from final state):
 

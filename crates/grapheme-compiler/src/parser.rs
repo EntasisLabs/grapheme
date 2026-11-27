@@ -120,7 +120,7 @@ fn is_executable_definition_line(trimmed: &str) -> bool {
 fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, GraphemeError> {
     let mut imports = vec![];
     let mut definitions = vec![];
-    let mut glyph_names = Vec::new();
+    let mut workflow_glyphs = Vec::new();
 
     for inner in pair.into_inner() {
         match inner.as_rule() {
@@ -131,7 +131,13 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
                 match def.as_rule() {
                     Rule::glyph_def => {
                         let glyph = parse_glyph(def, state)?;
-                        glyph_names.push(glyph.name.clone());
+                        // UI glyphs (`glyph Name on Store`) may share a file so
+                        // `grapheme run --glyph` can choose one. A workflow
+                        // glyph is the file's entrypoint, so there is still
+                        // only one of those.
+                        if glyph.store.is_none() {
+                            workflow_glyphs.push(glyph.name.clone());
+                        }
                         definitions.push(Definition::Glyph(glyph));
                     }
                     Rule::query_def => {
@@ -140,9 +146,7 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
                     Rule::mutation_def => {
                         definitions.push(Definition::Mutation(parse_mutation(def, state)?))
                     }
-                    Rule::task_def => {
-                        definitions.push(Definition::Task(parse_task(def, state)?))
-                    }
+                    Rule::task_def => definitions.push(Definition::Task(parse_task(def, state)?)),
                     Rule::iterator_def => {
                         definitions.push(Definition::Iterator(parse_iterator(def, state)?))
                     }
@@ -178,10 +182,10 @@ fn parse_program(pair: Pair<Rule>, state: &mut ParseState) -> Result<Program, Gr
         }
     }
 
-    if glyph_names.len() > 1 {
+    if workflow_glyphs.len() > 1 {
         return Err(GraphemeError::ParseError(format!(
-            "only one glyph is allowed per file, found: {}",
-            glyph_names.join(", ")
+            "only one workflow glyph is allowed per file, found: {}",
+            workflow_glyphs.join(", ")
         )));
     }
 
@@ -272,7 +276,7 @@ fn parse_ui_glyph(
             r => {
                 return Err(GraphemeError::UnexpectedRule(format!(
                     "ui glyph body: {r:?}"
-                )))
+                )));
             }
         }
     }
@@ -473,9 +477,7 @@ fn parse_view_if(pair: Pair<Rule>) -> Result<ViewElement, GraphemeError> {
     }
     let mut bodies = bodies.into_iter();
     let Some(then_body) = bodies.next() else {
-        return Err(GraphemeError::ParseError(
-            "if requires a body".to_string(),
-        ));
+        return Err(GraphemeError::ParseError("if requires a body".to_string()));
     };
     element.children = parse_if_body(then_body, "if")?;
     if let Some(else_body) = bodies.next() {
@@ -1015,7 +1017,10 @@ fn parse_mutation(pair: Pair<Rule>, state: &mut ParseState) -> Result<MutationDe
     })
 }
 
-fn parse_task(pair: Pair<Rule>, state: &mut ParseState) -> Result<crate::ast::TaskDef, GraphemeError> {
+fn parse_task(
+    pair: Pair<Rule>,
+    state: &mut ParseState,
+) -> Result<crate::ast::TaskDef, GraphemeError> {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
     let (variables, signature, directives, pipelines) = parse_operation_body(inner, state)?;
