@@ -2921,7 +2921,7 @@ name = "grapheme-aot-container"
 version = "0.10.0"
 dependencies = [
  "grapheme-artifact",
- "grapheme-stdlib 0.10.0",
+ "grapheme-stdlib",
  "serde",
  "serde_json",
 ]
@@ -2943,10 +2943,10 @@ version = "0.10.0"
 dependencies = [
  "grapheme-aot-container",
  "grapheme-artifact",
- "grapheme-compiler 0.10.0",
- "grapheme-runtime 0.10.0",
- "grapheme-sdk 0.10.0",
- "grapheme-stdlib 0.10.0",
+ "grapheme-compiler",
+ "grapheme-runtime",
+ "grapheme-sdk",
+ "grapheme-stdlib",
  "grapheme-ui",
  "serde",
  "serde_json",
@@ -2956,26 +2956,11 @@ dependencies = [
 
 [[package]]
 name = "grapheme-compiler"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f411efb982cc4f3275b9a10fcd5f3e1a86ba0385fcd1a6bc2813fa2a7d9f9ef"
-dependencies = [
- "grapheme-artifact",
- "grapheme-signatures 0.9.0",
- "pest",
- "pest_derive",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "grapheme-compiler"
 version = "0.10.0"
 dependencies = [
  "grapheme-aot-container",
  "grapheme-artifact",
- "grapheme-signatures 0.10.0",
+ "grapheme-signatures",
  "pest",
  "pest_derive",
  "serde",
@@ -2987,25 +2972,10 @@ dependencies = [
 name = "grapheme-lsp"
 version = "0.10.0"
 dependencies = [
- "grapheme-compiler 0.10.0",
- "grapheme-signatures 0.10.0",
+ "grapheme-compiler",
+ "grapheme-signatures",
  "tokio",
  "tower-lsp",
-]
-
-[[package]]
-name = "grapheme-runtime"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f60e70b5624ba1c095b70a9fbae86b61b5e520e643d14eff7c71809e2ef04b87"
-dependencies = [
- "grapheme-artifact",
- "grapheme-signatures 0.9.0",
- "hex",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -3014,8 +2984,8 @@ version = "0.10.0"
 dependencies = [
  "grapheme-aot-container",
  "grapheme-artifact",
- "grapheme-signatures 0.10.0",
- "grapheme-stdlib 0.10.0",
+ "grapheme-signatures",
+ "grapheme-stdlib",
  "hex",
  "rustls",
  "rustls-webpki",
@@ -3033,31 +3003,14 @@ dependencies = [
 
 [[package]]
 name = "grapheme-sdk"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d16e813ccf6cf175b9eae9b7ea695098db68ad3fe7f5b2869d30406cccf8076"
-dependencies = [
- "grapheme-artifact",
- "grapheme-compiler 0.9.0",
- "grapheme-runtime 0.9.0",
- "grapheme-signatures 0.9.0",
- "grapheme-stdlib 0.9.0",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "grapheme-sdk"
 version = "0.10.0"
 dependencies = [
  "grapheme-aot-container",
  "grapheme-artifact",
- "grapheme-compiler 0.10.0",
- "grapheme-runtime 0.10.0",
- "grapheme-signatures 0.10.0",
- "grapheme-stdlib 0.10.0",
+ "grapheme-compiler",
+ "grapheme-runtime",
+ "grapheme-signatures",
+ "grapheme-stdlib",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -3066,22 +3019,7 @@ dependencies = [
 
 [[package]]
 name = "grapheme-signatures"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "488e0700e4b2f5985e8b36f0bdc0577c69784fb93b95249577edd4cdba586e9a"
-
-[[package]]
-name = "grapheme-signatures"
 version = "0.10.0"
-
-[[package]]
-name = "grapheme-stdlib"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7c40d6bb03f92512b0fbe4761c6f3f111c382ff75aac53402204c7cee3e62f0"
-dependencies = [
- "serde_json",
-]
 
 [[package]]
 name = "grapheme-stdlib"
@@ -3089,7 +3027,7 @@ version = "0.10.0"
 dependencies = [
  "csv",
  "ehttp",
- "grapheme-signatures 0.10.0",
+ "grapheme-signatures",
  "html-to-markdown-rs",
  "lettre",
  "polars",
@@ -3110,12 +3048,12 @@ dependencies = [
 
 [[package]]
 name = "grapheme-ui"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "608949646a02a1e125faacf064a12695a74f15ff8608e62409091d4e0299b6a2"
+checksum = "200dd2624a6851e2eaf26cd8ba6e0d5c70ba84110c63692fdc9fb821016bd66e"
 dependencies = [
- "grapheme-runtime 0.9.0",
- "grapheme-sdk 0.9.0",
+ "grapheme-runtime",
+ "grapheme-sdk",
  "rndr",
  "rndr_core",
  "rndr_render",
@@ -3130,9 +3068,9 @@ name = "grapheme-wasm"
 version = "0.10.0"
 dependencies = [
  "grapheme-artifact",
- "grapheme-compiler 0.10.0",
- "grapheme-runtime 0.10.0",
- "grapheme-stdlib 0.10.0",
+ "grapheme-compiler",
+ "grapheme-runtime",
+ "grapheme-stdlib",
  "serde",
  "serde_json",
 ]
@@ -7136,9 +7074,9 @@ dependencies = [
 
 [[package]]
 name = "rndr"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfdb496c217dab5e819667fb69ae82a1d01771236692a10331de07c041345cc0"
+checksum = "6ac264109d0cd4b5d42a6d1d4381c185dcb575d80ac4e459de8a488f54550969"
 dependencies = [
  "rndr_core",
  "rndr_paint",
@@ -7148,9 +7086,9 @@ dependencies = [
 
 [[package]]
 name = "rndr_core"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9803f28d8fc0270cabe7e35f7b8a97935c3d86ce93ea2e967f45a29b2a2373ca"
+checksum = "8483ab1020d290ee992c59a1a3226c111e63318050702bb672fd000a00a54781"
 dependencies = [
  "pulldown-cmark 0.13.6",
  "unicode-segmentation",
@@ -7159,9 +7097,9 @@ dependencies = [
 
 [[package]]
 name = "rndr_paint"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2b99d328fa742878df9725abff89960108300eba67fc9169a4a80931b971ca9"
+checksum = "935e46ddb8d253db2d466d7b1db0e19713cc5a1bb9e78168cb61a49fcf121341"
 dependencies = [
  "lyon",
  "rndr_core",
@@ -7169,9 +7107,9 @@ dependencies = [
 
 [[package]]
 name = "rndr_render"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce6cc2f5b75effaa0e12486849da746801f5ae1b2e763a801a2c2e9a7812285b"
+checksum = "cdc234b2b220e2b44a40de60c88fd8f52c77fb1b66a9c4eb0a8e1a29246f36d9"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -7208,18 +7146,18 @@ dependencies = [
 
 [[package]]
 name = "rndr_std"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d32168d9fb0338c3050ab44e1efb124b4b4e7670a09f2ee69d3dcbca749d4a0"
+checksum = "6b7f54d16d58fbebc236b3cfe89a0b21bddb4633b90987b070dd368eaf834431"
 dependencies = [
  "rndr_core",
 ]
 
 [[package]]
 name = "rndr_ui"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fba56ca4934a803afb631a5825e544d382a4da6cb4dcee937c35cbba3fdaa91a"
+checksum = "5e4d9e12305aefa48f346cf5353d50741c9400c910a2070b6213885e303c19f2"
 dependencies = [
  "rndr_core",
 ]
