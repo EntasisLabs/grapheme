@@ -3057,9 +3057,9 @@ dependencies = [
 
 [[package]]
 name = "grapheme-ui"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "daee7c0baf5d6bdb2961dc99dddd58b11cf693528f767ca124f8a797b9aa8364"
+checksum = "2b6c8e9cfde7bd92da0a4fe2f1fffc4becc4701f3d7238439aba431c545eb044"
 dependencies = [
  "grapheme-runtime",
  "grapheme-sdk",
